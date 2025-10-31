@@ -18,7 +18,7 @@ const banner = (
 const navbar = (
 	<Navbar
 		logo={<b>OneMCP</b>}
-		projectLink="https://github.com/gentoro-GT/onemcp"
+		projectLink="https://github.com/Gentoro-OneMCP/onemcp"
 	// ... Your additional navbar options
 	/>
 );
