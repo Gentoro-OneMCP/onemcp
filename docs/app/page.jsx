@@ -107,6 +107,36 @@ const marqueeItems = [
   { label: 'MCP-native', type: 'pill' },
 ]
 
+const socialLinks = [
+  {
+    label: 'GitHub',
+    href: 'https://github.com/Gentoro-HQ/mcpagent',
+    icon: (
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.11.8-.25.8-.56v-1.97c-3.26.71-3.95-1.57-3.95-1.57-.53-1.36-1.31-1.72-1.31-1.72-1.07-.74.08-.72.08-.72 1.18.08 1.8 1.21 1.8 1.21 1.05 1.81 2.75 1.29 3.42.99.11-.76.41-1.29.75-1.59-2.6-.3-5.34-1.31-5.34-5.82 0-1.29.46-2.33 1.21-3.15-.12-.3-.53-1.52.11-3.16 0 0 1-.32 3.3 1.2a11.4 11.4 0 0 1 6 0c2.3-1.52 3.3-1.2 3.3-1.2.64 1.64.23 2.86.11 3.16.75.82 1.21 1.86 1.21 3.15 0 4.52-2.75 5.52-5.36 5.81.42.36.8 1.07.8 2.17v3.22c0 .31.21.67.81.55A11.5 11.5 0 0 0 12 .5Z" />
+      </svg>
+    ),
+  },
+  {
+    label: 'LinkedIn',
+    href: 'https://www.linkedin.com/company/gentoro/',
+    icon: (
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <path d="M20.45 20.45h-3.55v-5.42c0-1.29-.02-2.95-1.8-2.95-1.8 0-2.07 1.4-2.07 2.85v5.52H9.48V9h3.41v1.56h.05c.47-.88 1.6-1.8 3.29-1.8 3.52 0 4.17 2.32 4.17 5.33v6.36ZM5.34 7.43a2.07 2.07 0 1 1 0-4.14 2.07 2.07 0 0 1 0 4.14Zm1.78 13.02H3.56V9h3.56v11.45Z" />
+      </svg>
+    ),
+  },
+  {
+    label: 'Email',
+    href: 'mailto:support@gentoro.com',
+    icon: (
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2Zm-.4 2-7.1 5.08L4.4 6ZM4 18V8l8.23 5.89L20 8v10Z" />
+      </svg>
+    ),
+  },
+]
+
 function useInViewAnimation(selectors) {
   const selectorKey = selectors.join('|')
   useEffect(() => {
@@ -387,6 +417,51 @@ export default function HomePage() {
           <a href="/docs" className="btn-primary btn-large">Launch the docs</a>
         </div>
       </section>
+
+      <footer className="landing-footer" aria-label="OneMCP footer">
+        <div className="footer-inner">
+          <div className="footer-about">
+            <h3>OneMCP</h3>
+            <p>
+              Open-source runtime that turns your API handbook into reusable execution plans—fast, accurate, and production ready for every agent.
+            </p>
+            <div className="footer-social" aria-label="Social links">
+              {socialLinks.map(link => (
+                <a key={link.label} href={link.href} target="_blank" rel="noreferrer" aria-label={link.label}>
+                  <span className="sr-only">{link.label}</span>
+                  {link.icon}
+                </a>
+              ))}
+            </div>
+          </div>
+
+          <div className="footer-links">
+            <div>
+              <h4>Product</h4>
+              <ul>
+                <li><a href="/docs">Documentation</a></li>
+                <li><a href="/docs/guides/ingest-foundation">Handbook ingest</a></li>
+                <li><a href="https://github.com/gentoro-GT/mcpagent" target="_blank" rel="noreferrer">Source code</a></li>
+              </ul>
+            </div>
+            {/* <div>
+              <h4>Resources</h4>
+              <ul>
+                <li><a href="/docs/get-started">Getting started</a></li>
+                <li><a href="/docs/architecture">Architecture</a></li>
+                <li><a href="/docs/changelog">Changelog</a></li>
+              </ul>
+            </div> */}
+            <div>
+              <h4>Company</h4>
+              <ul>
+                <li><a href="https://gentoro.com" target="_blank" rel="noreferrer">Gentoro</a></li>
+                <li><a href="https://www.gentoro.com/contact">Contact us</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </footer>
     </div>
   )
 }
