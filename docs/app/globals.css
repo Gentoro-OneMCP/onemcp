@@ -483,7 +483,7 @@ html.animations-ready .metrics-strip[data-in-view="true"] .metric:nth-child(4) {
 .logo-track {
   display: flex;
   width: max-content;
-  animation: logoScroll 24s linear infinite;
+  animation: logoScroll 48s linear infinite;
   will-change: transform;
 }
 
