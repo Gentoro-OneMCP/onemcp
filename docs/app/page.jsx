@@ -88,7 +88,7 @@ const featureRows = [
   },
   {
     title: 'Governance ready',
-    description: 'Plug in tracing, policy enforcement, and audit tooling. Enterprise extensions add observability, feedback loops, and optimisation.',
+    description: 'Plug in tracing, policy enforcement, and audit tooling. Enterprise extensions add observability, feedback loops, and optimization.',
   },
   {
     title: 'Built for every agent',
@@ -330,7 +330,7 @@ export default function HomePage() {
 
       <section className="modes-section">
         <div className="section-heading">
-          <h2 className="section-title">Optimise for your runtime</h2>
+          <h2 className="section-title">Optimize for your runtime</h2>
           <p className="section-subtitle">Switch between static and dynamic plans without changing how agents interact with your API.</p>
         </div>
         <div className="mode-panels">
