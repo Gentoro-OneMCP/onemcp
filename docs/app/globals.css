@@ -15,19 +15,6 @@
   animation-play-state: paused;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .logo-track {
-    animation: none;
-    transform: none !important;
-  }
-
-  .logo-track {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    justify-items: center;
-    gap: 28px;
-  }
-}
 /* Simple global styles for the landing page and minor tweaks */
 
 :root {
@@ -551,6 +538,10 @@ html.animations-ready .metrics-strip[data-in-view="true"] .metric:nth-child(4) {
 .dark .logo-item svg,
 .dark .logo-item img {
   filter: brightness(0) invert(1);
+}
+
+.dark .logo-item {
+  color: #bbf7d0;
 }
 
 .dark .logo-pill {
@@ -1547,6 +1538,7 @@ html.animations-ready .mode-panels[data-in-view="true"] .mode-panel:nth-child(2)
   .hero-shell {
     gap: 36px;
     position: relative;
+    grid-template-columns: 1fr;
   }
   .hero-actions {
     justify-content: center;
@@ -1567,6 +1559,9 @@ html.animations-ready .mode-panels[data-in-view="true"] .mode-panel:nth-child(2)
   }
   .hero-frame {
     padding: 24px;
+  }
+  .hero-visual {
+    margin-top: 16px;
   }
   .metrics-strip {
     padding: 24px 20px;
@@ -1590,14 +1585,18 @@ html.animations-ready .mode-panels[data-in-view="true"] .mode-panel:nth-child(2)
     display: none;
   }
   .timeline {
-    padding-left: 0;
+    padding-left: 16px;
   }
   .timeline-item {
-    grid-template-columns: 1fr;
-    gap: 12px;
+    grid-template-columns: 32px 1fr;
+    gap: 16px;
+    align-items: flex-start;
   }
   .timeline-dot {
-    margin: 0 0 4px 0;
+    margin: 6px 0 0 0;
+  }
+  .timeline::before {
+    left: 2px;
   }
   .mode-inner {
     padding: 28px;
@@ -1696,6 +1695,11 @@ html.animations-ready .mode-panels[data-in-view="true"] .mode-panel:nth-child(2)
     animation-iteration-count: 1 !important;
     transition-duration: 0ms !important;
     scroll-behavior: auto !important;
+  }
+  .logo-track {
+    --marquee-duration: 48s;
+    animation: logoScroll var(--marquee-duration) linear infinite !important;
+    animation-play-state: running !important;
   }
 }
 
