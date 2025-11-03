@@ -234,6 +234,7 @@
   opacity: 0.9;
   transform: scale(0.98);
   animation: heroDrift 18s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .hero-frame {
