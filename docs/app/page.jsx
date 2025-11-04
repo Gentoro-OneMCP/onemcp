@@ -110,7 +110,7 @@ const marqueeItems = [
 const socialLinks = [
   {
     label: 'GitHub',
-    href: 'https://github.com/Gentoro-HQ/mcpagent',
+    href: 'https://github.com/Gentoro-OneMCP/onemcp',
     icon: (
       <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
         <path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.11.8-.25.8-.56v-1.97c-3.26.71-3.95-1.57-3.95-1.57-.53-1.36-1.31-1.72-1.31-1.72-1.07-.74.08-.72.08-.72 1.18.08 1.8 1.21 1.8 1.21 1.05 1.81 2.75 1.29 3.42.99.11-.76.41-1.29.75-1.59-2.6-.3-5.34-1.31-5.34-5.82 0-1.29.46-2.33 1.21-3.15-.12-.3-.53-1.52.11-3.16 0 0 1-.32 3.3 1.2a11.4 11.4 0 0 1 6 0c2.3-1.52 3.3-1.2 3.3-1.2.64 1.64.23 2.86.11 3.16.75.82 1.21 1.86 1.21 3.15 0 4.52-2.75 5.52-5.36 5.81.42.36.8 1.07.8 2.17v3.22c0 .31.21.67.81.55A11.5 11.5 0 0 0 12 .5Z" />
@@ -199,9 +199,9 @@ export default function HomePage() {
               OneMCP turns natural-language prompts into cached execution plans so agents fulfil API requests instantly—with enterprise-grade accuracy, cost control, and performance.
             </p>
           <div className="hero-actions">
-            <a href="/docs" className="btn-primary">Get Started</a>
-            <a href="https://github.com/gentoro-GT/onemcp" target="_blank" rel="noreferrer" className="btn-secondary">
-              GitHub
+            <a href="/docs" className="btn-primary">Read the docs</a>
+            <a href="https://github.com/Gentoro-OneMCP/onemcp" target="_blank" rel="noreferrer" className="btn-secondary">
+              View on GitHub
             </a>
           </div>
           </div>
@@ -441,7 +441,7 @@ export default function HomePage() {
               <ul>
                 <li><a href="/docs">Documentation</a></li>
                 <li><a href="/docs/guides/ingest-foundation">Handbook ingest</a></li>
-                <li><a href="https://github.com/gentoro-GT/mcpagent" target="_blank" rel="noreferrer">Source code</a></li>
+                <li><a href="https://github.com/Gentoro-OneMCP/onemcp" target="_blank" rel="noreferrer">Source code</a></li>
               </ul>
             </div>
             {/* <div>

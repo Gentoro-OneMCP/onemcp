@@ -18,8 +18,8 @@ Start OneMCP with the built-in mock server:
 ```bash
 docker run --rm \
 	-p 8082:8082 \
-	-e APP_ARGS="--process=mock-server --tcp-port=8082" \
-	admingentoro/gentoro:latest
+    -e APP_ARGS="--process=mock-server --tcp-port=8082" \
+    admingentoro/gentoro:latest
 ```
 
 What to expect in the logs:
@@ -44,8 +44,8 @@ Mount a local "foundation" folder to override the mocked content (e.g., include 
 docker run --rm \
 	-p 8082:8082 \
 	-v "${PWD}:/var/foundation" \
-	-e APP_ARGS="--process=mock-server --tcp-port=8082" \
-	admingentoro/gentoro:latest
+    -e APP_ARGS="--process=mock-server --tcp-port=8082" \
+    admingentoro/gentoro:latest
 ```
 
 Place files like `Agent.md`, Markdown docs, and OpenAPI specs in your current directory before running the command. The agent will index them to ground tool execution.
