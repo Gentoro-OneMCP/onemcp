@@ -2,11 +2,7 @@
 	"name": "onemcp-docs",
   "private": true,
   "version": "0.1.0",
-<<<<<<< HEAD
-  "description": "Documentation site for onemcp powered by Nextra 4 (Next.js App Router)",
-=======
   "description": "Documentation site for OneMCP powered by Nextra 4 (Next.js App Router)",
->>>>>>> 9d8bb02 (Rename documentation references from "MCP Agent" to "OneMCP" and update related links and descriptions throughout the project. This includes changes in package.json, README.md, layout, and various documentation pages to reflect the new branding and ensure consistency.)
   "license": "MIT",
 	"scripts": {
 		"dev": "next --turbopack",
