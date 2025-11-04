@@ -1,12 +1,22 @@
-# API Configuration - Sales Analytics API
+# ============================================================================
+# EXAMPLE API CONFIGURATION - DO NOT USE IN PRODUCTION
+# ============================================================================
+# This is an example configuration file demonstrating the structure and
+# options available for configuring API integrations with OneMCP.
+#
+# IMPORTANT: This file contains example data only. Replace all example values
+# with your actual API endpoints, credentials, and configuration before use.
+# ============================================================================
 
+# API Configuration - Sales Analytics API (Example)
 api:
   name: "Sales Analytics API"
   version: "1.0.0"
-  environment: "production"
+  environment: "example"  # Changed from "production" to indicate example
   
   endpoints:
-    base_url: "https://api.shopflow.com/v1"
+    # EXAMPLE: Replace with your actual API base URL
+    base_url: "https://api.example.com/v1"
     health_check: "/health"
     query: "/query"
     fields: "/fields"
@@ -14,6 +24,7 @@ api:
   authentication:
     type: "api_key"
     header_name: "X-API-Key"
+    # EXAMPLE: Replace with your actual API key format
     key_format: "sk_live_[32_characters]"
     rotation_days: 90
   
@@ -37,7 +48,8 @@ api:
 data_sources:
   primary:
     type: "postgresql"
-    host: "analytics-db.shopflow.com"
+    # EXAMPLE: Replace with your actual database host
+    host: "analytics-db.example.com"
     port: 5432
     database: "sales_analytics"
     schema: "public"
@@ -48,7 +60,8 @@ data_sources:
   
   cache:
     type: "redis"
-    host: "cache.shopflow.com"
+    # EXAMPLE: Replace with your actual cache host
+    host: "cache.example.com"
     port: 6379
     database: 0
     ttl_default: 900
