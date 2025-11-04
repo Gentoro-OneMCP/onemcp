@@ -18,7 +18,7 @@ if ([string]::IsNullOrEmpty($JarName)) {
     [xml]$xml = Get-Content $POM
     $pomVersion = $xml.project.version
     $JarName = "onemcp-$pomVersion.jar"
-
+    
     # Build app JAR if not already built
     Write-Host "Building application JAR..."
     Push-Location "$ROOT\src\onemcp"

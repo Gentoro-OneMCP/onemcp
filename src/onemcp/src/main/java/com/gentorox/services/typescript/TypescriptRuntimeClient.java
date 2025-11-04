@@ -58,6 +58,10 @@ public class TypescriptRuntimeClient {
    * @return a reactive Mono emitting the {@link RunResponse} returned by the runtime
    */
   public Mono<RunResponse> exec(String code) {
+    if (code == null) {
+      return Mono.error(new IllegalArgumentException("Code snippet cannot be null"));
+    }
+
     logger.info("Executing snippet: {}", code);
     return web.post()
         .uri("/run")

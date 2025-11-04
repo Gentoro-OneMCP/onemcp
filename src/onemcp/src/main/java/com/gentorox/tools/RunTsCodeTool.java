@@ -40,6 +40,10 @@ public class RunTsCodeTool implements AgentTool {
 
   @Tool(name="RunTypescriptSnippet", value = "Execute a short TypeScript snippet in the isolated runtime and return stdout/result")
   public String runTsCode(@P("TypeScript code to execute") String code) {
+    if (code == null || code.trim().isEmpty()) {
+      return "Error: TypeScript code cannot be null or empty.";
+    }
+
     Callable<String> task = () -> telemetry.inSpan("tool.execute", Map.of("tool", "runTsCode"), () -> {
       TypescriptRuntimeClient.RunResponse r = ts.exec(code).block(); // runs on a worker if we're bridging (safe), or on a non-reactor thread
 
