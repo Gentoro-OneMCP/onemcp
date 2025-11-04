@@ -49,7 +49,7 @@ Type "help" anytime for more commands.
 
 ## 📚 Documentation
 
-Full documentation is available at [https://mcpagent.gentoro.com/docs](https://mcpagent.gentoro.com/docs)
+Full documentation is available at [https://onemcp.gentoro.com/docs](https://onemcp.gentoro.com/docs)
 
 ### ℹ️ CLI Details
 

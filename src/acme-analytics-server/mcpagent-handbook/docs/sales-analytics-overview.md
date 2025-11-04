@@ -76,6 +76,8 @@ The API uses a flexible query model with three main components:
 ## Support
 
 For technical support or questions about the API:
-- Email: api-support@shopflow.com
-- Documentation: https://docs.shopflow.com/api
-- Status Page: https://status.shopflow.com
+- Email: api-support@example.com
+- Documentation: https://docs.example.com/api
+- Status Page: https://status.example.com
+
+**Note:** This is example documentation. Replace with your actual API support contact information.
