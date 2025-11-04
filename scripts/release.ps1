@@ -72,7 +72,7 @@ Write-Host "   - Update POM version to $NewVersion" -ForegroundColor White
 
 Write-Host ""
 Write-Host "To update to next development version:" -ForegroundColor Yellow
-Write-Host "  mvn -f src/mcpagent/pom.xml versions:set -DnewVersion=`"$NextSnapshot`" -DgenerateBackupPoms=false" -ForegroundColor Gray
-Write-Host "  git add src/mcpagent/pom.xml" -ForegroundColor Gray
+Write-Host "  mvn -f src/onemcp/pom.xml versions:set -DnewVersion=`"$NextSnapshot`" -DgenerateBackupPoms=false" -ForegroundColor Gray
+Write-Host "  git add src/onemcp/pom.xml" -ForegroundColor Gray
 Write-Host "  git commit -m `"chore: bump version to $NextSnapshot`"" -ForegroundColor Gray
 Write-Host "  git push origin main" -ForegroundColor Gray

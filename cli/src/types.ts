@@ -1,5 +1,5 @@
 /**
- * Core types for MCP Agent CLI
+ * Core types for OneMCP CLI
  */
 
 export type ModelProvider = 'openai' | 'gemini' | 'anthropic';

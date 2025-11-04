@@ -1,8 +1,8 @@
 {
-	"name": "mcpagent-docs",
+	"name": "onemcp-docs",
   "private": true,
   "version": "0.1.0",
-  "description": "Documentation site for mcpagent powered by Nextra 4 (Next.js App Router)",
+  "description": "Documentation site for onemcp powered by Nextra 4 (Next.js App Router)",
   "license": "MIT",
 	"scripts": {
 		"dev": "next --turbopack",

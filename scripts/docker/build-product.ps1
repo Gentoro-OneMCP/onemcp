@@ -8,7 +8,7 @@ Param(
 $ErrorActionPreference = "Stop"
 
 $ROOT = (Resolve-Path "$PSScriptRoot\..\..").Path
-$POM = "$ROOT\src\mcpagent\pom.xml"
+$POM = "$ROOT\src\onemcp\pom.xml"
 
 # Default platforms for multi-arch builds
 $Platforms = if ($Platform) { $Platform } elseif ($env:DOCKER_PLATFORMS) { $env:DOCKER_PLATFORMS } else { "linux/amd64,linux/arm64" }
@@ -17,11 +17,11 @@ $Platforms = if ($Platform) { $Platform } elseif ($env:DOCKER_PLATFORMS) { $env:
 if ([string]::IsNullOrEmpty($JarName)) {
     [xml]$xml = Get-Content $POM
     $pomVersion = $xml.project.version
-    $JarName = "mcpagent-$pomVersion.jar"
-    
+    $JarName = "onemcp-$pomVersion.jar"
+
     # Build app JAR if not already built
     Write-Host "Building application JAR..."
-    Push-Location "$ROOT\src\mcpagent"
+    Push-Location "$ROOT\src\onemcp"
     if (Test-Path .\mvnw) { 
         ./mvnw -q -DskipTests package spring-boot:repackage
     } else { 
@@ -31,7 +31,7 @@ if ([string]::IsNullOrEmpty($JarName)) {
 }
 
 # Validate JAR exists
-$jarPath = "$ROOT\src\mcpagent\target\$JarName"
+$jarPath = "$ROOT\src\onemcp\target\$JarName"
 if (-not (Test-Path $jarPath)) {
     Write-Error "JAR file not found: $jarPath"
     exit 1
@@ -80,7 +80,7 @@ try {
             "buildx", "build",
             "-f", "$ROOT\Dockerfile",
             "--platform", "$Platforms",
-            "--build-arg", "APP_JAR=src/mcpagent/target/$JarName",
+            "--build-arg", "APP_JAR=src/onemcp/target/$JarName",
             "--build-arg", "BASE_IMAGE=$baseImageName",
             "-t", "admingentoro/gentoro:$Version",
             "-t", "admingentoro/gentoro:latest",
@@ -96,7 +96,7 @@ try {
         $buildArgs = @(
             "build",
             "-f", "$ROOT\Dockerfile",
-            "--build-arg", "APP_JAR=src/mcpagent/target/$JarName",
+            "--build-arg", "APP_JAR=src/onemcp/target/$JarName",
             "--build-arg", "BASE_IMAGE=$baseImageName",
             "-t", "admingentoro/gentoro:$Version",
             "-t", "admingentoro/gentoro:latest",

@@ -15,7 +15,7 @@ What is provided
 - Resource: Standard service.name and service.version attributes merged with default environment/system attributes.
 
 Configuration
-- Service name: Spring property otel.service.name (default: mcpagent).
+- Service name: Spring property otel.service.name (default: onemcp).
 - OTLP endpoint (first non-blank wins):
   1. Spring property: otel.exporter.otlp.endpoint
   2. Environment variable: OTEL_EXPORTER_OTLP_ENDPOINT

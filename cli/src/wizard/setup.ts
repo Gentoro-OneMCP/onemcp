@@ -15,7 +15,7 @@ export class SetupWizard {
    */
   async run(): Promise<void> {
     console.log(
-      boxen(chalk.bold.cyan('Gentoro MCP Agent Setup'), {
+      boxen(chalk.bold.cyan('Gentoro OneMCP Setup'), {
         padding: 1,
         margin: 1,
         borderStyle: 'round',
@@ -219,7 +219,7 @@ export class SetupWizard {
     // Create basic Agent.md
     const agentMd = `# Agent Instructions
 
-This is your MCP Agent handbook. Configure your agent's behavior here.
+This is your OneMCP handbook. Configure your agent's behavior here.
 
 ## Purpose
 

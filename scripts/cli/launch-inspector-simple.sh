@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Simple MCP Inspector launcher for MCP Agent
+# Simple MCP Inspector launcher for OneMCP
 # This version works with the standard MCP Inspector
 
 # Colors for output
@@ -31,19 +31,19 @@ log_error() {
 MCP_URL="http://localhost:8080/mcp"
 INSPECTOR_PORT="${INSPECTOR_PORT:-3001}"
 
-log_info "MCP Agent Inspector Launcher (Simple)"
+log_info "OneMCP Inspector Launcher (Simple)"
 log_info "====================================="
-log_info "MCP Agent URL: ${MCP_URL}"
+log_info "OneMCP URL: ${MCP_URL}"
 log_info "Inspector Port: ${INSPECTOR_PORT}"
 log_info ""
 
-# Check if MCP Agent is running
-log_info "Checking if MCP Agent is running..."
+# Check if OneMCP is running
+log_info "Checking if OneMCP is running..."
 if curl -s -f "${MCP_URL}" >/dev/null 2>&1; then
-    log_success "MCP Agent is running and accessible"
+    log_success "OneMCP is running and accessible"
 else
-    log_warning "MCP Agent is not accessible at ${MCP_URL}"
-    log_info "Make sure the MCP Agent is running:"
+    log_warning "OneMCP is not accessible at ${MCP_URL}"
+    log_info "Make sure OneMCP is running:"
     log_info "  docker run --rm -p 8080:8080 -e APP_ARGS=\"--process=mock-server --tcp-port=8082\" admingentoro/gentoro:latest"
     log_info ""
     read -p "Continue anyway? (y/N): " -n 1 -r

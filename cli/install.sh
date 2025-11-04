@@ -199,7 +199,7 @@ clone_repository() {
 build_java_app() {
     log_info "Building Java application..."
 
-    cd "$INSTALL_DIR/src/mcpagent"
+    cd "$INSTALL_DIR/src/onemcp"
     mvn clean package spring-boot:repackage -DskipTests -q
 
     if [ $? -eq 0 ]; then

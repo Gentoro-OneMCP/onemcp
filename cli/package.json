@@ -1,7 +1,7 @@
 {
   "name": "@gentoro/onemcp-cli",
   "version": "0.1.0",
-  "description": "CLI for Gentoro MCP Agent - Connect APIs to AI models via Model Context Protocol",
+  "description": "CLI for Gentoro OneMCP - Connect APIs to AI models via Model Context Protocol",
   "type": "module",
   "bin": {
     "onemcp": "./dist/index.js"
@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json && npm run copy-example-handbook && chmod +x dist/index.js",
-    "copy-example-handbook": "cp -r ../src/acme-analytics-server/mcpagent-handbook dist/example-handbook",
+    "copy-example-handbook": "cp -r ../src/acme-analytics-server/onemcp-handbook dist/example-handbook",
     "start": "node dist/index.js",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",

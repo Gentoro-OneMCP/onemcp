@@ -1,4 +1,4 @@
-# Application defaults for the MCP Agent (HTTP Streamable transport over Spring WebFlux)
+# Application defaults for OneMCP (HTTP Streamable transport over Spring WebFlux)
 #
 # Notes for operators:
 # - server.port controls the HTTP port. Override via SERVER_PORT or Spring's standard env mapping.
@@ -47,7 +47,7 @@ guardrails:
 # OpenTelemetry service naming
 otel:
   service:
-    name: mcpagent
+    name: onemcp
   exporter:
     otlp:
       endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://127.0.0.1:4317}

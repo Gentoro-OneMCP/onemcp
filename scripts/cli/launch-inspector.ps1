@@ -1,31 +1,31 @@
-# Launch MCP Server Inspector with auto-configuration for MCP Agent (Windows PowerShell)
-# This script automatically configures the inspector to connect to the MCP Agent
+# Launch MCP Server Inspector with auto-configuration for OneMCP (Windows PowerShell)
+# This script automatically configures the inspector to connect to OneMCP
 
 param(
-    [int]$MCPAgentPort = 8080,
-    [string]$MCPAgentHost = "localhost",
+    [int]$OneMCPPort = 8080,
+    [string]$OneMCPHost = "localhost",
     [string]$MCPEndpoint = "/mcp",
     [int]$InspectorPort = 3001
 )
 
 # Build the MCP URL
-$MCPUrl = "http://${MCPAgentHost}:${MCPAgentPort}${MCPEndpoint}"
+$MCPUrl = "http://${OneMCPHost}:${OneMCPPort}${MCPEndpoint}"
 
-Write-Host "MCP Agent Inspector Launcher" -ForegroundColor Blue
+Write-Host "OneMCP Inspector Launcher" -ForegroundColor Blue
 Write-Host "==============================" -ForegroundColor Blue
-Write-Host "MCP Agent URL: $MCPUrl" -ForegroundColor Blue
+Write-Host "OneMCP URL: $MCPUrl" -ForegroundColor Blue
 Write-Host "Inspector Port: $InspectorPort" -ForegroundColor Blue
 Write-Host ""
 
-# Check if MCP Agent is running
-Write-Host "Checking if MCP Agent is running..." -ForegroundColor Blue
+# Check if OneMCP is running
+Write-Host "Checking if OneMCP is running..." -ForegroundColor Blue
 try {
     $response = Invoke-WebRequest -Uri $MCPUrl -Method GET -TimeoutSec 5 -ErrorAction Stop
-    Write-Host "✅ MCP Agent is running and accessible" -ForegroundColor Green
+    Write-Host "✅ OneMCP is running and accessible" -ForegroundColor Green
 } catch {
-    Write-Host "⚠️  MCP Agent is not accessible at $MCPUrl" -ForegroundColor Yellow
-    Write-Host "Make sure the MCP Agent is running:" -ForegroundColor Blue
-    Write-Host "  docker run --rm -p ${MCPAgentPort}:${MCPAgentPort} -e APP_ARGS=`"--process=mock-server --tcp-port=8082`" admingentoro/gentoro:latest" -ForegroundColor Blue
+    Write-Host "⚠️  OneMCP is not accessible at $MCPUrl" -ForegroundColor Yellow
+    Write-Host "Make sure OneMCP is running:" -ForegroundColor Blue
+    Write-Host "  docker run --rm -p ${OneMCPPort}:${OneMCPPort} -e APP_ARGS=`"--process=mock-server --tcp-port=8082`" admingentoro/gentoro:latest" -ForegroundColor Blue
     Write-Host ""
     $continue = Read-Host "Continue anyway? (y/N)"
     if ($continue -ne "y" -and $continue -ne "Y") {

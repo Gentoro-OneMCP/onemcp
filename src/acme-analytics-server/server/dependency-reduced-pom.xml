@@ -5,7 +5,7 @@
   <artifactId>acme-analytics-server</artifactId>
   <name>ACME Analytics Server</name>
   <version>1.0.0</version>
-  <description>Mock analytics server for MCP-Agent testing</description>
+  <description>Mock analytics server for OneMCP testing</description>
   <build>
     <plugins>
       <plugin>

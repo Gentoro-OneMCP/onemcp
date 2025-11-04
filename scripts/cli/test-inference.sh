@@ -27,6 +27,6 @@ fi
 echo "Starting InferenceService CLI..."
 echo ""
 
-# Navigate to the mcpagent project directory
-cd "$(dirname "$0")/../../src/mcpagent"
+# Navigate to the onemcp project directory
+cd "$(dirname "$0")/../../src/onemcp"
 mvn exec:java -Dexec.mainClass="com.gentorox.services.inference.InferenceServiceCLI" -Dexec.classpathScope=test

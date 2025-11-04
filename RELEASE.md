@@ -1,12 +1,12 @@
 # Release Process
 
-This document describes the release process for the MCP Agent project. The release system creates GitHub repository tags and publishes corresponding Docker images to Docker Hub.
+This document describes the release process for the OneMCP project. The release system creates GitHub repository tags and publishes corresponding Docker images to Docker Hub.
 
 ## Overview
 
 The release process handles:
 - **Base Image**: `admingentoro/gentoro:base-{version}` - Contains JRE 21, Node.js, OpenAPI Generator CLI, and OpenTelemetry Collector
-- **Product Image**: `admingentoro/gentoro:{version}` - Contains the MCP Agent application built on the base image
+- **Product Image**: `admingentoro/gentoro:{version}` - Contains the OneMCP application built on the base image
 
 ## Quick Start
 
@@ -57,7 +57,7 @@ Contains the runtime environment:
 
 ### Product Image (`admingentoro/gentoro:{version}`)
 
-Contains the MCP Agent application:
+Contains the OneMCP application:
 - Built on the base image
 - Includes the compiled JAR file
 - Application-specific configuration

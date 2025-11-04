@@ -1,6 +1,6 @@
-# MCP Agent
+# OneMCP
 
-This module contains the MCP Agent service and its tests.
+This module contains the OneMCP service and its tests.
 
 ## Knowledge Base
 The agent builds a lightweight Knowledge Base from a Foundation directory on startup. It scans:

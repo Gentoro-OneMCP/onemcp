@@ -1,5 +1,5 @@
 /**
- * Process manager for running MCP Agent services
+ * Process manager for running OneMCP services
  */
 import { ChildProcess, spawn } from 'child_process';
 import { EventEmitter } from 'events';

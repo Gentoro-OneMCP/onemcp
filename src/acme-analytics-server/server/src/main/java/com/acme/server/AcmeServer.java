@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
  * ACME Analytics Server - Mock server implementing the Sales Analytics API
  *
  * This server provides a realistic data analytics API that generates fake data
- * for testing MCP-Agent capabilities. It implements the complete API specification
+ * for testing OneMCP capabilities. It implements the complete API specification
  * including query filtering, field selection, and aggregations.
  */
 public class AcmeServer {

@@ -1,6 +1,6 @@
-# MCP Agent Documentation
+# OneMCP Documentation
 
-This directory contains the documentation site for MCP Agent, built with [Nextra 4](https://nextra.site/) on Next.js App Router.
+This directory contains the documentation site for OneMCP, built with [Nextra 4](https://nextra.site/) on Next.js App Router.
 
 ## Prerequisites
 

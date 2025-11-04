@@ -40,7 +40,7 @@ public class TelemetryConfig {
    * default SDK resource (host, OS, etc.).
    */
   @Bean
-  public Resource otelResource(@Value("${otel.service.name:mcpagent}") String serviceName) {
+  public Resource otelResource(@Value("${otel.service.name:onemcp}") String serviceName) {
     return Resource.getDefault().merge(Resource.create(
         Attributes.builder()
             .put("service.name", serviceName)

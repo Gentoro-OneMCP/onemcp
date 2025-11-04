@@ -11,7 +11,7 @@
     <packaging>jar</packaging>
 
     <name>ACME Analytics Server</name>
-    <description>Mock analytics server for MCP-Agent testing</description>
+    <description>Mock analytics server for OneMCP testing</description>
 
     <properties>
         <java.version>21</java.version>

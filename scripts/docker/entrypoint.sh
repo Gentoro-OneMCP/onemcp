@@ -37,7 +37,7 @@ log_error() {
 
 show_help() {
     cat << EOF
-MCP Agent Docker Container Commands:
+OneMCP Docker Container Commands:
 
 Default behavior (no arguments):
   docker run image                    # Start all services via supervisord
@@ -48,7 +48,7 @@ Service management:
   docker run image restart [service]  # Restart specific service
 
 Single service modes:
-  docker run image app-only           # Start only the main MCP Agent app
+  docker run image app-only           # Start only the main OneMCP app
   docker run image otel-only          # Start only OpenTelemetry collector
   docker run image ts-only            # Start only TypeScript runtime
   docker run image mock-only          # Start only mock server
@@ -83,13 +83,13 @@ EOF
 }
 
 show_version() {
-    log_info "MCP Agent Docker Container"
+    log_info "OneMCP Docker Container"
     log_info "Base Image: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
     log_info "Java Version: $(java -version 2>&1 | head -n1)"
     log_info "Node Version: $(node --version)"
     log_info "OpenTelemetry Collector: $(otelcol --version 2>&1 | head -n1)"
-    if [[ -f "/opt/app/mcpagent.jar" ]]; then
-        log_info "Application JAR: $(ls -la /opt/app/mcpagent.jar)"
+    if [[ -f "/opt/app/onemcp.jar" ]]; then
+        log_info "Application JAR: $(ls -la /opt/app/onemcp.jar)"
     fi
 }
 

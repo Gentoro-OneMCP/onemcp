@@ -1,5 +1,5 @@
 /**
- * MCP Agent service manager
+ * OneMCP service manager
  */
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -27,9 +27,9 @@ export class AgentService {
    * Find the project root directory
    */
   private findProjectRoot(): string {
-    // Check if MCPAGENT_ROOT environment variable is set
-    if (process.env.MCPAGENT_ROOT) {
-      return process.env.MCPAGENT_ROOT;
+    // Check if ONEMCP_ROOT environment variable is set
+    if (process.env.ONEMCP_ROOT) {
+      return process.env.ONEMCP_ROOT;
     }
 
     // Try to find project root by looking for known markers
@@ -52,22 +52,22 @@ export class AgentService {
       // ignore if import.meta.url is unavailable
     }
 
-    // Also check MCPAGENT_SRC if it's set (for development)
-    if (process.env.MCPAGENT_SRC) {
-      possibleRoots.unshift(process.env.MCPAGENT_SRC);
+    // Also check ONEMCP_SRC if it's set (for development)
+    if (process.env.ONEMCP_SRC) {
+      possibleRoots.unshift(process.env.ONEMCP_SRC);
     }
 
     for (const root of possibleRoots) {
       const tsRuntimePath = join(root, 'src/typescript-runtime/dist/server.js');
-      const mcpAgentPath = join(root, 'src/mcpagent/target/mcpagent-0.1.0-SNAPSHOT.jar');
+      const onemcpPath = join(root, 'src/onemcp/target/onemcp-0.1.0-SNAPSHOT.jar');
       
-      if (fs.existsSync(tsRuntimePath) && fs.existsSync(mcpAgentPath)) {
+      if (fs.existsSync(tsRuntimePath) && fs.existsSync(onemcpPath)) {
         return root;
       }
     }
 
     throw new Error(
-      'Could not find MCP Agent installation. Please ensure you are running from the project directory or set MCPAGENT_ROOT environment variable.'
+      'Could not find OneMCP installation. Please ensure you are running from the project directory or set ONEMCP_ROOT environment variable.'
     );
   }
 
@@ -88,9 +88,9 @@ export class AgentService {
     processManager.register({
       name: 'otel',
       command: 'otelcol',
-      args: ['--config', '/tmp/mcpagent-otel-config.yaml'],
+      args: ['--config', '/tmp/onemcp-otel-config.yaml'],
       env: {
-        OTEL_SERVICE_NAME: 'mcpagent',
+        OTEL_SERVICE_NAME: 'onemcp',
       },
       port: 4317,
       healthCheckUrl: undefined, // OTEL doesn't have a simple health endpoint
@@ -114,13 +114,13 @@ export class AgentService {
       dependsOn: [],
     });
 
-    // Register MCP Agent (Java application)
-    const mcpAgentJar = join(projectRoot, 'src/mcpagent/target/mcpagent-0.1.0-SNAPSHOT.jar');
+    // Register OneMCP (Java application)
+    const onemcpJar = join(projectRoot, 'src/onemcp/target/onemcp-0.1.0-SNAPSHOT.jar');
     
     processManager.register({
       name: 'app',
       command: 'java',
-      args: ['-jar', mcpAgentJar],
+      args: ['-jar', onemcpJar],
       env: {
         SERVER_PORT: port.toString(),
         FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
@@ -151,7 +151,7 @@ export class AgentService {
   }
 
   /**
-   * Start the MCP Agent with all required services
+   * Start OneMCP with all required services
    */
   async start(options: StartOptions = {}): Promise<void> {
     await this.initialize();
@@ -229,26 +229,26 @@ export class AgentService {
       }
     }
 
-    console.log(chalk.dim('  • Starting MCP Agent core service...'));
+    console.log(chalk.dim('  • Starting OneMCP core service...'));
     if (!disabledServices.includes('app')) {
       try {
         await processManager.start('app');
-        console.log(chalk.dim('    ✓ MCP Agent started, waiting for health check...'));
+        console.log(chalk.dim('    ✓ OneMCP started, waiting for health check...'));
 
-        // Wait for MCP Agent to be fully healthy
+        // Wait for OneMCP to be fully healthy
         const appConfig = processManager.getConfig('app');
         if (appConfig?.healthCheckUrl) {
           try {
             await this.waitForServiceHealthy('app', appConfig, 60000); // 60 second timeout for Java app
-            console.log(chalk.dim('    ✓ MCP Agent ready'));
+            console.log(chalk.dim('    ✓ OneMCP ready'));
           } catch (error: unknown) {
             const errorMessage = error instanceof Error ? error.message : String(error);
-            console.log(chalk.red('    ❌ MCP Agent failed to become healthy'));
+            console.log(chalk.red('    ❌ OneMCP failed to become healthy'));
             console.log(chalk.dim(`      Error: ${errorMessage}`));
             throw error;
           }
         } else {
-          console.log(chalk.dim('    ✓ MCP Agent ready'));
+          console.log(chalk.dim('    ✓ OneMCP ready'));
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -257,12 +257,12 @@ export class AgentService {
         if (errorMessage.includes('Foundation dir not found') ||
             errorMessage.includes('Agent.md') ||
             errorMessage.includes('handbook')) {
-          console.log(chalk.red('    ❌ MCP Agent failed to start - handbook configuration issue'));
+          console.log(chalk.red('    ❌ OneMCP failed to start - handbook configuration issue'));
           console.log(chalk.dim('      This usually happens when the handbook directory or Agent.md file is missing.'));
           console.log(chalk.dim('      Try running the setup wizard again or check your handbook directory.'));
           console.log(chalk.dim(`      Handbook directory: ${config?.handbookDir || 'not configured'}`));
         } else {
-          console.log(chalk.red('    ❌ MCP Agent failed to start'));
+          console.log(chalk.red('    ❌ OneMCP failed to start'));
           console.log(chalk.dim(`      Error: ${errorMessage}`));
         }
 
@@ -283,7 +283,7 @@ export class AgentService {
   }
 
   /**
-   * Stop all MCP Agent services
+   * Stop all OneMCP services
    */
   async stop(): Promise<void> {
     await processManager.stopAll();
@@ -532,12 +532,12 @@ export class AgentService {
     const { execa } = await import('execa');
     const projectRoot = this.findProjectRoot();
     
-    console.log('Building MCP Agent...');
+    console.log('Building OneMCP...');
     
     // Build Java application
     console.log('Building Java application...');
     await execa('mvn', ['clean', 'package', '-DskipTests'], {
-      cwd: join(projectRoot, 'src/mcpagent'),
+      cwd: join(projectRoot, 'src/onemcp'),
       stdio: 'inherit',
     });
 
@@ -562,7 +562,7 @@ export class AgentService {
    * Create default OTEL config if it doesn't exist
    */
   async ensureOtelConfig(): Promise<void> {
-    const otelConfigPath = '/tmp/mcpagent-otel-config.yaml';
+    const otelConfigPath = '/tmp/onemcp-otel-config.yaml';
     
     if (await fs.pathExists(otelConfigPath)) {
       return;
@@ -636,7 +636,7 @@ service:
 
     // Build Java app
     await execa('mvn', ['clean', 'package', 'spring-boot:repackage', '-DskipTests', '-q'], {
-      cwd: join(projectRoot, 'src/mcpagent')
+      cwd: join(projectRoot, 'src/onemcp')
     });
 
     // Build TypeScript runtime

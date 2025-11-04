@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------------------
-# Gentorox MCP Agent configuration (internal defaults)
+# Gentorox OneMCP configuration (internal defaults)
 # -----------------------------------------------------------------------------
 # This file ships with the application and defines the complete schema and sane
 # defaults for the Agent behavior. Users can override any subset of these values
@@ -35,7 +35,7 @@ agent:
   # Unresolved placeholders are replaced with an empty string and a warning is
   # logged. Placeholders are resolved before guardrails auto-generation.
   systemPrompt: |
-    You are the **ACME Sales Analytics MCP Agent**.  
+    You are the **ACME Sales Analytics OneMCP**.  
     Your purpose is to help users query and understand ACME e-commerce sales data using the ACME Sales Analytics API and the provided SDKs. **Be precise, schema-compliant, and tool-driven.**
 
     ---
@@ -333,7 +333,7 @@ agent:
   guardrails:
     autoGen: false
     content: |
-      POLICY: ACME Sales Analytics MCP Agent Scope and Safety Rules
+      POLICY: ACME Sales Analytics OneMCP Scope and Safety Rules
 
       1) Scope of authority
          - The agent is only authorized to operate the ACME Sales Analytics API described in the handbook.

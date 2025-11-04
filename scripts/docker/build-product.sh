@@ -6,7 +6,7 @@ JAR_NAME="${2:-}"
 PUSH_FLAG="${3:-}"
 PLATFORM_FLAG="${4:-}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-POM="$ROOT_DIR/src/mcpagent/pom.xml"
+POM="$ROOT_DIR/src/onemcp/pom.xml"
 
 # Default platforms for multi-arch builds
 PLATFORMS="${DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
@@ -22,11 +22,11 @@ if [[ -z "$JAR_NAME" ]]; then
   if [[ -z "$POM_VERSION" ]]; then
     echo "Cannot read version from $POM"; exit 1
   fi
-  JAR_NAME="mcpagent-$POM_VERSION.jar"
-  
+  JAR_NAME="onemcp-$POM_VERSION.jar"
+
   # Build app JAR if not already built
   echo "Building application JAR..."
-  ( cd "$ROOT_DIR/src/mcpagent" && ./mvnw -q -DskipTests package spring-boot:repackage || mvn -q -DskipTests package spring-boot:repackage )
+  ( cd "$ROOT_DIR/src/onemcp" && ./mvnw -q -DskipTests package spring-boot:repackage || mvn -q -DskipTests package spring-boot:repackage )
   
   # Build TypeScript runtime
   echo "Building TypeScript runtime..."
@@ -38,7 +38,7 @@ if [[ -z "$JAR_NAME" ]]; then
 fi
 
 # Validate JAR exists
-JAR_PATH="$ROOT_DIR/src/mcpagent/target/$JAR_NAME"
+JAR_PATH="$ROOT_DIR/src/onemcp/target/$JAR_NAME"
 if [[ ! -f "$JAR_PATH" ]]; then
   echo "JAR file not found: $JAR_PATH"
   exit 1
@@ -66,7 +66,7 @@ if [[ "$PUSH_FLAG" == "--push" ]]; then
   BUILD_ARGS=(
     -f "$ROOT_DIR/Dockerfile"
     --platform "$PLATFORMS"
-    --build-arg "APP_JAR=src/mcpagent/target/$JAR_NAME"
+    --build-arg "APP_JAR=src/onemcp/target/$JAR_NAME"
     --build-arg "BASE_IMAGE=admingentoro/gentoro:base-$VERSION"
     -t "admingentoro/gentoro:$VERSION"
     -t "admingentoro/gentoro:latest"
@@ -98,7 +98,7 @@ else
   BUILD_CMD="docker build"
   BUILD_ARGS=(
     -f "$ROOT_DIR/Dockerfile"
-    --build-arg "APP_JAR=src/mcpagent/target/$JAR_NAME"
+    --build-arg "APP_JAR=src/onemcp/target/$JAR_NAME"
     --build-arg "BASE_IMAGE=$BASE_IMAGE_NAME"
     -t "admingentoro/gentoro:$VERSION"
     -t "admingentoro/gentoro:latest"

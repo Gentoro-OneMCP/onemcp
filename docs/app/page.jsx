@@ -14,7 +14,7 @@ export default function HomePage() {
           </p>
           <div className="hero-actions">
             <a href="/docs" className="btn-primary">Get Started</a>
-            <a href="https://github.com/gentoro-GT/mcpagent" target="_blank" rel="noreferrer" className="btn-secondary">
+            <a href="https://github.com/gentoro-GT/onemcp" target="_blank" rel="noreferrer" className="btn-secondary">
               GitHub
             </a>
           </div>
@@ -70,7 +70,7 @@ export default function HomePage() {
             <span className="demo-dot"></span>
           </div>
           <div className="demo-content">
-            <p className="demo-text">$ mcpagent run --tools openapi.yaml</p>
+            <p className="demo-text">$ onemcp run --tools openapi.yaml</p>
             <p className="demo-text">✓ Indexed 32 tools from OpenAPI spec</p>
             <p className="demo-text">✓ Knowledge base ready (457 documents)</p>
             <p className="demo-text">→ Agent running on http://localhost:3000</p>

@@ -138,7 +138,7 @@ jobs:
       if: github.event_name == 'workflow_dispatch'
       id: calculate_version
       run: |
-        POM_FILE="src/mcpagent/pom.xml"
+        POM_FILE="src/onemcp/pom.xml"
         CURRENT_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" "$POM_FILE")
         echo "Current POM version: $CURRENT_VERSION"
         
@@ -210,7 +210,7 @@ jobs:
     - name: Build product JAR
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       run: |
-        cd src/mcpagent
+        cd src/onemcp
         ./mvnw -q -DskipTests package spring-boot:repackage || mvn -q -DskipTests package spring-boot:repackage
     
     - name: Build ACME Analytics Server
@@ -230,8 +230,8 @@ jobs:
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       run: |
         VERSION="${{ steps.extract_version.outputs.version || steps.calculate_version.outputs.version }}"
-        POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" src/mcpagent/pom.xml)
-        JAR_NAME="mcpagent-$POM_VERSION.jar"
+        POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" src/onemcp/pom.xml)
+        JAR_NAME="onemcp-$POM_VERSION.jar"
         ./scripts/docker/build-product.sh "$VERSION" "$JAR_NAME" --push
     
     - name: Verify images exist
@@ -276,7 +276,7 @@ jobs:
           ## Service Validation ✅
           
           All services have been validated and are confirmed working:
-          - **MCP Agent** (port 8080) - Main Spring Boot application
+          - **OneMCP** (port 8080) - Main Spring Boot application
           - **OpenTelemetry Collector** (port 4317) - Telemetry data collection
           - **Mock Server** (port 8082, optional) - External mock server
           - **TypeScript Runtime** (port 7070, optional) - Node.js runtime
@@ -320,7 +320,7 @@ jobs:
         echo "- Created and pushed tag ${{ steps.calculate_version.outputs.version }}"
         echo "- Built and pushed base and product Docker images"
         echo "- Validated all services on both linux/amd64 and linux/arm64 platforms:"
-        echo "  - MCP Agent (port 8080) - Main Spring Boot application"
+        echo "  - OneMCP (port 8080) - Main Spring Boot application"
         echo "  - OpenTelemetry Collector (port 4317) - Telemetry data collection"
         echo "  - Mock Server (port 8082, optional) - External mock server"
         echo "  - TypeScript Runtime (port 7070, optional) - Node.js runtime"

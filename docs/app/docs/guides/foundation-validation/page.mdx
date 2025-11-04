@@ -1,10 +1,10 @@
 ---
-description: Validate your foundation folder structure before running the MCP Agent.
+description: Validate your foundation folder structure before running OneMCP.
 ---
 
 # Foundation Validation
 
-The MCP Agent includes validators to ensure your foundation folder is properly structured before running. This helps prevent runtime issues and provides clear guidance for fixing problems.
+OneMCP includes validators to ensure your foundation folder is properly structured before running. This helps prevent runtime issues and provides clear guidance for fixing problems.
 
 ## Why Validate?
 
@@ -31,8 +31,8 @@ docker run --rm \
 ### Using Java/Maven (Local Development)
 
 ```bash
-# Navigate to the mcpagent directory
-cd src/mcpagent
+# Navigate to the onemcp directory
+cd src/onemcp
 
 # Validate specific foundation directory
 FOUNDATION_DIR="/path/to/your/foundation" mvn exec:java \

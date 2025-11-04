@@ -96,7 +96,7 @@ export function createHttpBridge(options?: Partial<HttpBridgeOptions>): (url: st
     // Ensure a UA unless provided by caller or client defaults
     const hasUserAgent = Object.keys(headers).some(h => h.toLowerCase() === "user-agent")
       || Boolean((httpClient.defaults.headers as any)?.common?.["User-Agent"] || (httpClient.defaults.headers as any)?.common?.["user-agent"]);
-    if (!hasUserAgent) headers["User-Agent"] = "mcpagent-http-bridge/1";
+    if (!hasUserAgent) headers["User-Agent"] = "onemcp-http-bridge/1";
 
     // Build request body
     let requestBody: unknown = undefined;

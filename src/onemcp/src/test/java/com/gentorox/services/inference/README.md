@@ -31,11 +31,11 @@ The easiest way to test the InferenceService is using the interactive CLI:
 
 ```bash
 # Using the convenience script (from project root)
-cd /Users/patc/projects/mcpagent
+cd onemcp
 ./scripts/cli/test-inference.sh
 
-# Or directly with Maven (from mcpagent directory)
-cd /Users/patc/projects/mcpagent/src/mcpagent
+# Or directly with Maven (from onemcp directory)
+cd onemcp/src/onemcp
 mvn exec:java -Dexec.mainClass="com.gentorox.services.inference.InferenceServiceCLI" -Dexec.classpathScope=test
 ```
 
@@ -51,7 +51,7 @@ For automated testing without user interaction:
 
 ```bash
 # Compile the project
-cd /Users/patc/projects/mcpagent/src/mcpagent
+cd onemcp/src/onemcp
 mvn compile -Dmaven.test.skip=true
 
 # Run the manual test

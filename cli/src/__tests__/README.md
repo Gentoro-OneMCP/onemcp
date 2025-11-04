@@ -1,6 +1,6 @@
 # CLI Unit Tests
 
-This directory contains comprehensive unit tests for the MCP Agent CLI.
+This directory contains comprehensive unit tests for the OneMCP CLI.
 
 ## Test Structure
 

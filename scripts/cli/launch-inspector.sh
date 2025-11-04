@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Launch MCP Server Inspector with auto-configuration for MCP Agent
-# This script automatically configures the inspector to connect to the MCP Agent
+# Launch MCP Server Inspector with auto-configuration for OneMCP
+# This script automatically configures the inspector to connect to OneMCP
 
 # Colors for output
 RED='\033[0;31m'
@@ -28,28 +28,28 @@ log_error() {
 }
 
 # Configuration
-MCP_AGENT_PORT="${MCP_AGENT_PORT:-8080}"
-MCP_AGENT_HOST="${MCP_AGENT_HOST:-localhost}"
+ONEMCP_PORT="${ONEMCP_PORT:-8080}"
+ONEMCP_HOST="${ONEMCP_HOST:-localhost}"
 MCP_ENDPOINT="${MCP_ENDPOINT:-/mcp}"
 INSPECTOR_PORT="${INSPECTOR_PORT:-3001}"
 
 # Build the MCP URL
-MCP_URL="http://${MCP_AGENT_HOST}:${MCP_AGENT_PORT}${MCP_ENDPOINT}"
+MCP_URL="http://${ONEMCP_HOST}:${ONEMCP_PORT}${MCP_ENDPOINT}"
 
-log_info "MCP Agent Inspector Launcher"
+log_info "OneMCP Inspector Launcher"
 log_info "=============================="
-log_info "MCP Agent URL: ${MCP_URL}"
+log_info "OneMCP URL: ${MCP_URL}"
 log_info "Inspector Port: ${INSPECTOR_PORT}"
 log_info ""
 
-# Check if MCP Agent is running
-log_info "Checking if MCP Agent is running..."
+# Check if OneMCP is running
+log_info "Checking if OneMCP is running..."
 if curl -s -f "${MCP_URL}" >/dev/null 2>&1; then
-    log_success "MCP Agent is running and accessible"
+    log_success "OneMCP is running and accessible"
 else
-    log_warning "MCP Agent is not accessible at ${MCP_URL}"
-    log_info "Make sure the MCP Agent is running:"
-    log_info "  docker run --rm -p ${MCP_AGENT_PORT}:${MCP_AGENT_PORT} -e APP_ARGS=\"--process=mock-server --tcp-port=8082\" admingentoro/gentoro:latest"
+    log_warning "OneMCP is not accessible at ${MCP_URL}"
+    log_info "Make sure OneMCP is running:"
+    log_info "  docker run --rm -p ${ONEMCP_PORT}:${ONEMCP_PORT} -e APP_ARGS=\"--process=mock-server --tcp-port=8082\" admingentoro/gentoro:latest"
     log_info ""
     read -p "Continue anyway? (y/N): " -n 1 -r
     echo

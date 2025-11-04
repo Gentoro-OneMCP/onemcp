@@ -12,14 +12,14 @@ The CI/CD pipeline consists of four main stages:
 
 ### 1. Unit Tests
 Fast feedback for code quality across all projects:
-- **mcpagent** (Java/Spring Boot)
+- **onemcp** (Java/Spring Boot)
 - **acme-analytics-server** (Java mock server)
 - **typescript-runtime** (Node.js/TypeScript)
 
 **Trigger**: Every push and pull request
 
 ### 2. Integration Tests
-Test component interactions (mcpagent ↔ TypeScript runtime):
+Test component interactions (onemcp ↔ TypeScript runtime):
 - Starts TypeScript runtime service
 - Runs integration test suite
 - Validates cross-service communication
@@ -73,7 +73,7 @@ To run the same tests that run in CI/CD locally:
 
 ```bash
 # Java services
-cd src/mcpagent && mvn test
+cd src/onemcp && mvn test
 cd src/acme-analytics-server/server && mvn test
 
 # TypeScript runtime
@@ -87,7 +87,7 @@ cd src/typescript-runtime && npm test
 cd src/typescript-runtime && npm run dev &
 
 # Run integration tests
-cd src/mcpagent && mvn test -Dtest="*IntegrationTest"
+cd src/onemcp && mvn test -Dtest="*IntegrationTest"
 
 # Stop TypeScript runtime
 pkill -f "npm run dev"
@@ -97,12 +97,12 @@ pkill -f "npm run dev"
 
 ```bash
 # Build all services
-cd src/mcpagent && mvn package -DskipTests
+cd src/onemcp && mvn package -DskipTests
 cd src/acme-analytics-server/server && mvn package -DskipTests
 cd src/typescript-runtime && npm run build
 
 # Start services
-java -jar src/mcpagent/target/mcpagent-*.jar &
+java -jar src/onemcp/target/onemcp-*.jar &
 java -jar src/acme-analytics-server/server/target/acme-analytics-*.jar &
 cd src/typescript-runtime && npm start &
 
@@ -168,7 +168,7 @@ test(integration): add MCP endpoint integration tests
 #### Unit Test Failures
 ```bash
 # Run tests locally with verbose output
-cd src/mcpagent && mvn test -X
+cd src/onemcp && mvn test -X
 
 # Run specific test
 mvn test -Dtest=MyTestClass#myTestMethod
@@ -180,7 +180,7 @@ mvn test -Dtest=MyTestClass#myTestMethod
 cd src/typescript-runtime && npm run dev
 
 # Run integration tests with debug logging
-cd src/mcpagent && mvn test -Dtest="*IntegrationTest" -X
+cd src/onemcp && mvn test -Dtest="*IntegrationTest" -X
 ```
 
 #### Docker Build Failures

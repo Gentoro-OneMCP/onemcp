@@ -24,7 +24,7 @@ You'll see an interactive chat interface like this:
 
 ```
 ╔══════════════════════════════════════╗
-║    Gentoro MCP Agent - Chat Mode     ║
+║     Gentoro OneMCP - Chat Mode       ║
 ╚══════════════════════════════════════╝
 
 Provider: openai

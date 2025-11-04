@@ -1,6 +1,6 @@
 {
-  "name": "MCP Agent",
-  "description": "MCP Agent with HTTP Streamable transport",
+  "name": "OneMCP",
+  "description": "OneMCP with HTTP Streamable transport",
   "url": "http://localhost:8080/mcp",
   "transport": "http-streamable",
   "capabilities": {
@@ -12,7 +12,7 @@
   "tools": [
     {
       "name": "gentoro.run",
-      "description": "Execute natural language prompts using the MCP Agent orchestrator"
+      "description": "Execute natural language prompts using the OneMCP orchestrator"
     }
   ]
 }

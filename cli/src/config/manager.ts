@@ -1,5 +1,5 @@
 /**
- * Configuration manager for MCP Agent CLI
+ * Configuration manager for OneMCP CLI
  */
 import fs from 'fs-extra';
 import YAML from 'yaml';

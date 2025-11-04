@@ -25,7 +25,7 @@ You'll see an interactive chat interface like this:
 
 ```
 ╔══════════════════════════════════════╗
-║    Gentoro MCP Agent - Chat Mode     ║
+║     Gentoro OneMCP - Chat Mode       ║
 ╚══════════════════════════════════════╝
 
 Provider: openai
@@ -71,14 +71,14 @@ docker pull admingentoro/gentoro:latest
 
 ```bash
 # Run with OPENAI API
-docker run --name mcpagent -p 8080:8080 -e OPENAI_API_KEY=your-key admingentoro/gentoro:latest
+docker run --name onemcp -p 8080:8080 -e OPENAI_API_KEY=your-key admingentoro/gentoro:latest
 ```
 
 #### Using Docker with Custom Foundation Folder
 
 ```bash
 # Run within your custom foundation folder
-docker run --name mcpagent -p 8080:8080 \
+docker run --name onemcp -p 8080:8080 \
   -v $(pwd):/var/foundation \
   -e OPENAI_API_KEY=your-key \
   admingentoro/gentoro:latest
@@ -98,26 +98,26 @@ If validation fails, check the container logs for specific error messages and gu
 
 ### 🐳 Container Management
 
-With named containers, you can easily manage the MCP Agent:
+With named containers, you can easily manage OneMCP:
 
 ```bash
 # Start/stop the container
-docker start mcpagent
-docker stop mcpagent
+docker start onemcp
+docker stop onemcp
 
 # View logs
-docker logs mcpagent
+docker logs onemcp
 
 # Access container shell
-docker exec -it mcpagent bash
+docker exec -it onemcp bash
 
 # Remove container when done
-docker rm mcpagent
+docker rm onemcp
 ```
 
 ### 🔍 Using Your Agent
 
-Once installed (via CLI or Docker), interact with your OneMCP agent using the MCP Inspector:
+Once installed (via CLI or Docker), interact with your OneMCP using the MCP Inspector:
 
 #### MCP Inspector
 
@@ -142,7 +142,7 @@ The default configuration uses AI hint generation which can be slow. For faster 
 
 ```bash
 # Disable AI hint generation
-docker run --name mcpagent -p 8080:8080 \
+docker run --name onemcp -p 8080:8080 \
   -e OPENAI_API_KEY=your-key \
   -e KNOWLEDGE_BASE_HINT_USE_AI=false \
   admingentoro/gentoro:latest

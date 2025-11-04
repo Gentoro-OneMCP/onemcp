@@ -7,9 +7,9 @@ public final class TelemetryConstants {
   private TelemetryConstants() {}
 
   /** Tracer name used for manual spans. */
-  public static final String TRACER = "com.gentorox.mcpagent";
+  public static final String TRACER = "com.gentorox.onemcp";
   /** Meter name used for custom application metrics. */
-  public static final String METER  = "com.gentorox.mcpagent";
+  public static final String METER  = "com.gentorox.onemcp";
 
   /** MDC key used to propagate the logical session identifier in logs. */
   public static final String MDC_SESSION_ID = "sessionId";

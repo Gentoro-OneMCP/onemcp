@@ -39,7 +39,7 @@ export class HandbookManager {
     // Create example documentation
     const exampleDoc = `# Getting Started
 
-This handbook contains the configuration and documentation for your MCP Agent.
+This handbook contains the configuration and documentation for your OneMCP.
 
 ## Structure
 
@@ -200,7 +200,7 @@ Define the expected response format for your agent's outputs.
   private getDefaultReadme(name: string): string {
     return `# ${name}
 
-MCP Agent handbook for ${name}.
+OneMCP handbook for ${name}.
 
 ## Setup
 
@@ -260,7 +260,7 @@ See the \`docs/\` directory for additional documentation.
         resolvedSource = distSource;
       } else {
         // Fallback: try to copy from the source location
-        const sourceSource = resolve(__dirname, '../../../src/acme-analytics-server/mcpagent-handbook');
+        const sourceSource = resolve(__dirname, '../../../src/acme-analytics-server/onemcp-handbook');
         if (await fs.pathExists(sourceSource)) {
           resolvedSource = sourceSource;
         }

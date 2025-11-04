@@ -1,5 +1,5 @@
 /**
- * Interactive chat mode for MCP Agent
+ * Interactive chat mode for OneMCP
  */
 import inquirer from 'inquirer';
 import chalk from 'chalk';
@@ -22,7 +22,7 @@ export class ChatMode {
     // Check if agent is running
     this.agentStatus = await agentService.getStatus();
     if (!this.agentStatus.running) {
-      console.log(chalk.red('❌ MCP Agent is not running.'));
+      console.log(chalk.red('❌ OneMCP is not running.'));
       console.log(chalk.yellow('Services should start automatically when you run: onemcp chat'));
       return;
     }
@@ -38,7 +38,7 @@ export class ChatMode {
 
     console.log();
     console.log(chalk.bold.cyan('╔══════════════════════════════════════╗'));
-    console.log(chalk.bold.cyan('║    Gentoro MCP Agent - Chat Mode     ║'));
+    console.log(chalk.bold.cyan('║    Gentoro OneMCP - Chat Mode        ║'));
     console.log(chalk.bold.cyan('╚══════════════════════════════════════╝'));
     console.log();
     console.log(chalk.dim(`Provider: ${config.provider}`));
@@ -105,7 +105,7 @@ export class ChatMode {
         content: userMessage,
       });
 
-      // Send to MCP Agent and get response
+      // Send to OneMCP and get response
       const spinner = ora({
         text: 'Thinking...',
         spinner: 'dots',
@@ -135,7 +135,7 @@ export class ChatMode {
   }
 
   /**
-   * Send message to MCP Agent via MCP protocol
+   * Send message to OneMCP via MCP protocol
    */
   private async sendMessage(provider: ModelProvider, userMessage: string, timeout: number): Promise<string> {
     try {
@@ -153,7 +153,7 @@ export class ChatMode {
       });
       const client = new Client(
         {
-          name: 'mcpagent-cli',
+          name: 'onemcp-cli',
           version: '0.1.0',
         },
         {
@@ -198,7 +198,7 @@ export class ChatMode {
         await client.close();
       }
     } catch (error: any) {
-      throw new Error(`Failed to communicate with MCP agent: ${error.message}`);
+      throw new Error(`Failed to communicate with OneMCP: ${error.message}`);
     }
   }
 

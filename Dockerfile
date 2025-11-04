@@ -3,7 +3,7 @@ ARG BASE_IMAGE=admingentoro/base:latest
 FROM ${BASE_IMAGE}
 
 ARG APP_JAR
-ENV APP_JAR_PATH=/opt/app/mcpagent.jar
+ENV APP_JAR_PATH=/opt/app/onemcp.jar
 ENV ACME_SERVER_FOUNDATION_DIR=/var/foundation
 RUN mkdir -p /opt/app /var/foundation
 
@@ -30,7 +30,7 @@ COPY scripts/docker/run-mock.sh /opt/bin/run-mock.sh
 RUN chmod +x /opt/bin/*.sh
 
 # Copy default foundation content (acme-analytics-server handbook)
-COPY src/acme-analytics-server/mcpagent-handbook/ ${ACME_SERVER_FOUNDATION_DIR}/
+COPY src/acme-analytics-server/onemcp-handbook/ ${ACME_SERVER_FOUNDATION_DIR}/
 # Rename instructions.md to Agent.md `as required by the application
 RUN mv ${ACME_SERVER_FOUNDATION_DIR}/instructions.md ${ACME_SERVER_FOUNDATION_DIR}/Agent.md
 # Verify foundation content is copied correctly

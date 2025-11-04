@@ -3,7 +3,7 @@
 Thumbs.db
 
 # Runtime state generation
-src/acme-analytics-server/mcpagent-handbook/state
+src/acme-analytics-server/onemcp-handbook/state
 
 # IDEs and editors
 .idea/
@@ -49,7 +49,7 @@ package-lock.json
 
 # Local test env files (never commit)
 .env.local
-src/mcpagent/src/main/resources/application-dev.yaml
+src/onemcp/src/main/resources/application-dev.yaml
 
 # Docs
 docs/out/

@@ -44,10 +44,10 @@ jobs:
           ${{ runner.os }}-npm-
           ${{ runner.os }}-
     
-    - name: Test mcpagent (Unit Tests Only)
+    - name: Test onemcp (Unit Tests Only)
       run: |
-        cd src/mcpagent
-        echo "Running mcpagent unit tests..."
+        cd src/onemcp
+        echo "Running onemcp unit tests..."
         mvn test -Dtest="AgentServiceTest,TelemetryServiceTracingTest,TelemetryServiceMetricsTest,LogContextTest,TelemetryConfigTest,KnowledgeBaseServiceImplTest,FileKnowledgeBasePersistenceTest,OrchestratorImplTest,AgentServiceConfigTest,FoundationValidationServiceTest"
     
     - name: Test acme-analytics-server
@@ -78,7 +78,7 @@ jobs:
       with:
         name: unit-test-results
         path: |
-          src/mcpagent/target/surefire-reports/
+          src/onemcp/target/surefire-reports/
           src/acme-analytics-server/server/target/surefire-reports/
           src/typescript-runtime/coverage/
           cli/coverage/
@@ -174,10 +174,10 @@ jobs:
           sleep 5
         done
     
-    - name: Run mcpagent integration tests
+    - name: Run onemcp integration tests
       run: |
-        cd src/mcpagent
-        echo "Running mcpagent integration tests..."
+        cd src/onemcp
+        echo "Running onemcp integration tests..."
         # Run integration tests - failures should block the pipeline
         echo "Running integration tests..."
         mvn test -Dtest="*IntegrationTest"
@@ -195,7 +195,7 @@ jobs:
       if: always()
       with:
         name: integration-test-results
-        path: src/mcpagent/target/surefire-reports/
+        path: src/onemcp/target/surefire-reports/
         retention-days: 7
 
   # Stage 3: Build & Service Validation - Build artifacts and validate service deployment
@@ -242,7 +242,7 @@ jobs:
     - name: Extract version from POM
       id: version
       run: |
-        POM_FILE="src/mcpagent/pom.xml"
+        POM_FILE="src/onemcp/pom.xml"
         CURRENT_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" "$POM_FILE")
         VERSION_NUMBER=${CURRENT_VERSION%-SNAPSHOT}
         echo "version=$VERSION_NUMBER" >> $GITHUB_OUTPUT
@@ -251,8 +251,8 @@ jobs:
     
     - name: Build all components
       run: |
-        echo "Building mcpagent..."
-        cd src/mcpagent
+        echo "Building onemcp..."
+        cd src/onemcp
         mvn clean package spring-boot:repackage -DskipTests
         
         echo "Building acme-analytics-server..."
@@ -282,13 +282,13 @@ jobs:
       run: |
         echo "Verifying build artifacts..."
         
-        # Check mcpagent JAR
-        MCPAGENT_JAR=$(find src/mcpagent/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
-        if [ -f "$MCPAGENT_JAR" ]; then
-          echo "✅ mcpagent JAR found: $MCPAGENT_JAR"
-          ls -la "$MCPAGENT_JAR"
+        # Check onemcp JAR
+        ONEMCP_JAR=$(find src/onemcp/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
+        if [ -f "$ONEMCP_JAR" ]; then
+          echo "✅ onemcp JAR found: $ONEMCP_JAR"
+          ls -la "$ONEMCP_JAR"
         else
-          echo "❌ mcpagent JAR not found"
+          echo "❌ onemcp JAR not found"
           exit 1
         fi
         
@@ -397,42 +397,42 @@ jobs:
           exit 1
         fi
     
-    - name: Start MCP Agent Service
+    - name: Start OneMCP Service
       run: |
-        cd src/mcpagent
-        MCPAGENT_JAR=$(find target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
-        echo "Starting MCP Agent service on port 8080..."
+        cd src/onemcp
+        ONEMCP_JAR=$(find target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
+        echo "Starting OneMCP service on port 8080..."
         
         # Create foundation directory
         sudo mkdir -p /var/foundation
         sudo chmod 777 /var/foundation
         
-        # Set required environment variables for MCP Agent
+        # Set required environment variables for OneMCP
         export OPENAI_API_KEY="test-key-for-ci"
         export SPRING_PROFILES_ACTIVE="test"
         
-        java -jar "$MCPAGENT_JAR" &
-        MCPAGENT_PID=$!
-        echo "MCPAGENT_PID=$MCPAGENT_PID" >> $GITHUB_ENV
+        java -jar "$ONEMCP_JAR" &
+        ONEMCP_PID=$!
+        echo "ONEMCP_PID=$ONEMCP_PID" >> $GITHUB_ENV
         
         # Wait for service to start
-        echo "Waiting for MCP Agent service to start..."
+        echo "Waiting for OneMCP service to start..."
         for i in {1..30}; do
           # Try multiple endpoints to check if service is ready
           if curl -f http://localhost:8080/actuator/health 2>/dev/null; then
-            echo "✅ MCP Agent service is ready (actuator/health)"
+            echo "✅ OneMCP service is ready (actuator/health)"
             break
           elif curl -f http://localhost:8080/mcp 2>/dev/null; then
-            echo "✅ MCP Agent service is ready (mcp endpoint)"
+            echo "✅ OneMCP service is ready (mcp endpoint)"
             break
           elif curl -f http://localhost:8080/ 2>/dev/null; then
-            echo "✅ MCP Agent service is ready (root endpoint)"
+            echo "✅ OneMCP service is ready (root endpoint)"
             break
           elif netstat -tlnp 2>/dev/null | grep -q ":8080" || ss -tlnp 2>/dev/null | grep -q ":8080"; then
-            echo "✅ MCP Agent service is ready (port 8080 is listening)"
+            echo "✅ OneMCP service is ready (port 8080 is listening)"
             break
           else
-            echo "Waiting for MCP Agent service... attempt $i/30"
+            echo "Waiting for OneMCP service... attempt $i/30"
             sleep 2
           fi
         done
@@ -540,9 +540,9 @@ jobs:
           exit 1
         fi
     
-    - name: Validate MCP Agent Service
+    - name: Validate OneMCP Service
       run: |
-        echo "Testing MCP Agent service endpoints..."
+        echo "Testing OneMCP service endpoints..."
         
         # Test /actuator/health endpoint
         echo "Testing /actuator/health endpoint..."
@@ -550,11 +550,11 @@ jobs:
         echo "Response: $RESPONSE"
         
         if echo "$RESPONSE" | grep -q '"status":404'; then
-          echo "⚠️ MCP Agent /actuator/health endpoint returns 404 (not available in test profile)"
+          echo "⚠️ OneMCP /actuator/health endpoint returns 404 (not available in test profile)"
         elif echo "$RESPONSE" | grep -q "UP\|status"; then
-          echo "✅ MCP Agent /actuator/health endpoint working"
+          echo "✅ OneMCP /actuator/health endpoint working"
         else
-          echo "⚠️ MCP Agent /actuator/health endpoint not available (this may be expected in test profile)"
+          echo "⚠️ OneMCP /actuator/health endpoint not available (this may be expected in test profile)"
         fi
         
         # Test MCP endpoint
@@ -565,26 +565,26 @@ jobs:
         echo "Response: $RESPONSE"
         
         if [ -z "$RESPONSE" ]; then
-          echo "⚠️ MCP Agent MCP endpoint returns empty response"
+          echo "⚠️ OneMCP MCP endpoint returns empty response"
           echo "This may be expected if the service requires additional configuration or authentication"
         elif echo "$RESPONSE" | grep -q "jsonrpc\|result"; then
-          echo "✅ MCP Agent MCP endpoint working"
+          echo "✅ OneMCP MCP endpoint working"
         else
-          echo "⚠️ MCP Agent MCP endpoint not responding correctly"
+          echo "⚠️ OneMCP MCP endpoint not responding correctly"
           echo "This may be expected if the service requires additional configuration"
         fi
         
         # Test if service is at least responding
         echo "Testing basic connectivity..."
         if netstat -tlnp 2>/dev/null | grep -q ":8080" || ss -tlnp 2>/dev/null | grep -q ":8080"; then
-          echo "✅ MCP Agent service is listening on port 8080"
+          echo "✅ OneMCP service is listening on port 8080"
           echo "   Service is running successfully (endpoints may not be fully functional in test mode)"
         elif curl -f http://localhost:8080/ 2>/dev/null; then
-          echo "✅ MCP Agent service is responding to basic requests"
+          echo "✅ OneMCP service is responding to basic requests"
         else
-          echo "❌ MCP Agent service is not responding to basic requests"
+          echo "❌ OneMCP service is not responding to basic requests"
           echo "Checking if process is still running..."
-          if [ ! -z "$MCPAGENT_PID" ] && kill -0 $MCPAGENT_PID 2>/dev/null; then
+          if [ ! -z "$ONEMCP_PID" ] && kill -0 $ONEMCP_PID 2>/dev/null; then
             echo "Process is running but not responding - this may be expected in test environment"
           else
             echo "Process has died - this is a real failure"
@@ -600,7 +600,7 @@ jobs:
         echo "All services are running and responding:"
         echo "✅ TypeScript Runtime: http://localhost:7070"
         echo "✅ ACME Analytics Server: http://localhost:8081" 
-        echo "✅ MCP Agent: http://localhost:8080"
+        echo "✅ OneMCP: http://localhost:8080"
         
         # Verify no port conflicts
         echo "Checking for port conflicts..."
@@ -609,7 +609,7 @@ jobs:
         echo ""
         echo "⚠️  Note: Service validation may fail due to external dependencies:"
         echo "   - TypeScript Runtime: Requires proper build output"
-        echo "   - MCP Agent: Requires OpenAI API key and external services"
+        echo "   - OneMCP: Requires OpenAI API key and external services"
         echo "   - ACME Analytics: May require database connections"
         echo "   This is expected in CI environment and doesn't affect artifact validation."
     
@@ -682,16 +682,16 @@ jobs:
           kill $ACME_PID || echo "ACME Analytics Server already stopped"
         fi
         
-        if [ ! -z "$MCPAGENT_PID" ]; then
-          echo "Stopping MCP Agent service (PID: $MCPAGENT_PID)"
-          kill $MCPAGENT_PID || echo "MCP Agent service already stopped"
+        if [ ! -z "$ONEMCP_PID" ]; then
+          echo "Stopping OneMCP service (PID: $ONEMCP_PID)"
+          kill $ONEMCP_PID || echo "OneMCP service already stopped"
         fi
         
         # Wait a moment for services to stop
         sleep 3
         
         # Force kill any remaining processes on our ports
-        pkill -f "java.*mcpagent" || echo "No mcpagent processes to kill"
+        pkill -f "java.*onemcp" || echo "No onemcp processes to kill"
         pkill -f "java.*acme" || echo "No acme processes to kill"
         pkill -f "node.*typescript-runtime" || echo "No typescript-runtime processes to kill"
     
@@ -700,7 +700,7 @@ jobs:
       with:
         name: build-artifacts
         path: |
-          src/mcpagent/target/*.jar
+          src/onemcp/target/*.jar
           src/acme-analytics-server/server/target/*.jar
           src/typescript-runtime/dist/
         retention-days: 7
@@ -755,16 +755,16 @@ jobs:
       if: always()
       run: |
         # Check if artifacts were successfully downloaded
-        if [ -d "src/mcpagent/target" ] && [ -d "src/acme-analytics-server/server/target" ] && [ -d "src/typescript-runtime/dist" ]; then
+        if [ -d "src/onemcp/target" ] && [ -d "src/acme-analytics-server/server/target" ] && [ -d "src/typescript-runtime/dist" ]; then
           echo "Artifacts already available, skipping build"
           exit 0
         fi
         
         echo "Artifacts not available, building them now..."
         
-        # Build mcpagent
-        echo "Building mcpagent..."
-        cd src/mcpagent
+        # Build onemcp
+        echo "Building onemcp..."
+        cd src/onemcp
         echo "Current directory: $(pwd)"
         echo "Contents: $(ls -la)"
         mvn clean package spring-boot:repackage -DskipTests
@@ -790,7 +790,7 @@ jobs:
         cd ../..
         echo "Back to root directory: $(pwd)"
         echo "Final verification:"
-        echo "mcpagent target: $(ls -la src/mcpagent/target/ || echo 'mcpagent target not found')"
+        echo "onemcp target: $(ls -la src/onemcp/target/ || echo 'onemcp target not found')"
         echo "acme target: $(ls -la src/acme-analytics-server/server/target/ || echo 'acme target not found')"
         echo "typescript dist: $(ls -la src/typescript-runtime/dist/ || echo 'typescript dist not found')"
     
@@ -804,30 +804,30 @@ jobs:
         
         # Check if directories exist first
         echo "Checking directory structure..."
-        echo "src/mcpagent exists: $([ -d src/mcpagent ] && echo 'yes' || echo 'no')"
-        echo "src/mcpagent/target exists: $([ -d src/mcpagent/target ] && echo 'yes' || echo 'no')"
+        echo "src/onemcp exists: $([ -d src/onemcp ] && echo 'yes' || echo 'no')"
+        echo "src/onemcp/target exists: $([ -d src/onemcp/target ] && echo 'yes' || echo 'no')"
         echo "src/acme-analytics-server/server exists: $([ -d src/acme-analytics-server/server ] && echo 'yes' || echo 'no')"
         echo "src/acme-analytics-server/server/target exists: $([ -d src/acme-analytics-server/server/target ] && echo 'yes' || echo 'no')"
         echo "src/typescript-runtime exists: $([ -d src/typescript-runtime ] && echo 'yes' || echo 'no')"
         echo "src/typescript-runtime/dist exists: $([ -d src/typescript-runtime/dist ] && echo 'yes' || echo 'no')"
         
-        # Check mcpagent JAR
-        if [ -d src/mcpagent/target ]; then
-          MCPAGENT_JAR=$(find src/mcpagent/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
-          if [ -f "$MCPAGENT_JAR" ]; then
-            echo "✅ mcpagent JAR found: $MCPAGENT_JAR"
-            ls -la "$MCPAGENT_JAR"
+        # Check onemcp JAR
+        if [ -d src/onemcp/target ]; then
+          ONEMCP_JAR=$(find src/onemcp/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
+          if [ -f "$ONEMCP_JAR" ]; then
+            echo "✅ onemcp JAR found: $ONEMCP_JAR"
+            ls -la "$ONEMCP_JAR"
           else
-            echo "❌ mcpagent JAR not found in target directory"
-            echo "Contents of src/mcpagent/target:"
-            ls -la src/mcpagent/target/ || echo "Cannot list target directory"
+            echo "❌ onemcp JAR not found in target directory"
+            echo "Contents of src/onemcp/target:"
+            ls -la src/onemcp/target/ || echo "Cannot list target directory"
             echo "Build step may still be running or failed"
             exit 1
           fi
         else
-          echo "❌ mcpagent target directory not found"
-          echo "Contents of src/mcpagent:"
-          ls -la src/mcpagent/ || echo "Cannot list mcpagent directory"
+          echo "❌ onemcp target directory not found"
+          echo "Contents of src/onemcp:"
+          ls -la src/onemcp/ || echo "Cannot list onemcp directory"
           echo "Build step may not have run yet"
           exit 1
         fi
@@ -866,7 +866,7 @@ jobs:
     - name: Extract version from POM
       id: version
       run: |
-        POM_FILE="src/mcpagent/pom.xml"
+        POM_FILE="src/onemcp/pom.xml"
         CURRENT_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" "$POM_FILE")
         VERSION_NUMBER=${CURRENT_VERSION%-SNAPSHOT}
         echo "version=$VERSION_NUMBER" >> $GITHUB_OUTPUT
@@ -895,8 +895,8 @@ jobs:
     - name: Build product image
       run: |
         VERSION="${{ steps.version.outputs.version }}"
-        POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" src/mcpagent/pom.xml)
-        JAR_NAME="mcpagent-$POM_VERSION.jar"
+        POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" src/onemcp/pom.xml)
+        JAR_NAME="onemcp-$POM_VERSION.jar"
         echo "Building product image for ${{ matrix.platform }}..."
         
         echo "Checking if base image exists before building product image..."

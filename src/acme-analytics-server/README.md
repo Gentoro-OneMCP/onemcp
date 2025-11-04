@@ -1,6 +1,6 @@
 # ACME Analytics Server
 
-A mock analytics server for testing the MCP-Agent system. This server provides a realistic data analytics API that the MCP-Agent can learn from and interact with.
+A mock analytics server for testing the OneMCP system. This server provides a realistic data analytics API that the OneMCP can learn from and interact with.
 
 ## Overview
 
@@ -16,7 +16,7 @@ The ACME Analytics Server simulates a comprehensive e-commerce analytics platfor
 ```
 acme-analytics-server/
 ├── README.md                    # This file
-├── mcpagent-handbook/          # Handbook for MCP-Agent
+├── onemcp-handbook/          # Handbook for OneMCP
 │   ├── docs/                   # Documentation
 │   ├── openapi/                # API specifications
 │   ├── config/                 # Configuration files
@@ -30,9 +30,9 @@ acme-analytics-server/
     └── build.sh                # Build script
 ```
 
-## MCP-Agent Handbook
+## OneMCP Handbook
 
-The `mcpagent-handbook/` directory contains everything the MCP-Agent needs to understand and interact with the ACME Analytics API:
+The `onemcp-handbook/` directory contains everything the OneMCP needs to understand and interact with the ACME Analytics API:
 
 ### Key Components
 
@@ -43,7 +43,7 @@ The `mcpagent-handbook/` directory contains everything the MCP-Agent needs to un
 
 ### Mock Service: ACME Sales Analytics API
 
-The mcpagent-handbook includes a comprehensive mock service with:
+The onemcp-handbook includes a comprehensive mock service with:
 
 - **Flexible Query Interface**: Filter, select fields, and perform aggregations
 - **Rich Dataset**: 4 entity types (Sales, Products, Customers, Regions) with 30+ fields
@@ -105,7 +105,7 @@ mvn test
 
 **User Prompt**: "Show me the total revenue for electronics in California last quarter"
 
-**MCP-Agent Understanding**:
+**OneMCP Understanding**:
 - Entity: Electronics (product.category)
 - Location: California (customer.state)
 - Time: Last quarter (date.quarter)
@@ -138,9 +138,9 @@ The server provides three main endpoints:
 
 ### Adding New Features
 
-1. **Update OpenAPI Spec**: Add new endpoints, fields, or capabilities in `mcpagent-handbook/openapi/`
-2. **Update Documentation**: Add examples and use cases in `mcpagent-handbook/docs/`
-3. **Update Examples**: Add sample queries in `mcpagent-handbook/examples/`
+1. **Update OpenAPI Spec**: Add new endpoints, fields, or capabilities in `onemcp-handbook/openapi/`
+2. **Update Documentation**: Add examples and use cases in `onemcp-handbook/docs/`
+3. **Update Examples**: Add sample queries in `onemcp-handbook/examples/`
 4. **Update Server Code**: Modify Java implementation in `server/src/main/java/`
 5. **Rebuild**: Run `./build.sh` to compile changes
 
@@ -157,11 +157,11 @@ The server includes comprehensive JUnit tests covering:
 - Error handling
 - Invalid query scenarios
 
-## Integration with MCP-Agent
+## Integration with OneMCP
 
-The MCP-Agent should be configured to ingest the OpenAPI specification and other documentation located in the `mcpagent-handbook/` directory. This will enable the agent to understand the API's capabilities and generate appropriate queries from natural language prompts.
+OneMCP should be configured to ingest the OpenAPI specification and other documentation located in the `onemcp-handbook/` directory. This will enable the agent to understand the API's capabilities and generate appropriate queries from natural language prompts.
 
-The MCP-Agent uses this mcpagent-handbook to:
+OneMCP uses this onemcp-handbook to:
 
 1. **Understand Entities**: Recognize products, customers, sales, regions
 2. **Map Relationships**: Connect related data across entities
@@ -173,10 +173,10 @@ The MCP-Agent uses this mcpagent-handbook to:
 ## Support
 
 For questions about this mock server:
-- Review the documentation in `mcpagent-handbook/docs/`
-- Check sample queries in `mcpagent-handbook/examples/`
-- Examine configuration in `mcpagent-handbook/config/`
+- Review the documentation in `onemcp-handbook/docs/`
+- Check sample queries in `onemcp-handbook/examples/`
+- Examine configuration in `onemcp-handbook/config/`
 
 ## License
 
-This mock server is part of the MCP-Agent project and follows the same licensing terms.
+This mock server is part of the OneMCP project and follows the same licensing terms.

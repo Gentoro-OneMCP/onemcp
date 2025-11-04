@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
  *
  * Search order for the env file:
  * 1) ./.env.local (current working directory when tests run)
- * 2) ./src/mcpagent/.env.local (when running from repo root)
+ * 2) ./src/onemcp/.env.local (when running from repo root)
  *
  * If the file does not exist, nothing happens (tests continue normally).
  */
@@ -64,7 +64,7 @@ public class EnvLoaderLauncherSessionListener implements LauncherSessionListener
         Path p1 = Paths.get(".env.local");
         if (Files.exists(p1)) return p1;
         // 2) Module-relative when running from repo root
-        Path p2 = Paths.get("src/mcpagent/.env.local");
+        Path p2 = Paths.get("src/onemcp/.env.local");
         if (Files.exists(p2)) return p2;
         return null;
     }

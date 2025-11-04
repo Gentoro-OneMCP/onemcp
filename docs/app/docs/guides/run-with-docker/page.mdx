@@ -1,5 +1,5 @@
 ---
-description: Run MCP Agent with Docker using various process modes and configurations.
+description: Run OneMCP with Docker using various process modes and configurations.
 ---
 
 # Run with Docker
@@ -103,14 +103,14 @@ docker run --rm admingentoro/gentoro:latest status
 
 ## Dependencies Mode (Local Development)
 
-For local development, you can run the container in dependencies mode to start only the supporting services while running the main MCP Agent application locally.
+For local development, you can run the container in dependencies mode to start only the supporting services while running the main OneMCP application locally.
 
 ### Start Dependencies Container
 
 ```bash
 # Run container with only dependencies (excludes the main app)
 docker run -d \
-  --name mcpagent-deps \
+  --name onemcp-deps \
   -p 4317:4317 \
   -p 4318:4318 \
   -p 7070:7070 \
@@ -121,7 +121,7 @@ docker run -d \
 Alternative using environment variables:
 ```bash
 docker run -d \
-  --name mcpagent-deps \
+  --name onemcp-deps \
   -p 4317:4317 \
   -p 4318:4318 \
   -p 7070:7070 \
@@ -136,9 +136,9 @@ docker run -d \
 - **4318**: OpenTelemetry Collector OTLP HTTP endpoint  
 - **7070**: TypeScript Runtime service
 - **8082**: ACME Analytics Service (mock server)
-- **8080**: Main MCP Agent application (when running full container)
+- **8080**: Main OneMCP application (when running full container)
 
-### Run MCP Agent Locally
+### Run OneMCP Locally
 
 With the dependencies container running, run the application locally:
 
@@ -148,15 +148,15 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 export TS_RUNTIME_URL=http://localhost:7070
 
 # Run the application locally
-cd src/mcpagent
+cd src/onemcp
 ./mvnw spring-boot:run
 ```
 
 ### Stop Dependencies Container
 
 ```bash
-docker stop mcpagent-deps
-docker rm mcpagent-deps
+docker stop onemcp-deps
+docker rm onemcp-deps
 ```
 
 ## Environment Variables
@@ -189,7 +189,7 @@ The base image contains the runtime environment (JRE 21, Node.js, OpenAPI Genera
 
 ### Build Product Image
 
-The product image contains the MCP Agent application built on the base image:
+The product image contains the OneMCP application built on the base image:
 
 ```bash
 # Build product image with default version (dev)
@@ -199,7 +199,7 @@ The product image contains the MCP Agent application built on the base image:
 ./scripts/docker/build-product.sh v1.0.0
 
 # Build with specific JAR file
-./scripts/docker/build-product.sh v1.0.0 mcpagent-0.1.0-SNAPSHOT.jar
+./scripts/docker/build-product.sh v1.0.0 onemcp-0.1.0-SNAPSHOT.jar
 
 # Build and push to registry
 ./scripts/docker/build-product.sh v1.0.0 "" --push

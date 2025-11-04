@@ -3,7 +3,7 @@
 
 # Unit Test Configuration
 unit_tests:
-  mcpagent:
+  onemcp:
     # Specific unit tests that don't require full Spring context
     test_classes:
       - "AgentServiceTest"
@@ -29,7 +29,7 @@ unit_tests:
 
 # Integration Test Configuration
 integration_tests:
-  mcpagent:
+  onemcp:
     # Integration tests that require external dependencies
     test_classes:
       - "*IntegrationTest"
@@ -39,7 +39,7 @@ integration_tests:
 
 # Build Configuration
 build:
-  mcpagent:
+  onemcp:
     skip_tests: true  # Tests run in separate stages
     create_executable_jar: true
   
@@ -72,7 +72,7 @@ service_validation:
   
   # HTTP Service Endpoints to validate
   services:
-    mcpagent:
+    onemcp:
       port: 8080
       health_endpoint: "/actuator/health"
       mcp_endpoint: "/mcp"

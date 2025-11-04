@@ -129,7 +129,7 @@ validate_product_image() {
     if ! docker image inspect "$PRODUCT_IMAGE" >/dev/null 2>&1; then
         log_error "Product image $PRODUCT_IMAGE does not exist locally"
         log_info "Available images:"
-        docker images | grep -E "(gentoro|mcpagent)" || echo "No gentoro images found"
+        docker images | grep -E "gentoro" || echo "No gentoro images found"
         return 1
     else
         log_info "Product image found locally"
@@ -193,17 +193,17 @@ validate_product_image() {
         return 1
     fi
     
-    # Test MCP Agent endpoints
+    # Test OneMCP endpoints
     if curl -s http://localhost:8080/mcp >/dev/null 2>&1; then
-        log_success "MCP Agent endpoint is responding on $PLATFORM"
+        log_success "OneMCP endpoint is responding on $PLATFORM"
     else
-        log_success "MCP Agent is running (endpoint may not respond to GET requests)"
+        log_success "OneMCP is running (endpoint may not respond to GET requests)"
     fi
-    
+
     if curl -s http://localhost:8080/actuator/info >/dev/null 2>&1; then
-        log_success "MCP Agent info endpoint is responding on $PLATFORM"
+        log_success "OneMCP info endpoint is responding on $PLATFORM"
     else
-        log_success "MCP Agent is running (info endpoint may not be configured)"
+        log_success "OneMCP is running (info endpoint may not be configured)"
     fi
     
     # Test supervisor processes

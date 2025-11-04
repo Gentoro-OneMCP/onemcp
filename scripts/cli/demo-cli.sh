@@ -22,8 +22,8 @@ echo ""
 echo "Starting CLI demo..."
 echo ""
 
-# Navigate to the mcpagent project directory
-cd "$(dirname "$0")/../../src/mcpagent"
+# Navigate to the onemcp project directory
+cd "$(dirname "$0")/../../src/onemcp"
 
 # Create input file for automated testing
 cat > /tmp/cli_input.txt << EOF
@@ -57,4 +57,4 @@ echo "To use the CLI interactively, run:"
 echo "  ./scripts/cli/test-inference.sh"
 echo ""
 echo "Or directly:"
-echo "  cd src/mcpagent && mvn exec:java -Dexec.mainClass=\"com.gentorox.services.inference.InferenceServiceCLI\" -Dexec.classpathScope=test"
+echo "  cd src/onemcp && mvn exec:java -Dexec.mainClass=\"com.gentorox.services.inference.InferenceServiceCLI\" -Dexec.classpathScope=test"
