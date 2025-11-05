@@ -50,6 +50,57 @@
 .dark .btn-secondary { border-color: #555555; color: #ffffff; }
 .dark .btn-secondary:hover { background: rgba(255,255,255,0.06); }
 
+.navbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.navbar-actions__stars {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  gap: 6px;
+  color: rgba(17, 24, 39, 0.68);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: color 0.18s ease, opacity 0.18s ease;
+}
+
+.navbar-actions__stars svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  transform: translateY(0.5px);
+}
+
+.navbar-actions__stars span[aria-hidden="true"] {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.navbar-actions__stars:hover,
+.navbar-actions__stars:focus-visible {
+  color: rgba(17, 24, 39, 0.95);
+}
+
+.navbar-actions__stars:focus-visible {
+  outline: 2px solid rgba(37, 80, 70, 0.3);
+  outline-offset: 2px;
+}
+
+.dark .navbar-actions__stars {
+  color: rgba(226, 232, 240, 0.72);
+}
+
+.dark .navbar-actions__stars:hover,
+.dark .navbar-actions__stars:focus-visible {
+  color: rgba(248, 250, 252, 0.92);
+}
+
 /* Space below the navbar/banner so main hero can center visually */
 .home-hero {
   /* Use 100dvh to avoid mobile viewport issues; subtract navbar height */

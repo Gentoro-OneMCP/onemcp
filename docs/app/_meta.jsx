@@ -10,10 +10,11 @@ export default {
 	blog: {
     title: "Blog",
 		type: "page",
-		theme: {
-			typesetting: "article",
-			toc: false,
-		},
+		// theme: {
+		// 	typesetting: "article",
+		// 	toc: false,
+		// },
+		href: "https://www.gentoro.com/blog"
 	},
 	community: {
 		title: "Community",
