@@ -3,7 +3,7 @@
  */
 import fs from 'fs-extra';
 import YAML from 'yaml';
-import { GlobalConfig, ServiceConfig } from '../types.js';
+import { GlobalConfig, ServiceConfig, HandbookConfig, HandbookInfo } from '../types.js';
 import { paths } from './paths.js';
 
 export class ConfigManager {
@@ -187,7 +187,8 @@ export class ConfigManager {
       provider: 'openai',
       apiKeys: {},
       defaultPort: 8080,
-      handbookDir: paths.handbooksDir,
+      handbookDir: paths.handbooksDir, // Parent directory containing all handbooks
+      currentHandbook: undefined, // No current handbook set initially
       logDir: paths.logDir,
       chatTimeout: 240000, // 4 minutes default timeout for chat requests
     };
@@ -278,6 +279,112 @@ export class ConfigManager {
     return {
       valid: errors.length === 0,
       errors,
+    };
+  }
+
+  /**
+   * Load handbook configuration
+   */
+  async loadHandbookConfig(handbookName: string): Promise<HandbookConfig | null> {
+    const handbookPath = paths.getHandbookPath(handbookName);
+    const configPath = `${handbookPath}/config/handbook.yaml`;
+
+    if (!(await fs.pathExists(configPath))) {
+      return null;
+    }
+
+    try {
+      const content = await fs.readFile(configPath, 'utf-8');
+      const config = YAML.parse(content) as HandbookConfig;
+      return config;
+    } catch (error) {
+      throw new Error(`Failed to load handbook config for ${handbookName}: ${error}`);
+    }
+  }
+
+  /**
+   * Save handbook configuration
+   */
+  async saveHandbookConfig(handbookName: string, config: HandbookConfig): Promise<void> {
+    const handbookPath = paths.getHandbookPath(handbookName);
+    const configPath = `${handbookPath}/config/handbook.yaml`;
+
+    await fs.ensureDir(`${handbookPath}/config`);
+
+    const yamlContent = YAML.stringify(config);
+    await fs.writeFile(configPath, yamlContent, 'utf-8');
+  }
+
+  /**
+   * Get handbook configuration with defaults from global config
+   */
+  async getEffectiveHandbookConfig(handbookName: string): Promise<HandbookConfig | null> {
+    const handbookConfig = await this.loadHandbookConfig(handbookName);
+    if (!handbookConfig) {
+      return null;
+    }
+
+    const globalConfig = await this.getGlobalConfig();
+    if (!globalConfig) {
+      return handbookConfig;
+    }
+
+    // Merge global defaults with handbook-specific overrides
+    return {
+      ...handbookConfig,
+      provider: handbookConfig.provider || globalConfig.provider,
+      apiKeys: handbookConfig.apiKeys || globalConfig.apiKeys,
+      modelName: handbookConfig.modelName || globalConfig.modelName,
+      baseUrl: handbookConfig.baseUrl || globalConfig.baseUrl,
+      chatTimeout: handbookConfig.chatTimeout || globalConfig.chatTimeout,
+    };
+  }
+
+  /**
+   * Validate handbook configuration
+   */
+  validateHandbookConfig(config: HandbookConfig): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!config.name) {
+      errors.push('Handbook name is required');
+    }
+
+    if (!config.version) {
+      errors.push('Version is required');
+    }
+
+    if (config.provider && !['openai', 'gemini', 'anthropic'].includes(config.provider)) {
+      errors.push('Provider must be one of: openai, gemini, anthropic');
+    }
+
+    // Check that the current provider has an API key if configured
+    if (config.provider && config.apiKeys) {
+      const currentApiKey = config.apiKeys[config.provider];
+      if (!currentApiKey || currentApiKey.trim() === '') {
+        errors.push(`API key for ${config.provider} is required`);
+      }
+    }
+
+    if (config.chatTimeout !== undefined && (config.chatTimeout < 1000 || config.chatTimeout > 600000)) {
+      errors.push('Chat timeout must be between 1000ms (1 second) and 600000ms (10 minutes)');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  }
+
+  /**
+   * Create default handbook configuration
+   */
+  createDefaultHandbookConfig(name: string): HandbookConfig {
+    return {
+      name,
+      version: '1.0.0',
+      description: `Handbook configuration for ${name}`,
+      services: [],
     };
   }
 }

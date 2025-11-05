@@ -28,9 +28,10 @@ You'll see an interactive chat interface like this:
 ║     Gentoro OneMCP - Chat Mode       ║
 ╚══════════════════════════════════════╝
 
+Handbook: ecommerce-api
 Provider: openai
 MCP URL: http://localhost:8080/mcp
-Type 'exit' to quit, 'clear' to clear history
+Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💡 Mock Server Active - Try These Example Queries:

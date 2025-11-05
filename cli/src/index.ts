@@ -74,9 +74,9 @@ program
  * Chat command
  */
 program
-  .command('chat')
+  .command('chat [handbook]')
   .description('Open interactive chat mode')
-  .action(async () => {
+  .action(async (handbook) => {
     try {
       // Check if setup is needed
       if (await SetupWizard.isSetupNeeded()) {
@@ -96,7 +96,7 @@ program
 
         // Determine if we should start in mock mode
         const config = await configManager.getGlobalConfig();
-        const mockMode = !config?.handbookDir || config.handbookDir.includes('acme-analytics');
+        const mockMode = !config?.currentHandbook || config.currentHandbook === 'acme-analytics';
 
         const startOptions = {
           mockMode,
@@ -118,7 +118,7 @@ program
       } else {
         // Agent is running, but check if we need to start mock server
         const config = await configManager.getGlobalConfig();
-        const shouldHaveMock = !config?.handbookDir || config.handbookDir.includes('acme-analytics');
+        const shouldHaveMock = !config?.currentHandbook || config.currentHandbook === 'acme-analytics';
         const mockService = agentStatus.services.find(s => s.name === 'mock');
 
         if (shouldHaveMock && mockService && !mockService.running) {
@@ -135,7 +135,7 @@ program
       }
 
       // Start chat mode
-      await chatMode.start();
+      await chatMode.start(handbook);
     } catch (error: any) {
       console.error(chalk.red('Error:'), error.message);
       process.exit(1);
@@ -311,7 +311,7 @@ handbookCmd
       console.log(chalk.cyan(`  1. Add OpenAPI specs to ${dir}/apis/`));
       console.log(chalk.cyan(`  2. Add documentation to ${dir}/docs/`));
       console.log(chalk.cyan(`  3. Update ${dir}/Agent.md`));
-      console.log(chalk.cyan(`  4. Set as default: onemcp config set handbookDir ${dir}`));
+      console.log(chalk.cyan(`  4. Set as current handbook: onemcp handbook use ${name}`));
       console.log(chalk.cyan(`  5. Start chatting: onemcp chat`));
     } catch (error: any) {
       console.error(chalk.red('Error:'), error.message);
@@ -324,10 +324,29 @@ handbookCmd
   .description('Validate handbook structure')
   .action(async (directory) => {
     try {
-      const dir = directory || (await configManager.getGlobalConfig())?.handbookDir;
-      if (!dir) {
-        console.log(chalk.red('No handbook directory specified'));
-        return;
+      let dir: string;
+
+      if (directory) {
+        // User specified a directory - could be a handbook name or path
+        if (await paths.handbookExists(directory)) {
+          // It's a handbook name, convert to full path
+          dir = paths.getHandbookPath(directory);
+        } else if (directory.startsWith('/') || directory.startsWith('~')) {
+          // It's an absolute path or starts with ~
+          dir = directory.startsWith('~') ? directory.replace('~', process.env.HOME || '') : directory;
+        } else {
+          // It's a relative path from current directory
+          dir = directory;
+        }
+      } else {
+        // No directory specified, validate current handbook
+        const config = await configManager.getGlobalConfig();
+        if (config?.currentHandbook) {
+          dir = paths.getHandbookPath(config.currentHandbook);
+        } else {
+          console.log(chalk.red('No current handbook set. Use "onemcp handbook use <name>" to set one, or specify a directory.'));
+          return;
+        }
       }
 
       const spinner = ora('Validating handbook...').start();
@@ -369,6 +388,7 @@ handbookCmd
   .action(async () => {
     try {
       const handbooks = await handbookManager.list();
+      const currentHandbook = await handbookManager.getCurrentHandbook();
 
       if (handbooks.length === 0) {
         console.log(chalk.yellow('No handbooks found'));
@@ -381,9 +401,47 @@ handbookCmd
 
       for (const handbook of handbooks) {
         const status = handbook.valid ? chalk.green('✓') : chalk.red('✗');
-        console.log(`  ${status} ${chalk.cyan(handbook.name)}`);
+        const current = handbook.name === currentHandbook ? chalk.yellow(' (current)') : '';
+        console.log(`  ${status} ${chalk.cyan(handbook.name)}${current}`);
         console.log(chalk.dim(`    ${handbook.path}`));
+        if (handbook.config?.description) {
+          console.log(chalk.dim(`    ${handbook.config.description}`));
+        }
         console.log();
+      }
+    } catch (error: any) {
+      console.error(chalk.red('Error:'), error.message);
+      process.exit(1);
+    }
+  });
+
+handbookCmd
+  .command('use <name>')
+  .description('Set the current handbook for chat')
+  .action(async (name) => {
+    try {
+      await handbookManager.setCurrentHandbook(name);
+    } catch (error: any) {
+      console.error(chalk.red('Error:'), error.message);
+      process.exit(1);
+    }
+  });
+
+handbookCmd
+  .command('current')
+  .description('Show the current handbook')
+  .action(async () => {
+    try {
+      const current = await handbookManager.getCurrentHandbook();
+      if (current) {
+        const info = await handbookManager.getHandbookInfo(current);
+        console.log(chalk.cyan(`Current handbook: ${current}`));
+        if (info?.config?.description) {
+          console.log(chalk.dim(`Description: ${info.config.description}`));
+        }
+        console.log(chalk.dim(`Path: ${info?.path}`));
+      } else {
+        console.log(chalk.yellow('No current handbook set'));
       }
     } catch (error: any) {
       console.error(chalk.red('Error:'), error.message);
@@ -743,9 +801,9 @@ async function showStatus(): Promise<void> {
 
     console.log();
 
-    if (status.handbookDir) {
+    if (status.currentHandbook) {
       console.log(chalk.bold.cyan('Configuration:'));
-      console.log(chalk.dim(`  Handbook: ${status.handbookDir}`));
+      console.log(chalk.dim(`  Current Handbook: ${status.currentHandbook}`));
       console.log();
     }
   } catch (error: any) {

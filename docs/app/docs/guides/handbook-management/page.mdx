@@ -1,0 +1,212 @@
+---
+description: Learn how to create and manage multiple handbooks for different projects and use cases.
+---
+
+import { FileTree } from 'nextra/components'
+
+# Managing Multiple Handbooks
+
+OneMCP supports multiple handbooks, allowing you to maintain separate knowledge bases, agent instructions, and documentation for different projects or use cases while sharing a single OneMCP installation.
+
+## Why Multiple Handbooks?
+
+Multiple handbooks enable you to:
+- **Specialize agents** for different domains (e-commerce, customer support, analytics)
+- **Organize different knowledge bases** and agent instructions
+- **Maintain separate documentation** and API specifications
+- **Isolate different projects** or use cases
+- **Switch contexts** easily during development and testing
+
+## Quick Start
+
+```bash
+# Install CLI
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash
+
+# Create multiple handbooks
+onemcp handbook init ecommerce-api
+onemcp handbook init customer-support
+onemcp handbook init analytics-dashboard
+
+# Set default handbook
+onemcp handbook use ecommerce-api
+
+# Chat with current handbook
+onemcp chat
+
+# Or chat directly with a specific handbook
+onemcp chat customer-support
+```
+
+## Handbook Commands
+
+### Creating Handbooks
+
+```bash
+onemcp handbook init <name>     # Create new handbook with default structure
+onemcp handbook init my-api     # Creates ~/handbooks/my-api/
+```
+
+This creates a complete handbook structure:
+<FileTree>
+  <FileTree.Folder name="my-api" defaultOpen>
+    <FileTree.File name="Agent.md" />
+    <FileTree.Folder name="apis" defaultOpen>
+      <FileTree.File name="..." />
+    </FileTree.Folder>
+    <FileTree.Folder name="docs" defaultOpen>
+      <FileTree.File name="..." />
+    </FileTree.Folder>
+    <FileTree.Folder name="state">
+      <FileTree.File name="..." />
+    </FileTree.Folder>
+  </FileTree.Folder>
+</FileTree>
+
+### Managing Current Handbook
+
+```bash
+onemcp handbook use <name>       # Set current/active handbook
+onemcp handbook current          # Show currently active handbook
+onemcp handbook list            # List all handbooks with status
+```
+
+The current handbook determines which configuration is used when you run `onemcp chat` without specifying a handbook.
+
+### Validating Handbooks
+
+```bash
+onemcp handbook validate <name>  # Validate handbook structure
+onemcp handbook validate         # Validate current handbook
+```
+
+## Chat Interface
+
+### Starting Chat
+
+```bash
+onemcp chat                    # Chat with current handbook
+onemcp chat <handbook-name>    # Chat with specific handbook
+```
+
+### In-Chat Commands
+
+During chat, you can:
+
+```
+help     - Show available commands
+clear    - Clear chat history
+switch   - Switch to a different handbook
+exit     - Exit chat mode
+```
+
+The `switch` command allows you to change handbooks without leaving the chat interface:
+
+```
+? You: switch
+? Switch to handbook: ecommerce-api
+  analytics-dashboard
+  customer-support
+> ecommerce-api
+
+✅ Switched to handbook: ecommerce-api
+Provider: openai
+Chat history cleared.
+```
+
+## Advanced Usage
+
+### Service Integration
+
+Handbooks can reference different service configurations:
+
+```bash
+# Configure services for specific handbooks
+onemcp service auth ecommerce-db   # Database service for ecommerce
+onemcp service auth support-api    # Support API for customer service
+
+# Each handbook can reference different services in its Agent.md
+# and API specifications
+```
+
+### Team Collaboration
+
+Multiple handbooks enable team workflows:
+
+```bash
+# Different teams maintain their own handbooks
+onemcp handbook init team-backend
+onemcp handbook init team-frontend
+onemcp handbook init team-devops
+
+# Teams switch between handbooks as needed
+onemcp handbook use team-backend
+onemcp handbook use team-frontend
+```
+
+### Environment Separation
+
+Use different handbooks for different environments:
+
+```bash
+onemcp handbook init prod-analytics
+onemcp handbook init staging-analytics
+onemcp handbook init dev-analytics
+
+# Configure with environment-specific API keys and endpoints
+```
+
+## Best Practices
+
+### Organization
+
+- **Naming**: Use descriptive names (`ecommerce-api`, `customer-support`)
+- **Structure**: Keep related handbooks grouped conceptually
+- **Documentation**: Use handbook descriptions for clarity
+
+### Configuration
+
+- **API Keys**: Use handbook-specific keys for better security isolation
+- **Timeouts**: Adjust based on use case (longer for complex analytics)
+- **Providers**: Choose providers based on task requirements
+
+### Maintenance
+
+- **Validation**: Regularly validate handbooks with `onemcp handbook validate`
+- **Updates**: Update handbook content (Agent.md, docs, APIs) as requirements change
+- **Backup**: Keep important handbooks backed up
+
+### Security
+
+- **Access Control**: Limit who can modify sensitive handbooks
+- **Audit**: Track which handbooks are used for compliance
+
+## Troubleshooting
+
+### Common Issues
+
+**Handbook not found:**
+```bash
+onemcp handbook list                    # Check available handbooks
+onemcp handbook init missing-handbook   # Create if needed
+```
+
+**Validation errors:**
+```bash
+onemcp handbook validate <name>         # Check for issues
+# Edit handbook files directly if validation fails
+```
+
+**Chat with wrong handbook:**
+```bash
+onemcp handbook current                 # Check current handbook
+onemcp handbook use <correct-name>      # Switch current handbook
+onemcp chat <specific-handbook>         # Or specify explicitly
+```
+
+## Next Steps
+
+- [Creating a foundation folder](/docs/guides/ingest-foundation)
+- [Validating foundations](/docs/guides/foundation-validation)
+- [Run with Docker](/docs/guides/run-with-docker)
+- Learn about [Retrieval concepts](/docs/concepts/retrieval)

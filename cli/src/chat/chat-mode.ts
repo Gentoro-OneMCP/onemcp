@@ -8,17 +8,23 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { configManager } from '../config/manager.js';
 import { agentService } from '../services/agent-service.js';
-import { ChatMessage, ModelProvider, GlobalConfig } from '../types.js';
+import { handbookManager } from '../handbook/manager.js';
+import { ChatMessage, ModelProvider, GlobalConfig, HandbookConfig } from '../types.js';
 
 export class ChatMode {
   private messages: ChatMessage[] = [];
   private mcpUrl: string = '';
   private agentStatus: any = null;
+  private currentHandbook: string = '';
+  private handbookConfig: HandbookConfig | null = null;
 
   /**
    * Start interactive chat session
    */
-  async start(): Promise<void> {
+  async start(handbookName?: string): Promise<void> {
+    // Select handbook
+    await this.selectHandbook(handbookName);
+
     // Check if agent is running
     this.agentStatus = await agentService.getStatus();
     if (!this.agentStatus.running) {
@@ -29,21 +35,15 @@ export class ChatMode {
 
     this.mcpUrl = this.agentStatus.mcpUrl || 'http://localhost:8080/mcp';
 
-    // Get provider info
-    const config = await configManager.getGlobalConfig();
-    if (!config) {
-      console.log(chalk.red('❌ No configuration found.'));
-      return;
-    }
-
     console.log();
     console.log(chalk.bold.cyan('╔══════════════════════════════════════╗'));
     console.log(chalk.bold.cyan('║    Gentoro OneMCP - Chat Mode        ║'));
     console.log(chalk.bold.cyan('╚══════════════════════════════════════╝'));
     console.log();
-    console.log(chalk.dim(`Provider: ${config.provider}`));
+    console.log(chalk.dim(`Handbook: ${this.currentHandbook}`));
+    console.log(chalk.dim(`Provider: ${this.handbookConfig?.provider || 'Not configured'}`));
     console.log(chalk.dim(`MCP URL: ${this.mcpUrl}`));
-    console.log(chalk.dim(`Type 'exit' to quit, 'clear' to clear history`));
+    console.log(chalk.dim(`Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook`));
     console.log(chalk.dim('━'.repeat(60)));
     console.log();
 
@@ -56,13 +56,13 @@ export class ChatMode {
     }
 
     // Main chat loop
-    await this.chatLoop(config);
+    await this.chatLoop();
   }
 
   /**
    * Main chat interaction loop
    */
-  private async chatLoop(config: GlobalConfig): Promise<void> {
+  private async chatLoop(): Promise<void> {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const { message } = await inquirer.prompt([
@@ -99,6 +99,11 @@ export class ChatMode {
         continue;
       }
 
+      if (userMessage.toLowerCase() === 'switch') {
+        await this.switchHandbook();
+        continue;
+      }
+
       // Add user message to history
       this.messages.push({
         role: 'user',
@@ -113,8 +118,9 @@ export class ChatMode {
       }).start();
 
       try {
-        const timeout = config.chatTimeout || 240000; // Use configured timeout or default to 4 minutes
-        const response = await this.sendMessage(config.provider, userMessage, timeout);
+        const timeout = this.handbookConfig?.chatTimeout || 240000; // Use handbook timeout or default to 4 minutes
+        const provider = this.handbookConfig?.provider || 'openai'; // Use handbook provider or default
+        const response = await this.sendMessage(provider, userMessage, timeout);
         spinner.succeed('Response received');
         
         // Add assistant response to history
@@ -247,15 +253,119 @@ export class ChatMode {
     console.log();
     console.log(chalk.bold('Chat Mode Commands:'));
     console.log();
-    console.log(chalk.cyan('  help  ') + ' - Show this help message');
-    console.log(chalk.cyan('  clear ') + ' - Clear chat history');
-    console.log(chalk.cyan('  exit  ') + ' - Exit chat mode');
+    console.log(chalk.cyan('  help   ') + ' - Show this help message');
+    console.log(chalk.cyan('  clear  ') + ' - Clear chat history');
+    console.log(chalk.cyan('  switch ') + ' - Switch to a different handbook');
+    console.log(chalk.cyan('  exit   ') + ' - Exit chat mode');
     console.log();
     console.log(chalk.bold('Example Queries:'));
     console.log();
     console.log(chalk.dim('  > Show me electronics sales in California last quarter.'));
     console.log(chalk.dim('  > List top customers by revenue.'));
     console.log(chalk.dim('  > Compare revenue trends by region.'));
+    console.log();
+  }
+
+  /**
+   * Select a handbook for chatting
+   */
+  private async selectHandbook(handbookName?: string): Promise<void> {
+    const handbooks = await handbookManager.list();
+
+    if (handbooks.length === 0) {
+      console.log(chalk.red('❌ No handbooks found.'));
+      console.log(chalk.yellow('Create one first: onemcp handbook init <name>'));
+      process.exit(1);
+    }
+
+    let selectedHandbook: string;
+
+    if (handbookName) {
+      // Handbook specified as argument
+      const handbook = handbooks.find(h => h.name === handbookName);
+      if (!handbook) {
+        console.log(chalk.red(`❌ Handbook '${handbookName}' not found.`));
+        process.exit(1);
+      }
+      if (!handbook.valid) {
+        console.log(chalk.red(`❌ Handbook '${handbookName}' is not valid.`));
+        process.exit(1);
+      }
+      selectedHandbook = handbookName;
+    } else {
+      // Get current handbook from config
+      const currentHandbook = await handbookManager.getCurrentHandbook();
+
+      if (currentHandbook && handbooks.find(h => h.name === currentHandbook && h.valid)) {
+        // Use current handbook if it exists and is valid
+        selectedHandbook = currentHandbook;
+      } else if (handbooks.length === 1) {
+        // Only one handbook, use it
+        selectedHandbook = handbooks[0].name;
+      } else {
+        // Multiple handbooks, let user choose
+        const { handbook } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'handbook',
+            message: 'Select a handbook to chat with:',
+            choices: handbooks
+              .filter(h => h.valid)
+              .map(h => ({
+                name: `${h.name}${h.config?.description ? ` - ${h.config.description}` : ''}`,
+                value: h.name,
+              })),
+          },
+        ]);
+        selectedHandbook = handbook;
+      }
+    }
+
+    // Load handbook configuration
+    this.currentHandbook = selectedHandbook;
+    this.handbookConfig = await configManager.getEffectiveHandbookConfig(selectedHandbook);
+
+    // Set as current handbook in global config
+    await handbookManager.setCurrentHandbook(selectedHandbook);
+  }
+
+  /**
+   * Switch to a different handbook during chat
+   */
+  private async switchHandbook(): Promise<void> {
+    const handbooks = await handbookManager.list();
+    const validHandbooks = handbooks.filter(h => h.valid);
+
+    if (validHandbooks.length <= 1) {
+      console.log(chalk.yellow('No other valid handbooks to switch to.'));
+      return;
+    }
+
+    const { handbook } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'handbook',
+        message: 'Switch to handbook:',
+        choices: validHandbooks
+          .filter(h => h.name !== this.currentHandbook)
+          .map(h => ({
+            name: `${h.name}${h.config?.description ? ` - ${h.config.description}` : ''}`,
+            value: h.name,
+          })),
+      },
+    ]);
+
+    // Switch to new handbook
+    this.currentHandbook = handbook;
+    this.handbookConfig = await configManager.getEffectiveHandbookConfig(handbook);
+    await handbookManager.setCurrentHandbook(handbook);
+
+    // Clear chat history when switching
+    this.messages = [];
+
+    console.log(chalk.green(`✅ Switched to handbook: ${handbook}`));
+    console.log(chalk.dim(`Provider: ${this.handbookConfig?.provider || 'Not configured'}`));
+    console.log(chalk.dim('Chat history cleared.'));
     console.log();
   }
 }

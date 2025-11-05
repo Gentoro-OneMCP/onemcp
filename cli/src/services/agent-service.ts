@@ -116,13 +116,14 @@ export class AgentService {
 
     // Register OneMCP (Java application)
     const onemcpJar = join(projectRoot, 'src/onemcp/target/onemcp-0.1.0-SNAPSHOT.jar');
-    
+
     processManager.register({
       name: 'app',
       command: 'java',
       args: ['-jar', onemcpJar],
       env: {
         SERVER_PORT: port.toString(),
+        // Foundation dir and API keys will be set based on handbook config in start()
         FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
         OPENAI_API_KEY: config?.apiKeys?.openai || '',
         GEMINI_API_KEY: config?.apiKeys?.gemini || '',
@@ -175,6 +176,9 @@ export class AgentService {
       );
     }
 
+    // Update environment for processes based on current handbook
+    await this.updateEnvironmentForCurrentHandbook(options);
+
     // Update environment for processes if options provided
     if (options.port || options.handbookDir || options.provider || options.apiKey) {
       await this.updateProcessEnvironments(options);
@@ -184,7 +188,7 @@ export class AgentService {
 
     // Validate handbook configuration before starting services
     if (!disabledServices.includes('app') && !options.mockMode) {
-      await this.validateHandbookConfiguration(config || undefined);
+      await this.validateHandbookConfiguration();
     }
 
     // Clean up any stale processes that might be using our ports
@@ -306,6 +310,7 @@ export class AgentService {
       services,
       mcpUrl: appRunning ? `http://localhost:${port}/mcp` : undefined,
       handbookDir: config?.handbookDir,
+      currentHandbook: config?.currentHandbook,
     };
   }
 
@@ -419,6 +424,53 @@ export class AgentService {
   }
 
   /**
+   * Update process environments based on current handbook configuration
+   */
+  private async updateEnvironmentForCurrentHandbook(options: StartOptions): Promise<void> {
+    const config = await configManager.getGlobalConfig();
+    const currentHandbook = config?.currentHandbook;
+
+    if (!currentHandbook && !options.mockMode) {
+      // No current handbook set, use legacy behavior with handbookDir
+      return;
+    }
+
+    let handbookConfig;
+    let handbookPath;
+
+    if (currentHandbook) {
+      handbookConfig = await configManager.getEffectiveHandbookConfig(currentHandbook);
+      handbookPath = paths.getHandbookPath(currentHandbook);
+    } else {
+      // Fallback to legacy handbookDir
+      handbookPath = config?.handbookDir || paths.handbooksDir;
+    }
+
+    const appConfig = processManager.getConfig('app');
+    if (appConfig) {
+      // Set foundation directory
+      appConfig.env = {
+        ...appConfig.env,
+        FOUNDATION_DIR: handbookPath,
+      };
+
+      // Set API keys and provider from handbook config
+      if (handbookConfig) {
+        const provider = handbookConfig.provider || config?.provider || 'openai';
+        const apiKeys = handbookConfig.apiKeys || config?.apiKeys || {};
+
+        appConfig.env = {
+          ...appConfig.env,
+          OPENAI_API_KEY: apiKeys.openai || '',
+          GEMINI_API_KEY: apiKeys.gemini || '',
+          ANTHROPIC_API_KEY: apiKeys.anthropic || '',
+          INFERENCE_DEFAULT_PROVIDER: provider,
+        };
+      }
+    }
+  }
+
+  /**
    * Update process environments based on options
    */
   private async updateProcessEnvironments(options: StartOptions): Promise<void> {
@@ -468,25 +520,39 @@ export class AgentService {
   /**
    * Validate handbook configuration before starting services
    */
-  private async validateHandbookConfiguration(config?: { handbookDir?: string }): Promise<void> {
-    if (!config?.handbookDir) {
-      throw new Error('No handbook directory configured. Please run setup first.');
+  private async validateHandbookConfiguration(): Promise<void> {
+    const config = await configManager.getGlobalConfig();
+    const currentHandbook = config?.currentHandbook;
+
+    let handbookPath: string;
+
+    if (currentHandbook) {
+      handbookPath = paths.getHandbookPath(currentHandbook);
+    } else {
+      // Fallback to legacy handbookDir
+      handbookPath = config?.handbookDir || paths.handbooksDir;
+    }
+
+    if (!handbookPath) {
+      throw new Error('No handbook directory configured. Please run setup first or set a current handbook.');
     }
 
     // Check if handbook directory exists
-    if (!fs.existsSync(config.handbookDir)) {
+    if (!fs.existsSync(handbookPath)) {
+      const handbookName = currentHandbook ? `handbook '${currentHandbook}'` : 'configured handbook directory';
       throw new Error(
-        `Handbook directory not found: ${config.handbookDir}\n` +
-        'Please ensure the handbook directory exists and contains the required Agent.md file.\n' +
+        `Handbook directory not found: ${handbookPath}\n` +
+        `Please ensure the ${handbookName} exists and contains the required Agent.md file.\n` +
         'Try running the setup wizard again: onemcp setup'
       );
     }
 
     // Check for required Agent.md file
-    const agentMdPath = `${config.handbookDir}/Agent.md`;
+    const agentMdPath = `${handbookPath}/Agent.md`;
     if (!fs.existsSync(agentMdPath)) {
+      const handbookName = currentHandbook ? `handbook '${currentHandbook}'` : 'handbook directory';
       throw new Error(
-        `Required Agent.md file not found in handbook directory: ${config.handbookDir}\n` +
+        `Required Agent.md file not found in ${handbookName}: ${handbookPath}\n` +
         'The handbook must contain an Agent.md file with agent instructions.\n' +
         'Try running the setup wizard again: onemcp setup'
       );
