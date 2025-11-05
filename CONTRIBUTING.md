@@ -1,6 +1,6 @@
-# Contributing to GenToro QOZB Inc Open Source Project
+# Contributing to GenToro OneMCP
 
-We love your input! We want to make contributing to this project as easy and transparent as possible.
+We would love your input! We want to make contributing to OneMCP as easy and transparent as possible.
 
 ## Ways to Contribute
 - Report bugs
