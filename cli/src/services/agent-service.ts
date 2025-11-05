@@ -124,9 +124,9 @@ export class AgentService {
       env: {
         SERVER_PORT: port.toString(),
         FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
-        OPENAI_API_KEY: config?.provider === 'openai' ? config.apiKey : '',
-        GEMINI_API_KEY: config?.provider === 'gemini' ? config.apiKey : '',
-        ANTHROPIC_API_KEY: config?.provider === 'anthropic' ? config.apiKey : '',
+        OPENAI_API_KEY: config?.apiKeys?.openai || '',
+        GEMINI_API_KEY: config?.apiKeys?.gemini || '',
+        ANTHROPIC_API_KEY: config?.apiKeys?.anthropic || '',
         INFERENCE_DEFAULT_PROVIDER: config?.provider || 'openai',
         TS_RUNTIME_URL: 'http://localhost:7070',
         OTEL_EXPORTER_OTLP_ENDPOINT: 'http://localhost:4317',

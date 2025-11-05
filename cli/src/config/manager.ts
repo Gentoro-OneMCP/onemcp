@@ -29,7 +29,20 @@ export class ConfigManager {
 
     try {
       const content = await fs.readFile(paths.configFile, 'utf-8');
-      this.globalConfig = YAML.parse(content) as GlobalConfig;
+      const config = YAML.parse(content) as any;
+
+      // Migrate old apiKey field to new apiKeys structure
+      if (config.apiKey && !config.apiKeys) {
+        config.apiKeys = {
+          [config.provider]: config.apiKey
+        };
+        delete config.apiKey;
+
+        // Save the migrated config
+        await this.saveGlobalConfig(config);
+      }
+
+      this.globalConfig = config as GlobalConfig;
       return this.globalConfig;
     } catch (error) {
       throw new Error(`Failed to load config: ${error}`);
@@ -56,6 +69,43 @@ export class ConfigManager {
       return this.globalConfig;
     }
     return this.loadGlobalConfig();
+  }
+
+  /**
+   * Get the current API key for the configured provider
+   */
+  async getCurrentApiKey(): Promise<string | null> {
+    const config = await this.getGlobalConfig();
+    if (!config) return null;
+    return config.apiKeys[config.provider] || null;
+  }
+
+  /**
+   * Get API key for a specific provider
+   */
+  async getApiKeyForProvider(provider: string): Promise<string | null> {
+    const config = await this.getGlobalConfig();
+    if (!config || !config.apiKeys) return null;
+    return config.apiKeys[provider as keyof typeof config.apiKeys] || null;
+  }
+
+  /**
+   * Set API key for a specific provider
+   */
+  async setApiKeyForProvider(provider: string, apiKey: string): Promise<void> {
+    const config = await this.getGlobalConfig();
+    if (!config) {
+      throw new Error('No configuration found. Please run setup first.');
+    }
+
+    const updated = {
+      ...config,
+      apiKeys: {
+        ...config.apiKeys,
+        [provider]: apiKey
+      }
+    };
+    await this.saveGlobalConfig(updated);
   }
 
   /**
@@ -134,6 +184,8 @@ export class ConfigManager {
    */
   getDefaultConfig(): Partial<GlobalConfig> {
     return {
+      provider: 'openai',
+      apiKeys: {},
       defaultPort: 8080,
       handbookDir: paths.handbooksDir,
       logDir: paths.logDir,
@@ -155,8 +207,10 @@ export class ConfigManager {
       errors.push('Provider must be one of: openai, gemini, anthropic');
     }
 
-    if (!config.apiKey || config.apiKey.trim() === '') {
-      errors.push('API key is required');
+    // Check that the current provider has an API key
+    const currentApiKey = config.apiKeys?.[config.provider];
+    if (!currentApiKey || currentApiKey.trim() === '') {
+      errors.push(`API key for ${config.provider} is required`);
     }
 
     if (config.defaultPort && (config.defaultPort < 1 || config.defaultPort > 65535)) {
@@ -171,6 +225,28 @@ export class ConfigManager {
       valid: errors.length === 0,
       errors,
     };
+  }
+
+  /**
+   * Reset all configuration (for re-running setup wizard)
+   */
+  async resetConfiguration(): Promise<void> {
+    try {
+      // Remove global config file
+      if (await fs.pathExists(paths.configFile)) {
+        await fs.remove(paths.configFile);
+      }
+
+      // Remove all service configs
+      if (await fs.pathExists(paths.servicesDir)) {
+        await fs.emptyDir(paths.servicesDir);
+      }
+
+      // Clear cached config
+      this.globalConfig = undefined;
+    } catch (error) {
+      throw new Error(`Failed to reset configuration: ${error}`);
+    }
   }
 
   /**
