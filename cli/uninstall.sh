@@ -350,15 +350,15 @@ remove_config() {
 
 remove_handbooks() {
     local handbooks_dir="$HOME/handbooks"
-    
+
     echo ""
     log_info "Handbooks:"
     echo ""
-    
+
     if [ -d "$handbooks_dir" ]; then
         local size=$(du -sh "$handbooks_dir" 2>/dev/null | cut -f1)
         echo -e "${YELLOW}  $handbooks_dir${NC} $size"
-        echo "  Your AI handbooks and configurations"
+        echo "  Your AI handbooks, agent configurations, and API specs"
     else
         echo -e "${YELLOW}  $handbooks_dir${NC} (not found)"
         echo "  Default location for handbooks"
@@ -457,7 +457,7 @@ confirm_uninstall() {
     echo ""
     echo "You will be prompted before removing:"
     echo "  • Configuration files"
-    echo "  • Handbooks"
+    echo "  • Handbooks (your AI agents and API configurations)"
     echo ""
 
     if [ -n "$AUTO_YES" ]; then

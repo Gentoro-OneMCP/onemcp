@@ -13,6 +13,7 @@ export interface GlobalConfig {
   };
   defaultPort: number;
   handbookDir: string;
+  currentHandbook?: string; // Currently active handbook name
   logDir: string;
   baseUrl?: string;
   modelName?: string;
@@ -33,6 +34,15 @@ export interface HandbookConfig {
   version: string;
   description?: string;
   services: ServiceReference[];
+  provider?: ModelProvider;
+  apiKeys?: {
+    openai?: string;
+    gemini?: string;
+    anthropic?: string;
+  };
+  modelName?: string;
+  baseUrl?: string;
+  chatTimeout?: number;
 }
 
 export interface ServiceReference {
@@ -40,6 +50,13 @@ export interface ServiceReference {
   baseUrl: string;
   authType: 'bearer' | 'api-key' | 'custom';
   openApiSpec?: string;
+}
+
+export interface HandbookInfo {
+  name: string;
+  path: string;
+  valid: boolean;
+  config?: HandbookConfig;
 }
 
 export interface ServiceStatus {
@@ -56,6 +73,7 @@ export interface AgentStatus {
   services: ServiceStatus[];
   mcpUrl?: string;
   handbookDir?: string;
+  currentHandbook?: string;
 }
 
 export interface LogEntry {

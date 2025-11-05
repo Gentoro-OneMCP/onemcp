@@ -33,26 +33,30 @@ export class SetupWizard {
     // Step 2: Choose starting mode
     const mode = await this.selectMode();
 
-    let handbookDir = paths.handbooksDir;
+    let currentHandbook: string | undefined;
     let serviceConfig = null;
 
     if (mode === 'own') {
       // Step 3: Handbook configuration
-      handbookDir = await this.configureHandbook();
+      const handbookPath = await this.configureHandbook();
+
+      // Extract handbook name from path
+      const handbookName = handbookPath.split('/').pop() || 'unknown';
+      currentHandbook = handbookName;
 
       // Step 4: Service authentication
       serviceConfig = await this.configureService();
     } else if (mode === 'mock') {
       // Copy ACME Analytics example handbook for mock mode
       await this.setupMockHandbook();
-      // Set handbook directory to the copied ACME Analytics handbook
-      handbookDir = paths.getHandbookPath('acme-analytics');
+      currentHandbook = 'acme-analytics';
     }
 
     // Validate handbook before saving configuration
     console.log();
     console.log(chalk.bold('Validating handbook configuration...'));
-    const isValidHandbook = await this.validateHandbookStructure(handbookDir);
+    const handbookPathToValidate = currentHandbook ? paths.getHandbookPath(currentHandbook) : paths.handbooksDir;
+    const isValidHandbook = await this.validateHandbookStructure(handbookPathToValidate);
     if (!isValidHandbook) {
       console.log(chalk.red('❌  Handbook validation failed. Configuration not saved.'));
       console.log(chalk.dim('Please ensure the handbook directory exists and contains the required Agent.md file.'));
@@ -66,7 +70,8 @@ export class SetupWizard {
         [provider]: apiKey
       },
       defaultPort: 8080,
-      handbookDir,
+      handbookDir: paths.handbooksDir, // Always point to parent handbooks directory
+      currentHandbook, // Set the current handbook name
       logDir: paths.logDir,
       chatTimeout: 240000, // 4 minutes default timeout for chat requests
     };

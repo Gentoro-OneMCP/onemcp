@@ -10,7 +10,27 @@ A foundation folder is your agent's source of truth. The agent indexes these fil
 
 ## Quick Start
 
-### Use Default Foundation
+### Use CLI for Multiple Handbooks
+
+The OneMCP CLI makes it easy to manage multiple foundation folders (handbooks) with individual configurations:
+
+```bash
+# Install CLI
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash
+
+# Create multiple handbooks
+onemcp handbook init ecommerce-api
+onemcp handbook init customer-support
+
+# Switch between handbooks
+onemcp handbook use ecommerce-api
+onemcp chat  # Chat with current handbook
+
+# Or chat directly with a specific handbook
+onemcp chat customer-support
+```
+
+### Use Default Foundation (Docker)
 
 The Docker image includes default foundation content from the ACME Analytics Server handbook:
 
@@ -35,6 +55,13 @@ Create a new directory with the required structure:
 ```bash
 mkdir my-foundation
 cd my-foundation
+```
+
+Or use the CLI to create a properly structured handbook:
+
+```bash
+onemcp handbook init my-handbook
+cd ~/handbooks/my-handbook
 ```
 
 ## Required Files
@@ -211,6 +238,7 @@ See the [Foundation Validation](/docs/guides/foundation-validation) guide for de
 
 ## Next Steps
 
-- [Validate your foundation](/docs/guides/foundation-validation)
-- [Run with Docker](/docs/guides/run-with-docker)
-- Learn about [Retrieval concepts](/docs/concepts/retrieval)
+- [Managing Multiple Handbooks](/docs/guides/handbook-management) - Organize multiple AI agents
+- [Validate your foundation](/docs/guides/foundation-validation) - Ensure your foundation is correct
+- [Run with Docker](/docs/guides/run-with-docker) - Deploy your agent
+- Learn about [Retrieval concepts](/docs/concepts/retrieval) - How agents find information

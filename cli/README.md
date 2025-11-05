@@ -27,9 +27,10 @@ You'll see an interactive chat interface like this:
 ║     Gentoro OneMCP - Chat Mode       ║
 ╚══════════════════════════════════════╝
 
+Handbook: ecommerce-api
 Provider: openai
 MCP URL: http://localhost:8080/mcp
-Type 'exit' to quit, 'clear' to clear history
+Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💡 Mock Server Active - Try These Example Queries:
@@ -112,7 +113,29 @@ With the mock Acme Analytics service, you can try queries like:
 - "Compare revenue trends by region"
 - "What are the top-selling products this month?"
 
-Type `help` in chat mode for additional commands.
+Type `help` in chat mode for additional commands, including `switch` to change handbooks during chat.
+
+### Working with Multiple Handbooks
+
+OneMCP now supports multiple handbooks, each with individual configurations:
+
+```bash
+# Create multiple handbooks
+onemcp handbook init ecommerce-api
+onemcp handbook init analytics-dashboard
+onemcp handbook init customer-support
+
+# Switch between handbooks
+onemcp handbook use ecommerce-api
+onemcp chat  # Chat with ecommerce-api handbook
+
+# Or chat directly with a specific handbook
+onemcp chat analytics-dashboard
+
+# View all handbooks
+onemcp handbook list
+onemcp handbook current  # Show active handbook
+```
 
 ### Connecting Your Own API
 
@@ -122,8 +145,11 @@ To connect your own API service:
 # Create a handbook for your service
 onemcp handbook init my-service
 
-# Configure authentication
-onemcp service auth my-service
+# Configure authentication for services used by this handbook
+onemcp service auth my-service-api
+
+# Set as current handbook
+onemcp handbook use my-service
 
 # Start chatting
 onemcp chat
@@ -133,11 +159,11 @@ onemcp chat
 
 ### Chat & Services
 ```bash
-onemcp chat          # Start interactive chat (auto-starts services)
-onemcp stop          # Stop all services
-onemcp status        # Show service status
-onemcp update        # Update to latest version
-onemcp reset         # Reset configuration and re-run setup wizard
+onemcp chat [handbook]  # Start interactive chat (auto-starts services)
+onemcp stop             # Stop all services
+onemcp status           # Show service status
+onemcp update           # Update to latest version
+onemcp reset            # Reset configuration and re-run setup wizard
 ```
 
 ### Provider Management
@@ -152,6 +178,8 @@ onemcp provider list          # List configured providers and API keys
 onemcp handbook init <name>     # Create new handbook
 onemcp handbook validate        # Validate handbook structure
 onemcp handbook list           # List all handbooks
+onemcp handbook use <name>     # Set current handbook
+onemcp handbook current        # Show current handbook
 ```
 
 ### Service Management
@@ -213,14 +241,16 @@ expiresAt: 2025-10-25T14:02:12Z
 Location: `~/.onemcp/config.yaml`
 
 ```yaml
-provider: openai
+provider: openai           # Default AI provider
 apiKeys:
-  openai: sk-...
+  openai: sk-...          # Global API keys (fallbacks)
   gemini: # your gemini key (optional)
   anthropic: # your anthropic key (optional)
-handbookDir: ~/handbooks
+currentHandbook: ecommerce-api  # Currently active handbook name
+handbookDir: ~/handbooks  # Parent directory containing all handbooks
 logDir: ~/.onemcp/logs
 ```
+
 
 ## Troubleshooting
 

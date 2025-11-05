@@ -6,6 +6,8 @@ import chalk from 'chalk';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { paths } from '../config/paths.js';
+import { configManager } from '../config/manager.js';
+import { HandbookInfo } from '../types.js';
 
 export class HandbookManager {
   /**
@@ -26,7 +28,6 @@ export class HandbookManager {
     await fs.ensureDir(`${dir}/docs`);
     await fs.ensureDir(`${dir}/regression`);
     await fs.ensureDir(`${dir}/state`);
-    await fs.ensureDir(`${dir}/config`);
 
     // Create Agent.md
     const agentMd = this.getDefaultAgentInstructions(name);
@@ -130,20 +131,23 @@ This handbook contains the configuration and documentation for your OneMCP.
   /**
    * List all handbooks
    */
-  async list(): Promise<Array<{ name: string; path: string; valid: boolean }>> {
+  async list(): Promise<HandbookInfo[]> {
     await paths.ensureDirectories();
 
     const entries = await fs.readdir(paths.handbooksDir, { withFileTypes: true });
     const handbooks = entries.filter((e) => e.isDirectory());
 
-    const results = [];
+    const results: HandbookInfo[] = [];
     for (const handbook of handbooks) {
       const handbookPath = paths.getHandbookPath(handbook.name);
       const validation = await this.validate(handbookPath);
+      const config = await configManager.loadHandbookConfig(handbook.name);
+
       results.push({
         name: handbook.name,
         path: handbookPath,
         valid: validation.valid,
+        config: config || undefined,
       });
     }
 
@@ -292,6 +296,43 @@ See the \`docs/\` directory for additional documentation.
 
     console.log(chalk.green(`✅  Example handbook copied to ${targetDir}`));
   }
+
+  /**
+   * Get the currently active handbook
+   */
+  async getCurrentHandbook(): Promise<string | null> {
+    const config = await configManager.getGlobalConfig();
+    return config?.currentHandbook || null;
+  }
+
+  /**
+   * Set the currently active handbook
+   */
+  async setCurrentHandbook(handbookName: string): Promise<void> {
+    // Validate handbook exists
+    const handbookPath = paths.getHandbookPath(handbookName);
+    if (!(await fs.pathExists(handbookPath))) {
+      throw new Error(`Handbook '${handbookName}' does not exist`);
+    }
+
+    // Validate handbook is valid
+    const validation = await this.validate(handbookPath);
+    if (!validation.valid) {
+      throw new Error(`Handbook '${handbookName}' is not valid: ${validation.errors.join(', ')}`);
+    }
+
+    await configManager.updateGlobalConfig({ currentHandbook: handbookName });
+    console.log(chalk.green(`✅  Current handbook set to '${handbookName}'`));
+  }
+
+  /**
+   * Get handbook info by name
+   */
+  async getHandbookInfo(handbookName: string): Promise<HandbookInfo | null> {
+    const handbooks = await this.list();
+    return handbooks.find(h => h.name === handbookName) || null;
+  }
+
 }
 
 export const handbookManager = new HandbookManager();
