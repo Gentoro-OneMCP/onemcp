@@ -400,7 +400,7 @@ const providerCmd = program
 
 providerCmd
   .command('set')
-  .description('Set model provider')
+  .description('Set model provider and API key')
   .action(async () => {
     try {
       const { provider, apiKey } = await inquirer.prompt([
@@ -421,8 +421,44 @@ providerCmd
         },
       ]);
 
-      await configManager.updateGlobalConfig({ provider, apiKey });
+      // Set API key for the selected provider and switch to it
+      await configManager.setApiKeyForProvider(provider, apiKey);
+      await configManager.updateGlobalConfig({ provider });
       console.log(chalk.green(`✅  Provider set to ${provider}`));
+    } catch (error: any) {
+      console.error(chalk.red('Error:'), error.message);
+      process.exit(1);
+    }
+  });
+
+providerCmd
+  .command('list')
+  .description('List configured providers and API keys')
+  .action(async () => {
+    try {
+      const config = await configManager.getGlobalConfig();
+      if (!config) {
+        console.log(chalk.red('No configuration found'));
+        return;
+      }
+
+      console.log(chalk.bold('Provider Configuration:'));
+      console.log();
+
+      const providerNames = { openai: 'OpenAI', gemini: 'Google Gemini', anthropic: 'Anthropic Claude' };
+
+      for (const provider of ['openai', 'gemini', 'anthropic'] as const) {
+        const apiKey = await configManager.getApiKeyForProvider(provider);
+        const isCurrent = provider === config.provider;
+        const status = isCurrent ? chalk.green(' (current)') : '';
+        const configured = apiKey ? chalk.green('✅ Configured') : chalk.dim('Not configured');
+
+        console.log(`${providerNames[provider]}${status}: ${configured}`);
+      }
+
+      console.log();
+      console.log(chalk.dim('Use "onemcp provider set" to configure a provider'));
+      console.log(chalk.dim('Use "onemcp provider switch" to switch between configured providers'));
     } catch (error: any) {
       console.error(chalk.red('Error:'), error.message);
       process.exit(1);
@@ -440,22 +476,37 @@ providerCmd
         return;
       }
 
+      // Get all configured providers
+      const providerChoices = [];
+      const providerNames = { openai: 'OpenAI', gemini: 'Google Gemini', anthropic: 'Anthropic Claude' };
+
+      for (const provider of ['openai', 'gemini', 'anthropic'] as const) {
+        const apiKey = await configManager.getApiKeyForProvider(provider);
+        if (apiKey) {
+          providerChoices.push({
+            name: `${providerNames[provider]}${provider === config.provider ? ' (current)' : ''}`,
+            value: provider,
+            disabled: provider === config.provider,
+          });
+        }
+      }
+
+      if (providerChoices.length <= 1) {
+        console.log(chalk.yellow('No other providers configured. Use "onemcp provider set" to add more providers.'));
+        return;
+      }
+
       const { provider } = await inquirer.prompt([
         {
           type: 'list',
           name: 'provider',
-          message: 'Select provider:',
-          choices: [
-            { name: 'OpenAI', value: 'openai' },
-            { name: 'Google Gemini', value: 'gemini' },
-            { name: 'Anthropic Claude', value: 'anthropic' },
-          ],
-          default: config.provider,
+          message: 'Select provider to switch to:',
+          choices: providerChoices,
         },
       ]);
 
       await configManager.updateGlobalConfig({ provider });
-      console.log(chalk.green(`✅  Switched to ${provider}`));
+      console.log(chalk.green(`✅  Switched to ${providerNames[provider as keyof typeof providerNames]}`));
     } catch (error: any) {
       console.error(chalk.red('Error:'), error.message);
       process.exit(1);
@@ -598,6 +649,55 @@ program
       if (!hasConfig) {
         console.log(chalk.dim('  - Run: onemcp (to start setup wizard)'));
       }
+    }
+  });
+
+/**
+ * Reset command
+ */
+program
+  .command('reset')
+  .description('Reset configuration and re-run setup wizard')
+  .action(async () => {
+    try {
+      // Confirm reset
+      const { confirm } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'confirm',
+          message: chalk.red('⚠️  This will delete all your configuration and API keys. Are you sure you want to reset?'),
+          default: false,
+        },
+      ]);
+
+      if (!confirm) {
+        console.log(chalk.dim('Reset cancelled.'));
+        return;
+      }
+
+      console.log(chalk.yellow('Resetting configuration...'));
+
+      // Stop any running services first
+      try {
+        await agentService.stop();
+      } catch (error) {
+        // Ignore errors if services aren't running
+      }
+
+      // Reset configuration
+      await configManager.resetConfiguration();
+
+      console.log(chalk.green('✅ Configuration reset successfully!'));
+      console.log();
+      console.log(chalk.cyan('🔄 Running setup wizard...'));
+      console.log();
+
+      // Re-run setup wizard
+      await setupWizard.run();
+
+    } catch (error: any) {
+      console.error(chalk.red('Error during reset:'), error.message);
+      process.exit(1);
     }
   });
 

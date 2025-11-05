@@ -43,7 +43,24 @@ Type 'exit' to quit, 'clear' to clear history
 Type "help" anytime for more commands.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-? You:
+? You: Show me sales data for New York vs Texas.
+✔ Response received
+Agent:
+Sales summary for 2024 (grouped by state)
+
+- New York
+  - Total sales: $12,340,000
+  - Orders: 48,200
+  - Average order value (AOV): $256
+
+- Texas
+  - Total sales: $9,870,000
+  - Orders: 42,500
+  - Average order value (AOV): $232
+
+Key takeaways
+- New York generated ~25% more total sales than Texas ($12.34M vs $9.87M).
+- New York had about 13% more orders and a higher AOV (~$24 higher), suggesting both higher volume and larger order size in NY.
 ```
 
 That's it! The CLI will automatically:
@@ -60,11 +77,7 @@ That's it! The CLI will automatically:
 Optional:
 - **OpenTelemetry Collector** (for telemetry)
 
-### Uninstallation
-
-**To uninstall CLI:** `curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/uninstall.sh | bash`
-
-For detailed uninstallation options, see the [Advanced Installation](#advanced-installation) section below.
+For detailed installation options, see the [Advanced Installation](#advanced-installation) section below.
 
 ### For Local Development
 
@@ -124,6 +137,14 @@ onemcp chat          # Start interactive chat (auto-starts services)
 onemcp stop          # Stop all services
 onemcp status        # Show service status
 onemcp update        # Update to latest version
+onemcp reset         # Reset configuration and re-run setup wizard
+```
+
+### Provider Management
+```bash
+onemcp provider set           # Set AI model provider and API key
+onemcp provider switch        # Switch between configured providers
+onemcp provider list          # List configured providers and API keys
 ```
 
 ### Handbook Management
@@ -138,12 +159,6 @@ onemcp handbook list           # List all handbooks
 onemcp service auth <name>     # Configure service authentication
 onemcp service renew <name>    # Renew service token
 onemcp service list           # List configured services
-```
-
-### Provider Management
-```bash
-onemcp provider set           # Set AI model provider
-onemcp provider switch        # Switch between providers
 ```
 
 ### Diagnostics
@@ -199,7 +214,10 @@ Location: `~/.onemcp/config.yaml`
 
 ```yaml
 provider: openai
-apiKey: sk-...
+apiKeys:
+  openai: sk-...
+  gemini: # your gemini key (optional)
+  anthropic: # your anthropic key (optional)
 handbookDir: ~/handbooks
 logDir: ~/.onemcp/logs
 ```
@@ -224,6 +242,22 @@ onemcp stop && onemcp chat  # Restart services
 ```bash
 onemcp service renew <service-name>
 ```
+
+**API key issues:**
+```bash
+onemcp provider list          # See which providers are configured
+onemcp provider set           # Configure a new provider with API key
+onemcp provider switch        # Switch between configured providers
+```
+
+**Note:** You can now configure multiple AI providers and easily switch between them. Each provider stores its own API key, so you don't need to re-enter keys when switching.
+
+**Reset Configuration:**
+```bash
+onemcp reset         # Completely reset and re-run setup wizard
+```
+
+Use this command if you need to start fresh with your configuration, change providers, or fix setup issues. It will delete all configuration files and restart the setup process.
 
 ### Logs Location
 
@@ -287,6 +321,6 @@ See [LICENSE](../LICENSE) for details.
 
 ## Support
 
-- **Documentation**: https://github.com/Gentoro-OneMCP/onemcp
+- **Documentation**: https://onemcp.gentoro.com/docs
 - **Issues**: https://github.com/Gentoro-OneMCP/onemcp/issues
 - **Discussions**: https://github.com/Gentoro-OneMCP/onemcp/discussions

@@ -62,7 +62,9 @@ export class SetupWizard {
     // Save global configuration
     const config: GlobalConfig = {
       provider,
-      apiKey,
+      apiKeys: {
+        [provider]: apiKey
+      },
       defaultPort: 8080,
       handbookDir,
       logDir: paths.logDir,

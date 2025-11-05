@@ -44,7 +44,24 @@ Type 'exit' to quit, 'clear' to clear history
 Type "help" anytime for more commands.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-? You:
+? You: Show me sales data for New York vs Texas.
+✔ Response received
+Agent:
+Sales summary for 2024 (grouped by state)
+
+- New York
+  - Total sales: $12,340,000
+  - Orders: 48,200
+  - Average order value (AOV): $256
+
+- Texas
+  - Total sales: $9,870,000
+  - Orders: 42,500
+  - Average order value (AOV): $232
+
+Key takeaways
+- New York generated ~25% more total sales than Texas ($12.34M vs $9.87M).
+- New York had about 13% more orders and a higher AOV (~$24 higher), suggesting both higher volume and larger order size in NY.
 ```
 
 ## 📚 Documentation

@@ -24,7 +24,9 @@ describe('Type Definitions', () => {
     it('should create valid config object', () => {
       const config: GlobalConfig = {
         provider: 'openai',
-        apiKey: 'sk-test-123',
+        apiKeys: {
+          openai: 'sk-test-123',
+        },
         modelName: 'gpt-4',
         handbookDir: '/path/to/handbooks',
         defaultPort: 8080,
@@ -32,13 +34,15 @@ describe('Type Definitions', () => {
       };
 
       expect(config.provider).toBe('openai');
-      expect(config.apiKey).toBe('sk-test-123');
+      expect(config.apiKeys.openai).toBe('sk-test-123');
     });
 
     it('should allow optional fields to be undefined', () => {
       const minimalConfig: GlobalConfig = {
         provider: 'openai',
-        apiKey: 'sk-test-123',
+        apiKeys: {
+          openai: 'sk-test-123',
+        },
         defaultPort: 8080,
         handbookDir: '/handbooks',
         logDir: '/logs',

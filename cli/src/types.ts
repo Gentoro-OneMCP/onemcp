@@ -6,7 +6,11 @@ export type ModelProvider = 'openai' | 'gemini' | 'anthropic';
 
 export interface GlobalConfig {
   provider: ModelProvider;
-  apiKey: string;
+  apiKeys: {
+    openai?: string;
+    gemini?: string;
+    anthropic?: string;
+  };
   defaultPort: number;
   handbookDir: string;
   logDir: string;
