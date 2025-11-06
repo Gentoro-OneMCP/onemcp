@@ -1,0 +1,575 @@
+---
+description: Complete guide to using the Gentoro OneMCP CLI for managing handbooks, services, and AI providers.
+---
+
+# CLI Guide
+
+The Gentoro OneMCP CLI is your command center for connecting APIs to AI models. This guide covers everything from installation to advanced workflows.
+
+## Installation
+
+### Quick Install (Recommended)
+
+Install globally via npm:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash
+```
+
+This method works on macOS, Linux, and Windows (WSL).
+
+### Alternative Installation Methods
+
+#### System-wide Installation
+
+Install to `/usr/local/bin` (requires sudo):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | \
+  ONEMCP_INSTALL_METHOD=system-wide bash
+```
+
+#### Local Installation
+
+Install to `~/.local/bin` (no sudo required):
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | \
+  ONEMCP_INSTALL_METHOD=local-bin bash
+```
+
+**Note:** Ensure `~/.local/bin` is in your PATH.
+
+#### Install from Custom Branch
+
+For testing or development:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | \
+  ONEMCP_REPO_BRANCH=your-branch-name bash
+```
+
+### Local Development
+
+Clone and build from source:
+
+```bash
+git clone https://github.com/Gentoro-OneMCP/onemcp.git
+cd onemcp/cli
+npm install && npm run build && npm link
+```
+
+## Core Workflows
+
+### Starting Your First Chat
+
+The simplest way to get started:
+
+```bash
+onemcp chat
+```
+
+On first run, the setup wizard will:
+1. Ask you to choose an AI provider (OpenAI, Anthropic, or Gemini)
+2. Prompt for your API key
+3. Let you choose between the ACME Analytics example or your own API
+4. Start all required services automatically
+
+### Working with AI Providers
+
+OneMCP supports multiple AI providers. You can configure and switch between them easily.
+
+#### Set Up a Provider
+
+```bash
+onemcp provider set
+```
+
+This interactive command will:
+- Let you choose a provider (OpenAI, Anthropic, Gemini)
+- Prompt for your API key
+- Save the configuration
+
+#### Switch Between Providers
+
+```bash
+onemcp provider switch
+```
+
+Choose from your configured providers. No need to re-enter API keys.
+
+#### List Configured Providers
+
+```bash
+onemcp provider list
+```
+
+Shows all providers you've configured and their API keys (masked).
+
+### Managing Handbooks
+
+Handbooks are the core organizational unit in OneMCP. Each handbook represents a service or API you want to connect to AI.
+
+#### Create a New Handbook
+
+```bash
+onemcp handbook init my-service
+```
+
+This creates a new handbook directory with the standard structure:
+
+```
+~/handbooks/my-service/
+├── Agent.md                    # Instructions for the AI
+├── apis/                       # OpenAPI specifications
+├── docs/                       # Supplementary documentation
+├── regression/                 # Optional test definitions
+└── state/                      # Auto-generated runtime data
+```
+
+#### List All Handbooks
+
+```bash
+onemcp handbook list
+```
+
+Shows all handbooks in your handbooks directory.
+
+#### Switch Active Handbook
+
+```bash
+onemcp handbook use my-service
+```
+
+Sets `my-service` as the current handbook. All subsequent `onemcp chat` commands will use this handbook.
+
+#### Check Current Handbook
+
+```bash
+onemcp handbook current
+```
+
+Shows which handbook is currently active.
+
+#### Validate Handbook Structure
+
+```bash
+onemcp handbook validate
+```
+
+Checks that your handbook has the required structure and files.
+
+### Chatting with Different Handbooks
+
+You can chat with any handbook without changing the active one:
+
+```bash
+# Chat with the current handbook
+onemcp chat
+
+# Chat with a specific handbook
+onemcp chat analytics-dashboard
+
+# Switch handbooks during chat
+# Type 'switch' in the chat interface
+```
+
+### Connecting Your Own API
+
+Here's a complete workflow for connecting your own API:
+
+#### 1. Create a Handbook
+
+```bash
+onemcp handbook init my-api
+onemcp handbook use my-api
+```
+
+#### 2. Add Your OpenAPI Specification
+
+Place your OpenAPI spec in the handbook's `apis/` directory:
+
+```bash
+cp path/to/your-api-spec.yaml ~/handbooks/my-api/apis/
+```
+
+#### 3. Configure Service Authentication
+
+If your API requires authentication:
+
+```bash
+onemcp service auth my-api
+```
+
+This creates a `service.yaml` file with your authentication configuration:
+
+```yaml
+service: my-api
+header: Authorization
+pattern: Bearer {token}
+token: your-token-here
+expiresAt: 2025-12-31T23:59:59Z
+```
+
+#### 4. Add Documentation (Optional)
+
+Place any relevant documentation in the `docs/` directory:
+
+```bash
+cp path/to/docs/*.md ~/handbooks/my-api/docs/
+```
+
+#### 5. Write Agent Instructions
+
+Edit `~/handbooks/my-api/Agent.md` to provide instructions for the AI:
+
+```markdown
+# My API Agent
+
+You are an assistant that helps users interact with My API.
+
+## Capabilities
+- Query customer data
+- Generate reports
+- Update records
+
+## Guidelines
+- Always validate input before making API calls
+- Provide clear summaries of results
+- Handle errors gracefully
+```
+
+#### 6. Start Chatting
+
+```bash
+onemcp chat
+```
+
+The CLI will automatically index your OpenAPI spec and documentation.
+
+### Managing Service Authentication
+
+#### Configure Authentication
+
+```bash
+onemcp service auth my-service
+```
+
+Prompts for:
+- Service name
+- Authentication header (e.g., `Authorization`)
+- Token pattern (e.g., `Bearer {token}`)
+- Token value
+- Expiration date
+
+#### Renew a Token
+
+```bash
+onemcp service renew my-service
+```
+
+Updates the token and expiration date for an existing service.
+
+#### List Configured Services
+
+```bash
+onemcp service list
+```
+
+Shows all services with authentication configured.
+
+## Service Management
+
+### Check Service Status
+
+```bash
+onemcp status
+```
+
+Shows the health status of all running services:
+- OneMCP Server (port 8080)
+- TypeScript Runtime (port 7070)
+- Mock Server (port 8082, if enabled)
+- OpenTelemetry Collector (port 4317, if enabled)
+
+### Stop All Services
+
+```bash
+onemcp stop
+```
+
+Gracefully stops all OneMCP services.
+
+### View Logs
+
+```bash
+# View all logs
+onemcp logs
+
+# View logs for a specific service
+onemcp logs app
+onemcp logs typescript
+onemcp logs mock
+
+# Follow logs in real-time
+onemcp logs -f
+
+# Show last N lines
+onemcp logs -n 100
+```
+
+## Architecture
+
+The CLI manages multiple services that run as child processes:
+
+### OneMCP Server (Port 8080)
+
+The main Spring Boot application that:
+- Exposes the MCP endpoint at `/mcp`
+- Handles AI model interactions
+- Manages the knowledge base
+- Orchestrates tool execution
+
+### TypeScript Runtime (Port 7070)
+
+Executes TypeScript code snippets generated by the AI for:
+- Data transformations
+- API call orchestration
+- Complex workflows
+
+### Mock Server (Port 8082)
+
+The ACME Analytics mock server provides a complete example API for testing and learning. It includes:
+- Sample sales analytics endpoints
+- Realistic data
+- Full OpenAPI specification
+
+### OpenTelemetry Collector (Port 4317)
+
+Optional telemetry collection for:
+- Distributed tracing
+- Metrics collection
+- Log aggregation
+
+All services include automatic health checks and log management.
+
+## Configuration
+
+### Global Configuration
+
+Location: `~/.onemcp/config.yaml`
+
+```yaml
+provider: openai                    # Default AI provider
+apiKeys:
+  openai: sk-...                   # Provider API keys
+  gemini: your-gemini-key
+  anthropic: your-anthropic-key
+currentHandbook: my-service         # Active handbook
+handbookDir: ~/handbooks           # Handbooks directory
+logDir: ~/.onemcp/logs             # Logs directory
+```
+
+### Handbook Structure
+
+Each handbook follows this structure:
+
+```
+handbook/
+├── Agent.md                       # AI instructions
+├── apis/                          # OpenAPI specs
+│   └── my-api.yaml
+├── docs/                          # Documentation
+│   ├── overview.md
+│   └── examples.md
+├── regression/                    # Test definitions
+│   └── test-cases.yaml
+└── state/                         # Runtime data
+    └── knowledge-base-state.json
+```
+
+### Service Authentication
+
+Location: `~/handbooks/{handbook}/service.yaml`
+
+```yaml
+service: my-api
+header: Authorization              # Authentication header
+pattern: Bearer {token}            # Token pattern
+token: eyJh...                     # Token value
+expiresAt: 2025-10-25T14:02:12Z   # Expiration
+```
+
+## Troubleshooting
+
+### CLI Won't Start
+
+Check system requirements:
+
+```bash
+onemcp doctor
+```
+
+This verifies:
+- Node.js >= 20
+- Java 21
+- Maven installation
+- Network connectivity
+
+### Services Not Healthy
+
+```bash
+# Check status
+onemcp status
+
+# View logs for errors
+onemcp logs app
+
+# Restart services
+onemcp stop
+onemcp chat
+```
+
+### Token Expired
+
+```bash
+onemcp service renew my-service
+```
+
+Enter a new token and expiration date.
+
+### API Key Issues
+
+```bash
+# List configured providers
+onemcp provider list
+
+# Configure a new provider
+onemcp provider set
+
+# Switch providers
+onemcp provider switch
+```
+
+### Reset Everything
+
+If you need to start fresh:
+
+```bash
+onemcp reset
+```
+
+This will:
+- Stop all services
+- Delete configuration files
+- Re-run the setup wizard
+
+**Warning:** This deletes all configuration. Your handbooks are preserved.
+
+### Port Conflicts
+
+If ports 8080, 7070, or 8082 are already in use:
+
+1. Stop the conflicting service
+2. Or modify the port configuration in `~/.onemcp/config.yaml`
+
+### Logs Location
+
+All logs are stored in `~/.onemcp/logs/`:
+
+```
+~/.onemcp/logs/
+├── app.log                        # OneMCP server
+├── typescript.log                 # TypeScript runtime
+├── mock.log                       # Mock server
+└── archived/                      # Archived logs
+```
+
+Logs are automatically rotated and archived.
+
+## Updating
+
+Keep your CLI up to date:
+
+```bash
+onemcp update
+```
+
+This will:
+- Pull the latest version from GitHub
+- Rebuild the CLI
+- Preserve your configuration
+
+## Uninstallation
+
+### Automatic Uninstall
+
+```bash
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/uninstall.sh | bash
+```
+
+### Manual Uninstall
+
+```bash
+# Stop services
+onemcp stop
+
+# Remove based on installation method
+# npm:
+npm uninstall -g @gentoro/onemcp-cli
+
+# system-wide:
+sudo rm /usr/local/bin/onemcp
+
+# local-bin:
+rm ~/.local/bin/onemcp
+
+# Remove configuration and source
+rm -rf ~/.onemcp-src ~/.onemcp
+
+# Optionally remove handbooks
+rm -rf ~/handbooks
+```
+
+## Best Practices
+
+### Organizing Handbooks
+
+- **One handbook per service**: Keep each API or service in its own handbook
+- **Descriptive names**: Use clear, descriptive names like `customer-api` or `analytics-service`
+- **Documentation**: Always include comprehensive documentation in the `docs/` directory
+- **Version control**: Consider versioning your handbooks with Git
+
+### Writing Agent Instructions
+
+- **Be specific**: Clearly define what the AI should and shouldn't do
+- **Include examples**: Show example queries and expected responses
+- **Set boundaries**: Define any limitations or constraints
+- **Update regularly**: Keep instructions current as your API evolves
+
+### Managing Multiple Environments
+
+Create separate handbooks for different environments:
+
+```bash
+onemcp handbook init my-api-dev
+onemcp handbook init my-api-staging
+onemcp handbook init my-api-prod
+```
+
+Configure different service authentication for each environment.
+
+### Security
+
+- **Protect API keys**: Never commit API keys to version control
+- **Token expiration**: Set realistic expiration dates for service tokens
+- **Regular rotation**: Rotate tokens regularly using `onemcp service renew`
+- **Least privilege**: Use tokens with minimal required permissions
+
+## Next Steps
+
+- **Explore Concepts**: Learn about [Architecture](/docs/concepts/architecture) and [Retrieval](/docs/concepts/retrieval)
+- **Command Reference**: See the complete [CLI Reference](/docs/reference/cli)
+- **Add Tools**: Follow the [Adding a Tool](/docs/guides/adding-a-tool) guide
+- **Docker Deployment**: For production, see [Run with Docker](/docs/guides/run-with-docker)
+

@@ -1,58 +1,88 @@
 ---
-description: Run OneMCP locally with Docker, interact with the MCP endpoint, and bring your own data.
+description: Get started with OneMCP in minutes using the CLI to connect your APIs to AI models.
 ---
 
 # Getting Started
 
-Kick the tires in a few minutes using Docker with a mocked server for immediate testing.
+Get up and running with OneMCP in minutes. The CLI provides the fastest way to start chatting with AI models connected to your APIs.
 
 ## Prerequisites
 
-- Docker (or another OCI container runtime like Podman)
-- Internet access to pull the image `admingentoro/gentoro:latest`
+- **Node.js** >= 20
+- **Java** 21
+- **Maven** (for building the Java application)
+- An API key from OpenAI, Anthropic, or Google (Gemini)
 
-## Step 1: Running the Agent
+## Step 1: Install the CLI
 
-Start OneMCP with the built-in mock server:
-
-```bash
-docker run --rm \
-	-p 8082:8082 \
-    -e APP_ARGS="--process=mock-server --tcp-port=8082" \
-    admingentoro/gentoro:latest
-```
-
-What to expect in the logs:
-
-- Supervisor starting multiple processes (app, otel, mock server)
-- A line indicating the mock server is listening on port 8082
-- The Spring app starting and registering the MCP HTTP Stream endpoint at `/mcp`
-
-## Step 2: Interacting with the Agent
-
-The MCP endpoint is exposed over HTTP streaming at:
-
-- MCP URL: `http://localhost:8082/mcp`
-
-Use your MCP-compatible client to connect to the URL above. The server will stream responses and tool calls as defined by the Model Context Protocol.
-
-## Step 3: Using Your Own Data
-
-Mount a local "foundation" folder to override the mocked content (e.g., include `Agent.md`, docs, or OpenAPI specs) at `/var/foundation` inside the container:
+Install the Gentoro OneMCP CLI with a single command:
 
 ```bash
-docker run --rm \
-	-p 8082:8082 \
-	-v "${PWD}:/var/foundation" \
-    -e APP_ARGS="--process=mock-server --tcp-port=8082" \
-    admingentoro/gentoro:latest
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash
 ```
 
-Place files like `Agent.md`, Markdown docs, and OpenAPI specs in your current directory before running the command. The agent will index them to ground tool execution.
+The installer will download and set up everything you need.
+
+## Step 2: Start Chatting
+
+Launch the interactive chat interface:
+
+```bash
+onemcp chat
+```
+
+On your first run, the setup wizard will guide you through:
+1. Choosing your AI provider (OpenAI, Anthropic, or Gemini)
+2. Entering your API key
+3. Selecting a starting point (built-in ACME Analytics example or your own API)
+
+You'll see an interactive interface like this:
+
+```
+╔══════════════════════════════════════╗
+║     Gentoro OneMCP - Chat Mode       ║
+╚══════════════════════════════════════╝
+
+Handbook: ecommerce-api
+Provider: openai
+MCP URL: http://localhost:8080/mcp
+Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 Mock Server Active - Try These Example Queries:
+
+  > Show me electronics sales in California last quarter.
+  > List top customers by revenue.
+  > Compare revenue trends by region.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+? You:
+```
+
+## Step 3: Try Example Queries
+
+With the built-in ACME Analytics mock service, try queries like:
+
+- "Show me electronics sales in California last quarter"
+- "List top customers by revenue"
+- "What are the top-selling products this month?"
+
+The AI will automatically call the appropriate APIs and return structured results.
+
+## What Just Happened?
+
+The CLI automatically:
+- Started the OneMCP server (port 8080)
+- Launched the TypeScript runtime (port 7070)
+- Started the ACME Analytics mock server (port 8082)
+- Connected your chosen AI provider
+- Indexed the handbook documentation and API specs
 
 ## Next Steps
 
-- [Managing Multiple Handbooks](/docs/guides/handbook-management) - Create and configure multiple AI agents
-- [Creating a Foundation Folder](/docs/guides/ingest-foundation) - Set up your agent's knowledge base
-- [Adding a Tool](/docs/guides/adding-a-tool) - Extend your agent with custom tools
-- Concepts: [Architecture](/docs/concepts/architecture) and [Retrieval](/docs/concepts/retrieval)
+- **Connect Your Own API**: See the [CLI Guide](/docs/guides/cli-guide) for connecting your own services
+- **Learn Core Concepts**: Understand the [Architecture](/docs/concepts/architecture) and [Retrieval](/docs/concepts/retrieval)
+- **Alternative Setup**: Prefer Docker? See [Run with Docker](/docs/guides/run-with-docker)
+- **Add Custom Tools**: Follow the [Adding a Tool](/docs/guides/adding-a-tool) guide
+- **Create a Foundation Folder**: Learn about [Ingest Foundation](/docs/guides/ingest-foundation) to set up your agent's knowledge base

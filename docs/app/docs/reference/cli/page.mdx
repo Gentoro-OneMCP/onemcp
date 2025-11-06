@@ -1,0 +1,789 @@
+---
+description: Complete command reference for the Gentoro OneMCP CLI.
+---
+
+# CLI Reference
+
+Complete reference for all Gentoro OneMCP CLI commands, configuration files, and options.
+
+## Command Overview
+
+```bash
+onemcp [command] [options]
+```
+
+### Quick Reference
+
+| Command | Description |
+|---------|-------------|
+| `chat [handbook]` | Start interactive chat mode |
+| `stop` | Stop all services |
+| `status` | Show service health status |
+| `update` | Update CLI to latest version |
+| `reset` | Reset configuration and re-run setup |
+| `provider set` | Configure AI provider and API key |
+| `provider switch` | Switch between providers |
+| `provider list` | List configured providers |
+| `handbook init <name>` | Create new handbook |
+| `handbook validate` | Validate handbook structure |
+| `handbook list` | List all handbooks |
+| `handbook use <name>` | Set current handbook |
+| `handbook current` | Show current handbook |
+| `service auth <name>` | Configure service authentication |
+| `service renew <name>` | Renew service token |
+| `service list` | List configured services |
+| `doctor` | Check system requirements |
+| `logs [service]` | View service logs |
+| `--version` | Show CLI version |
+| `--help` | Show help information |
+
+## Chat & Services
+
+### onemcp chat
+
+Start interactive chat mode with AI.
+
+```bash
+onemcp chat [handbook]
+```
+
+**Arguments:**
+- `handbook` (optional) - Name of handbook to use. If omitted, uses current handbook.
+
+**Behavior:**
+- On first run, launches setup wizard
+- Automatically starts all required services
+- Opens interactive chat interface
+- Provides example queries for mock server
+
+**Interactive Commands:**
+- `exit` - Exit chat mode
+- `clear` - Clear conversation history
+- `switch` - Switch to a different handbook
+- `help` - Show available commands
+
+**Examples:**
+
+```bash
+# Chat with current handbook
+onemcp chat
+
+# Chat with specific handbook
+onemcp chat analytics-dashboard
+
+# Chat with ACME Analytics example
+onemcp chat ecommerce-api
+```
+
+**Services Started:**
+- OneMCP Server (port 8080)
+- TypeScript Runtime (port 7070)
+- Mock Server (port 8082, if using ACME Analytics)
+- OpenTelemetry Collector (port 4317, optional)
+
+### onemcp stop
+
+Stop all running OneMCP services.
+
+```bash
+onemcp stop
+```
+
+**Behavior:**
+- Gracefully shuts down all child processes
+- Closes open ports
+- Preserves logs and configuration
+
+**Example:**
+
+```bash
+onemcp stop
+```
+
+### onemcp status
+
+Show health status of all services.
+
+```bash
+onemcp status
+```
+
+**Output:**
+- Service name
+- Status (healthy/unhealthy/stopped)
+- Port number
+- Uptime
+
+**Example:**
+
+```bash
+onemcp status
+
+# Output:
+# OneMCP Server (8080): healthy (uptime: 2h 15m)
+# TypeScript Runtime (7070): healthy (uptime: 2h 15m)
+# Mock Server (8082): healthy (uptime: 2h 15m)
+```
+
+### onemcp update
+
+Update CLI to the latest version.
+
+```bash
+onemcp update
+```
+
+**Behavior:**
+- Pulls latest code from GitHub
+- Rebuilds the CLI
+- Preserves configuration and handbooks
+- Restarts services if running
+
+**Example:**
+
+```bash
+onemcp update
+```
+
+### onemcp reset
+
+Reset all configuration and re-run setup wizard.
+
+```bash
+onemcp reset
+```
+
+**Behavior:**
+- Stops all services
+- Deletes `~/.onemcp/config.yaml`
+- Clears provider configurations
+- Preserves handbooks
+- Launches setup wizard on next command
+
+**Warning:** This deletes all configuration. Use with caution.
+
+**Example:**
+
+```bash
+onemcp reset
+```
+
+## Provider Management
+
+### onemcp provider set
+
+Configure a new AI provider or update existing one.
+
+```bash
+onemcp provider set
+```
+
+**Interactive Prompts:**
+1. Choose provider (OpenAI, Anthropic, Gemini)
+2. Enter API key
+3. Confirm and save
+
+**Supported Providers:**
+- **OpenAI** - GPT-4, GPT-3.5-turbo, etc.
+- **Anthropic** - Claude 3 Opus, Sonnet, Haiku
+- **Google Gemini** - Gemini Pro, Gemini Ultra
+
+**Example:**
+
+```bash
+onemcp provider set
+
+# Interactive prompts:
+# ? Select provider: OpenAI
+# ? Enter API key: sk-...
+# ✓ Provider configured successfully
+```
+
+### onemcp provider switch
+
+Switch between configured providers.
+
+```bash
+onemcp provider switch
+```
+
+**Interactive Prompts:**
+- Shows list of configured providers
+- Select provider to use
+- No need to re-enter API keys
+
+**Example:**
+
+```bash
+onemcp provider switch
+
+# Interactive prompts:
+# ? Select provider:
+#   > OpenAI (sk-...abc)
+#     Anthropic (sk-...xyz)
+#     Gemini (AI...123)
+```
+
+### onemcp provider list
+
+List all configured providers and their API keys (masked).
+
+```bash
+onemcp provider list
+```
+
+**Output:**
+- Provider name
+- API key (first 6 and last 3 characters visible)
+- Current provider indicator
+
+**Example:**
+
+```bash
+onemcp provider list
+
+# Output:
+# * OpenAI: sk-proj...abc (current)
+#   Anthropic: sk-ant-...xyz
+#   Gemini: AIza...123
+```
+
+## Handbook Management
+
+### onemcp handbook init
+
+Create a new handbook.
+
+```bash
+onemcp handbook init <name>
+```
+
+**Arguments:**
+- `name` (required) - Name for the new handbook
+
+**Behavior:**
+- Creates handbook directory at `~/handbooks/<name>`
+- Generates standard directory structure
+- Creates template `Agent.md`
+- Initializes empty `apis/`, `docs/`, `regression/` directories
+
+**Directory Structure Created:**
+
+```
+~/handbooks/<name>/
+├── Agent.md
+├── apis/
+├── docs/
+├── regression/
+└── state/
+```
+
+**Example:**
+
+```bash
+onemcp handbook init customer-api
+
+# Output:
+# ✓ Created handbook: customer-api
+# ✓ Directory: ~/handbooks/customer-api
+```
+
+### onemcp handbook validate
+
+Validate current handbook structure.
+
+```bash
+onemcp handbook validate
+```
+
+**Checks:**
+- Handbook directory exists
+- Required directories present (`apis/`, `docs/`, `regression/`, `state/`)
+- `Agent.md` exists and is readable
+- OpenAPI specs are valid YAML/JSON
+- Documentation files are valid Markdown
+
+**Example:**
+
+```bash
+onemcp handbook validate
+
+# Output:
+# ✓ Handbook structure valid
+# ✓ Agent.md found
+# ✓ 2 OpenAPI specs validated
+# ✓ 5 documentation files validated
+```
+
+### onemcp handbook list
+
+List all handbooks.
+
+```bash
+onemcp handbook list
+```
+
+**Output:**
+- Handbook name
+- Location
+- Current handbook indicator
+
+**Example:**
+
+```bash
+onemcp handbook list
+
+# Output:
+# * ecommerce-api (current)
+#   customer-api
+#   analytics-dashboard
+#   payment-service
+```
+
+### onemcp handbook use
+
+Set the current handbook.
+
+```bash
+onemcp handbook use <name>
+```
+
+**Arguments:**
+- `name` (required) - Name of handbook to activate
+
+**Behavior:**
+- Updates `currentHandbook` in `~/.onemcp/config.yaml`
+- Subsequent `onemcp chat` commands use this handbook
+
+**Example:**
+
+```bash
+onemcp handbook use customer-api
+
+# Output:
+# ✓ Switched to handbook: customer-api
+```
+
+### onemcp handbook current
+
+Show the current handbook.
+
+```bash
+onemcp handbook current
+```
+
+**Output:**
+- Current handbook name
+- Location
+- Last modified date
+
+**Example:**
+
+```bash
+onemcp handbook current
+
+# Output:
+# Current handbook: customer-api
+# Location: ~/handbooks/customer-api
+# Last modified: 2025-11-06 14:30:00
+```
+
+## Service Management
+
+### onemcp service auth
+
+Configure authentication for a service.
+
+```bash
+onemcp service auth <name>
+```
+
+**Arguments:**
+- `name` (required) - Service name
+
+**Interactive Prompts:**
+1. Authentication header (e.g., `Authorization`)
+2. Token pattern (e.g., `Bearer {token}`)
+3. Token value
+4. Expiration date
+
+**Creates:**
+- `~/handbooks/{current-handbook}/service.yaml`
+
+**Example:**
+
+```bash
+onemcp service auth my-api
+
+# Interactive prompts:
+# ? Header name: Authorization
+# ? Token pattern: Bearer {token}
+# ? Token value: eyJhbGc...
+# ? Expires at: 2025-12-31
+# ✓ Service authentication configured
+```
+
+**Generated `service.yaml`:**
+
+```yaml
+service: my-api
+header: Authorization
+pattern: Bearer {token}
+token: eyJhbGc...
+expiresAt: 2025-12-31T23:59:59Z
+```
+
+### onemcp service renew
+
+Renew authentication token for a service.
+
+```bash
+onemcp service renew <name>
+```
+
+**Arguments:**
+- `name` (required) - Service name
+
+**Interactive Prompts:**
+1. New token value
+2. New expiration date
+
+**Updates:**
+- `token` field in `service.yaml`
+- `expiresAt` field in `service.yaml`
+
+**Example:**
+
+```bash
+onemcp service renew my-api
+
+# Interactive prompts:
+# ? New token value: eyJhbGc...
+# ? Expires at: 2026-01-31
+# ✓ Token renewed successfully
+```
+
+### onemcp service list
+
+List all configured services.
+
+```bash
+onemcp service list
+```
+
+**Output:**
+- Service name
+- Handbook
+- Expiration date
+- Status (valid/expired)
+
+**Example:**
+
+```bash
+onemcp service list
+
+# Output:
+# customer-api (customer-api handbook)
+#   Expires: 2025-12-31 [valid]
+#
+# payment-api (payment-service handbook)
+#   Expires: 2025-11-01 [expired]
+```
+
+## Diagnostics
+
+### onemcp doctor
+
+Check system requirements and configuration.
+
+```bash
+onemcp doctor
+```
+
+**Checks:**
+- Node.js version (>= 20)
+- Java version (21)
+- Maven installation
+- Network connectivity
+- Port availability (8080, 7070, 8082, 4317)
+- Configuration file validity
+- Handbook directory structure
+
+**Example:**
+
+```bash
+onemcp doctor
+
+# Output:
+# ✓ Node.js 20.10.0 (required: >= 20)
+# ✓ Java 21.0.1 (required: 21)
+# ✓ Maven 3.9.5
+# ✓ Network connectivity
+# ✓ Port 8080 available
+# ✓ Port 7070 available
+# ✓ Port 8082 available
+# ✓ Configuration valid
+# ✓ Handbook directory exists
+#
+# All checks passed!
+```
+
+### onemcp logs
+
+View service logs.
+
+```bash
+onemcp logs [service] [options]
+```
+
+**Arguments:**
+- `service` (optional) - Service name (`app`, `typescript`, `mock`, `otel`)
+
+**Options:**
+- `-f, --follow` - Follow log output (like `tail -f`)
+- `-n, --lines <number>` - Show last N lines (default: 100)
+
+**Examples:**
+
+```bash
+# View all logs
+onemcp logs
+
+# View app logs
+onemcp logs app
+
+# Follow TypeScript runtime logs
+onemcp logs typescript -f
+
+# Show last 50 lines of mock server logs
+onemcp logs mock -n 50
+```
+
+**Log Files:**
+- `~/.onemcp/logs/app.log` - OneMCP server
+- `~/.onemcp/logs/typescript.log` - TypeScript runtime
+- `~/.onemcp/logs/mock.log` - Mock server
+- `~/.onemcp/logs/otel.log` - OpenTelemetry collector
+- `~/.onemcp/logs/archived/` - Archived logs
+
+### onemcp --version
+
+Show CLI version.
+
+```bash
+onemcp --version
+```
+
+**Example:**
+
+```bash
+onemcp --version
+
+# Output:
+# @gentoro/onemcp-cli v1.0.0
+```
+
+### onemcp --help
+
+Show help information.
+
+```bash
+onemcp --help
+onemcp [command] --help
+```
+
+**Examples:**
+
+```bash
+# General help
+onemcp --help
+
+# Command-specific help
+onemcp chat --help
+onemcp handbook --help
+onemcp provider --help
+```
+
+## Configuration Files
+
+### Global Configuration
+
+**Location:** `~/.onemcp/config.yaml`
+
+**Structure:**
+
+```yaml
+provider: openai                    # Current AI provider
+apiKeys:                           # Provider API keys
+  openai: sk-proj-...
+  anthropic: sk-ant-...
+  gemini: AIza...
+currentHandbook: my-service         # Active handbook
+handbookDir: ~/handbooks           # Handbooks directory
+logDir: ~/.onemcp/logs             # Logs directory
+ports:                             # Service ports (optional)
+  app: 8080
+  typescript: 7070
+  mock: 8082
+  otel: 4317
+```
+
+**Fields:**
+- `provider` - Default AI provider (openai, anthropic, gemini)
+- `apiKeys` - Map of provider names to API keys
+- `currentHandbook` - Name of active handbook
+- `handbookDir` - Path to handbooks directory
+- `logDir` - Path to logs directory
+- `ports` - Custom port configuration (optional)
+
+### Handbook Structure
+
+**Location:** `~/handbooks/{handbook-name}/`
+
+**Structure:**
+
+```
+handbook/
+├── Agent.md                       # AI instructions (required)
+├── apis/                          # OpenAPI specifications
+│   ├── api-v1.yaml
+│   └── api-v2.yaml
+├── docs/                          # Supplementary documentation
+│   ├── overview.md
+│   ├── examples.md
+│   └── troubleshooting.md
+├── regression/                    # Test definitions (optional)
+│   └── test-cases.yaml
+└── state/                         # Runtime data (auto-generated)
+    └── knowledge-base-state.json
+```
+
+**Required:**
+- `Agent.md` - Instructions for the AI agent
+
+**Optional:**
+- `apis/` - OpenAPI specifications (YAML or JSON)
+- `docs/` - Markdown documentation files
+- `regression/` - Test case definitions
+- `state/` - Auto-generated, do not edit manually
+
+### Service Authentication
+
+**Location:** `~/handbooks/{handbook-name}/service.yaml`
+
+**Structure:**
+
+```yaml
+service: my-api                    # Service identifier
+header: Authorization              # HTTP header name
+pattern: Bearer {token}            # Token pattern
+token: eyJhbGc...                  # Token value
+expiresAt: 2025-12-31T23:59:59Z   # Expiration timestamp
+```
+
+**Fields:**
+- `service` - Unique service identifier
+- `header` - HTTP header for authentication (e.g., `Authorization`, `X-API-Key`)
+- `pattern` - Token pattern with `{token}` placeholder (e.g., `Bearer {token}`, `ApiKey {token}`)
+- `token` - The actual token value
+- `expiresAt` - ISO 8601 timestamp for token expiration
+
+**Common Patterns:**
+
+```yaml
+# Bearer token
+header: Authorization
+pattern: Bearer {token}
+
+# API key
+header: X-API-Key
+pattern: {token}
+
+# Custom header
+header: X-Custom-Auth
+pattern: Token {token}
+```
+
+## Environment Variables
+
+### Installation
+
+- `ONEMCP_INSTALL_METHOD` - Installation method (`npm`, `system-wide`, `local-bin`)
+- `ONEMCP_REPO_BRANCH` - Git branch to install from
+
+**Examples:**
+
+```bash
+# System-wide installation
+ONEMCP_INSTALL_METHOD=system-wide bash install.sh
+
+# Install from custom branch
+ONEMCP_REPO_BRANCH=develop bash install.sh
+```
+
+### Runtime
+
+- `ONEMCP_CONFIG_DIR` - Override config directory (default: `~/.onemcp`)
+- `ONEMCP_HANDBOOK_DIR` - Override handbooks directory (default: `~/handbooks`)
+- `ONEMCP_LOG_DIR` - Override logs directory (default: `~/.onemcp/logs`)
+
+**Examples:**
+
+```bash
+# Use custom config directory
+ONEMCP_CONFIG_DIR=/custom/path onemcp chat
+
+# Use custom handbooks directory
+ONEMCP_HANDBOOK_DIR=/my/handbooks onemcp handbook list
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error |
+| 2 | Configuration error |
+| 3 | Service startup error |
+| 4 | Service health check failed |
+| 5 | Handbook validation error |
+| 6 | Authentication error |
+| 7 | Network error |
+| 8 | Missing dependency |
+
+## Best Practices
+
+### Configuration Management
+
+- **Version control**: Keep handbooks in Git, exclude `state/` directory
+- **Secrets management**: Never commit API keys or tokens
+- **Environment separation**: Use separate handbooks for dev/staging/prod
+
+### Handbook Organization
+
+- **One service per handbook**: Keep each API in its own handbook
+- **Clear naming**: Use descriptive names like `customer-api`, not `api1`
+- **Documentation**: Include comprehensive docs in the `docs/` directory
+- **OpenAPI specs**: Keep specs up to date with API changes
+
+### Service Authentication
+
+- **Token rotation**: Regularly renew tokens using `onemcp service renew`
+- **Expiration dates**: Set realistic expiration dates
+- **Least privilege**: Use tokens with minimal required permissions
+- **Secure storage**: Configuration files contain sensitive data, protect accordingly
+
+### Troubleshooting
+
+- **Check logs first**: Use `onemcp logs` to diagnose issues
+- **Verify health**: Run `onemcp status` to check service health
+- **Run doctor**: Use `onemcp doctor` to verify system requirements
+- **Clean restart**: Stop services with `onemcp stop`, then restart with `onemcp chat`
+
+## See Also
+
+- [CLI Guide](/docs/guides/cli-guide) - Comprehensive usage guide
+- [Getting Started](/docs/getting-started) - Quick start tutorial
+- [Architecture](/docs/concepts/architecture) - System architecture overview
+- [Configuration](/docs/reference/configuration) - Advanced configuration options
+
