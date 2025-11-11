@@ -1,4 +1,4 @@
-# Contributing to GenToro OneMCP
+# Contributing to Gentoro OneMCP
 
 We would love your input! We want to make contributing to OneMCP as easy and transparent as possible.
 
