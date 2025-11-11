@@ -22,19 +22,11 @@ if [[ -z "$JAR_NAME" ]]; then
   if [[ -z "$POM_VERSION" ]]; then
     echo "Cannot read version from $POM"; exit 1
   fi
-  JAR_NAME="onemcp-$POM_VERSION.jar"
+  JAR_NAME="onemcp-$POM_VERSION-jar-with-dependencies.jar"
 
   # Build app JAR if not already built
   echo "Building application JAR..."
-  ( cd "$ROOT_DIR/src/onemcp" && ./mvnw -q -DskipTests package spring-boot:repackage || mvn -q -DskipTests package spring-boot:repackage )
-  
-  # Build TypeScript runtime
-  echo "Building TypeScript runtime..."
-  ( cd "$ROOT_DIR/src/typescript-runtime" && npm install --legacy-peer-deps && npm run build )
-  
-  # Build mock server (ACME Analytics Server)
-  echo "Building ACME Analytics Server..."
-  ( cd "$ROOT_DIR/src/acme-analytics-server/server" && ./build.sh )
+  ( cd "$ROOT_DIR/src/onemcp" && ./mvnw -q -DskipTests package )
 fi
 
 # Validate JAR exists
@@ -45,7 +37,7 @@ if [[ ! -f "$JAR_PATH" ]]; then
 fi
 
 # Validate JAR has proper Spring Boot manifest
-if ! unzip -p "$JAR_PATH" META-INF/MANIFEST.MF | grep -q "Main-Class: org.springframework.boot.loader.launch.JarLauncher"; then
+if ! unzip -p "$JAR_PATH" META-INF/MANIFEST.MF | grep -q "Main-Class: com.gentoro.onemcp.OneMcpApp"; then
   echo "ERROR: JAR file is missing Spring Boot Main-Class manifest attribute"
   echo "This usually means spring-boot:repackage was not run properly"
   echo "JAR manifest:"
@@ -79,7 +71,7 @@ else
   if [[ "$PLATFORM_FLAG" != "--platform" ]]; then
     PLATFORMS="linux/amd64"
   fi
-  
+
   # Check if base image exists locally - try both versioned and latest
   BASE_IMAGE_NAME="admingentoro/gentoro:base-$VERSION"
   if ! docker image inspect "$BASE_IMAGE_NAME" >/dev/null 2>&1; then
@@ -94,7 +86,7 @@ else
       exit 1
     fi
   fi
-  
+
   BUILD_CMD="docker build"
   BUILD_ARGS=(
     -f "$ROOT_DIR/Dockerfile"

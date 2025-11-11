@@ -1,0 +1,36 @@
+checksum: -882776014
+slug: acme_sales_analytics_api
+definitionUri: openapi/sales-analytics-api.yaml
+resourcesUri: .services/acme_sales_analytics_api
+readmeUri: .services/acme_sales_analytics_api/README.md
+operations:
+- documentationUri: .services/acme_sales_analytics_api/querySalesData.md
+  operation: querySalesData
+  method: POST
+  path: /query
+  summary: |
+    Execute complex queries against the sales analytics dataset. This endpoint
+    allows you to filter, select fields, and perform aggregations on sales data.
+
+    ## Query Structure
+    - **filter**: Array of filter conditions to narrow down results
+    - **fields**: Array of field names to include in the response
+    - **aggregates**: Optional aggregations to perform on the data
+
+    ## Example Use Cases
+    - Find all electronics sales in Q4 2023
+    - Calculate total revenue by region for last month
+    - Get top 10 customers by purchase amount
+    - Analyze product performance by category
+- documentationUri: .services/acme_sales_analytics_api/getAvailableFields.md
+  operation: getAvailableFields
+  method: GET
+  path: /fields
+  summary: |
+    Retrieve a list of all available fields in the sales dataset.
+    This endpoint helps you understand what data is available for querying.
+- documentationUri: .services/acme_sales_analytics_api/healthCheck.md
+  operation: healthCheck
+  method: GET
+  path: /health
+  summary: Check the health status of the API

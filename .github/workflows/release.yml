@@ -63,7 +63,7 @@ jobs:
       contents: write
       packages: write
       pull-requests: write
-    
+
     steps:
     - name: Check dry run mode
       if: github.event_name == 'workflow_dispatch'
@@ -73,43 +73,43 @@ jobs:
         else
           echo "🚀 LIVE RELEASE MODE - Changes will be applied"
         fi
-    
+
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Fetch full history for proper tagging
-    
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-    
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-    
+
     - name: Install xmllint
       run: |
         sudo apt-get update
         sudo apt-get install -y libxml2-utils
-    
+
     - name: Cache Maven dependencies
       uses: actions/cache@v4
       with:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
-    
+
     - name: Set up QEMU
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       uses: docker/setup-qemu-action@v3
-    
+
     - name: Set up Docker Buildx
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       uses: docker/setup-buildx-action@v3
-    
+
     - name: Log in to Docker Hub
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       uses: docker/login-action@v3
@@ -117,14 +117,14 @@ jobs:
         registry: ${{ env.REGISTRY }}
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_PASSWORD }}
-    
+
     - name: Show existing tags
       if: github.event.inputs.dry_run != true || github.event_name == 'push'
       run: |
         echo "📋 Existing tags in repository:"
         git tag -l | sort -V | tail -10 || echo "No tags found"
         echo ""
-    
+
     - name: Extract version from tag
       if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
       id: extract_version
@@ -133,7 +133,7 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
         echo "Released version: $VERSION"
-    
+
     - name: Calculate version for manual release
       if: github.event_name == 'workflow_dispatch'
       id: calculate_version
@@ -177,7 +177,7 @@ jobs:
         echo "  - Base: ${LATEST_TAG:-"POM version $CURRENT_VERSION"}"
         echo "  - Bump type: $BUMP"
         echo "  - New tag: $TAG"
-    
+
     - name: Create tag for manual release
       if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != true
       run: |
@@ -200,32 +200,19 @@ jobs:
           echo "❌ Failed to create tag $TAG"
           exit 1
         fi
-    
+
     - name: Build and push base image
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       run: |
         VERSION="${{ steps.extract_version.outputs.version || steps.calculate_version.outputs.version }}"
         ./scripts/docker/build-base.sh "$VERSION" --push
-    
+
     - name: Build product JAR
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       run: |
         cd src/onemcp
-        ./mvnw -q -DskipTests package spring-boot:repackage || mvn -q -DskipTests package spring-boot:repackage
-    
-    - name: Build ACME Analytics Server
-      if: github.event_name == 'push' || github.event.inputs.dry_run != true
-      run: |
-        cd src/acme-analytics-server/server
-        ./build.sh
-    
-    - name: Build TypeScript Runtime
-      if: github.event_name == 'push' || github.event.inputs.dry_run != true
-      run: |
-        cd src/typescript-runtime
-        npm install --legacy-peer-deps
-        npm run build
-    
+        ./mvnw -q -DskipTests package
+
     - name: Build and push product image
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       run: |
@@ -233,7 +220,7 @@ jobs:
         POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" src/onemcp/pom.xml)
         JAR_NAME="onemcp-$POM_VERSION.jar"
         ./scripts/docker/build-product.sh "$VERSION" "$JAR_NAME" --push
-    
+
     - name: Verify images exist
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       run: |
@@ -257,7 +244,7 @@ jobs:
         fi
         
         echo "✅ All images verified successfully"
-    
+
     - name: Create GitHub Release
       if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
       uses: actions/create-release@v1
@@ -278,8 +265,6 @@ jobs:
           All services have been validated and are confirmed working:
           - **OneMCP** (port 8080) - Main Spring Boot application
           - **OpenTelemetry Collector** (port 4317) - Telemetry data collection
-          - **Mock Server** (port 8082, optional) - External mock server
-          - **TypeScript Runtime** (port 7070, optional) - Node.js runtime
           
           **Platform Support**: Both `linux/amd64` and `linux/arm64` architectures tested and validated.
           
@@ -308,7 +293,7 @@ jobs:
           ```
         draft: false
         prerelease: false
-    
+
     - name: Dry run summary
       if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == true
       run: |
@@ -322,8 +307,6 @@ jobs:
         echo "- Validated all services on both linux/amd64 and linux/arm64 platforms:"
         echo "  - OneMCP (port 8080) - Main Spring Boot application"
         echo "  - OpenTelemetry Collector (port 4317) - Telemetry data collection"
-        echo "  - Mock Server (port 8082, optional) - External mock server"
-        echo "  - TypeScript Runtime (port 7070, optional) - Node.js runtime"
         echo ""
         echo "Note: The tag push will trigger the GitHub Release creation automatically."
 

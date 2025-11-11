@@ -50,8 +50,6 @@ Service management:
 Single service modes:
   docker run image app-only           # Start only the main OneMCP app
   docker run image otel-only          # Start only OpenTelemetry collector
-  docker run image ts-only            # Start only TypeScript runtime
-  docker run image mock-only          # Start only mock server
 
 Utility commands:
   docker run image shell              # Start interactive bash shell
@@ -76,7 +74,6 @@ Examples:
   docker run -e JAVA_OPTS="-Xmx1g" image app-only
   docker run -e APP_ARGS="--process=validate" image
   docker run -e APP_ARGS="--process=regression" image
-  docker run -e DISABLE_SERVICES="tsruntime,mockserver" image
   docker run image logs app
   docker run image shell
 EOF
@@ -104,7 +101,7 @@ show_status() {
 
 show_logs() {
     local service="${1:-all}"
-    
+
     if [[ "$service" == "all" ]]; then
         log_info "Showing logs for all services:"
         for log_file in /var/log/supervisor/*.log; do
@@ -129,19 +126,13 @@ show_logs() {
 start_single_service() {
     local service="$1"
     log_info "Starting single service: $service"
-    
+
     case "$service" in
         "app-only")
             exec /opt/bin/run-app.sh
             ;;
         "otel-only")
             exec /opt/bin/run-otel.sh
-            ;;
-        "ts-only")
-            exec /opt/bin/run-ts.sh
-            ;;
-        "mock-only")
-            exec /opt/bin/run-mock.sh
             ;;
         *)
             log_error "Unknown single service: $service"
@@ -157,26 +148,26 @@ start_shell() {
 
 start_supervisord() {
     log_info "Starting all services via supervisord..."
-    
+
     # Check for disabled services
     if [[ -n "${DISABLE_SERVICES:-}" ]]; then
         log_info "Disabled services: $DISABLE_SERVICES"
         # This would require modifying supervisord.conf dynamically
         # For now, just log the information
     fi
-    
+
     # Start supervisord in background
     /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf &
     local supervisord_pid=$!
-    
+
     # Wait for services to start
     log_info "Waiting for services to start..."
     sleep 8
-    
+
     # Show service status
     log_info "Service Status:"
     supervisorctl status 2>/dev/null || log_warning "Supervisor not responding yet"
-    
+
     # Show application logs
     log_info "Application logs:"
     echo "=========================================="
@@ -186,10 +177,10 @@ start_supervisord() {
         log_warning "Application log file not found"
     fi
     echo "=========================================="
-    
+
     # Keep container running and show live logs
     log_info "Container is running. Showing live logs..."
-    
+
     # Show live logs from all services
     tail -f /var/log/supervisor/app.out.log
 }
@@ -201,11 +192,11 @@ main() {
         start_supervisord
         return
     fi
-    
+
     # Parse the first argument as the command
     local command="$1"
     shift # Remove first argument, rest become $@
-    
+
     case "$command" in
         "help"|"-h"|"--help")
             show_help
@@ -222,7 +213,7 @@ main() {
         "shell"|"bash"|"sh")
             start_shell
             ;;
-        "app-only"|"otel-only"|"ts-only"|"mock-only")
+        "app-only"|"otel-only")
             start_single_service "$command"
             ;;
         "restart")

@@ -1,67 +1,66 @@
-# Application defaults for OneMCP (HTTP Streamable transport over Spring WebFlux)
-#
-# Notes for operators:
-# - server.port controls the HTTP port. Override via SERVER_PORT or Spring's standard env mapping.
-# - agentProtocol.mcp.config.* controls the MCP transport endpoint characteristics.
-# - Provider credentials are read from environment variables; leave blank in source control.
+handbook:
+  location: ${env:HANDBOOK_DIR:-classpath:acme-handbook}
 
-server:
+prompt:
+  location: classpath:prompts
+
+# Logging levels can be configured here and applied at startup by OneMcp
+logging:
+  level:
+    root: INFO
+    # Fine‑tune specific packages/classes as needed
+    com:
+      google:
+        genai: OFF
+      gentoro:
+        onemcp: INFO
+    org:
+      eclipse:
+        jetty: WARN
+    okhttp3: INFO
+    io:
+      modelcontextprotocol: INFO
+
+http:
   port: 8080
-  # servlet context path can be set via `server.servlet.context-path` if needed
-  # servlet:
-  #   context-path: /api
-
-agentProtocol:
+  hostname: 0.0.0.0
+  acme:
+    context-path: /acme
   mcp:
-    config:
-      # If true, the transport will reject HTTP DELETE requests (defense-in-depth for some proxies)
-      disallowDelete: ${PROTOCOL_MCP_CONFIG_DISALLOW_DELETE:false}
-      # Path where the MCP streamable endpoint is exposed (combined with server.port and optional context-path)
-      messageEndpoint: ${PROTOCOL_MCP_CONFIG_MESSAGE_ENDPOINT:/mcp}
-
-providers:
-  providers:
-    openai:
-      apiKey: ${OPENAI_API_KEY:}
-      baseUrl: ${OPENAI_BASE_URL:}
-      modelName: ${OPENAI_MODEL_NAME:gpt-5-mini-2025-08-07}
-    gemini:
-      apiKey: ${GEMINI_API_KEY:}
-      endpoint: ${GEMINI_ENDPOINT:}
-      modelName: ${GEMINI_MODEL_NAME:gemini-2.0-flash}
-    anthropic:
-      apiKey: ${ANTHROPIC_API_KEY:}
-      baseUrl: ${ANTHROPIC_BASE_URL:}
-      modelName: ${ANTHROPIC_MODEL_NAME:claude-3-sonnet-20240229}
-  # Default inference provider key from the list above
-  default-provider: ${INFERENCE_DEFAULT_PROVIDER:openai}
-
-# URL for the external TypeScript runtime used by some tools
-typescriptRuntime:
-  baseUrl: ${TS_RUNTIME_URL:http://localhost:7070}
-
-# Guardrails configuration
-guardrails:
-  strict: ${GUARDRAILS_STRICT:true}
-
-# OpenTelemetry service naming
-otel:
-  service:
-    name: onemcp
-  exporter:
-    otlp:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://127.0.0.1:4317}
+    endpoint: ${env:PROTOCOL_MCP_CONFIG_MESSAGE_ENDPOINT:-/mcp}
+    keep-alive: -1
+    keep-alive-seconds: -1
+    disallow-delete: false
+    server:
+      name: "onemcp-server"
+      version: "1.0.0"
+    tool:
+      name: onemcp.run
+      description: |
+        OneMCP entry point, express your request using Natural Language.
 
 
-knowledgeBase:
-  # Root Foundation directory containing docs/, tests/, feedback/, and openapi/ subfolders.
-  # Override with env var FOUNDATION_DIR or set knowledgeBase.foundation.dir
-  foundation:
-    dir: ${FOUNDATION_DIR:/var/foundation}
-  # Hint generation settings for KB entries
-  hint:
-    # Max characters used when generating hints (also caps AI output)
-    size: 500
-    # If true, uses the configured InferenceService to generate a concise hint for each entry.
-    # Otherwise, falls back to the first N characters of the content.
-    useAi: true
+llm:
+  active-profile: gemini-flash
+  ollama:
+    baseUrl: http://192.168.2.77:11434
+    model: qwen3-coder:30b
+    provider: ollama
+  openai:
+    apiKey: ${env:OPENAI_API_KEY:-sk-proj-...}
+    model: ${env:OPENAI_MODEL_NAME:-gpt-5-nano-2025-08-07}
+    provider: openai
+  anthropic-sonnet:
+    apiKey: ${env:ANTHROPIC_API_KEY:-sk-ant-...}
+    model: ${env:ANTHROPIC_MODEL_NAME:-claude-sonnet-4-5-20250929}
+    provider: anthropic
+  gemini-flash:
+    apiKey: ${env:GEMINI_API_KEY:-...}
+    model: ${env:GEMINI_MODEL_NAME:-gemini-2.5-flash-lite}
+    provider: gemini
+  gemini-pro:
+    apiKey: ${env:GEMINI_API_KEY:-...}
+    model: ${env:GEMINI_MODEL_NAME:-gemini-2.5-pro}
+    provider: gemini
+  cache:
+    enabled: false

@@ -16,54 +16,25 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-    
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-    
+
     - name: Cache Maven dependencies
       uses: actions/cache@v4
       with:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
-    
-    - name: Cache npm dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.npm
-        key: ${{ runner.os }}-npm-${{ hashFiles('src/typescript-runtime/package-lock.json', 'cli/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-npm-
-          ${{ runner.os }}-
-    
-    - name: Test onemcp (Unit Tests Only)
-      run: |
-        cd src/onemcp
-        echo "Running onemcp unit tests..."
-        mvn test -Dtest="AgentServiceTest,TelemetryServiceTracingTest,TelemetryServiceMetricsTest,LogContextTest,TelemetryConfigTest,KnowledgeBaseServiceImplTest,FileKnowledgeBasePersistenceTest,OrchestratorImplTest,AgentServiceConfigTest,FoundationValidationServiceTest"
-    
-    - name: Test acme-analytics-server
-      run: |
-        cd src/acme-analytics-server/server
-        echo "Running acme-analytics-server tests..."
-        mvn test
-    
-    - name: Test typescript-runtime
-      run: |
-        cd src/typescript-runtime
-        echo "Installing dependencies..."
-        npm install --legacy-peer-deps
-        echo "Running typescript-runtime tests..."
-        npm test
-    
+
     - name: Test CLI
       run: |
         cd cli
@@ -71,7 +42,7 @@ jobs:
         npm install
         echo "Running CLI tests..."
         npm test
-    
+
     - name: Upload test results
       uses: actions/upload-artifact@v4
       if: always()
@@ -79,8 +50,6 @@ jobs:
         name: unit-test-results
         path: |
           src/onemcp/target/surefire-reports/
-          src/acme-analytics-server/server/target/surefire-reports/
-          src/typescript-runtime/coverage/
           cli/coverage/
         retention-days: 7
 
@@ -92,88 +61,25 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-    
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-    
+
     - name: Cache Maven dependencies
       uses: actions/cache@v4
       with:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
-    
-    - name: Cache npm dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.npm
-        key: ${{ runner.os }}-npm-${{ hashFiles('src/typescript-runtime/package-lock.json', 'cli/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-npm-
-          ${{ runner.os }}-
-    
-    - name: Create foundation directory
-      run: |
-        sudo mkdir -p /var/foundation
-        sudo chmod 777 /var/foundation
-    
-    - name: Install TypeScript runtime dependencies
-      run: |
-        cd src/typescript-runtime
-        echo "Installing TypeScript runtime dependencies..."
-        npm install --legacy-peer-deps
-    
-    - name: Start TypeScript runtime server
-      run: |
-        cd src/typescript-runtime
-        echo "Starting TypeScript runtime server on port 7070..."
-        # Use dev server for integration tests with correct port
-        PORT=7070 npm run dev > ts-runtime.log 2>&1 &
-        SERVER_PID=$!
-        echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
-        echo "TypeScript Runtime PID: $SERVER_PID"
-        
-        # Wait for server to start
-        sleep 15
-        
-        # Check if the process is still running
-        if ! kill -0 $SERVER_PID 2>/dev/null; then
-          echo "❌ TypeScript Runtime process died during integration test startup"
-          echo "Log output:"
-          cat ts-runtime.log || echo "No log file found"
-          echo "Integration tests cannot run without TypeScript Runtime service"
-          exit 1
-        fi
-        
-        # Check if server is running by trying to connect
-        for i in {1..5}; do
-          if kill -0 $SERVER_PID 2>/dev/null; then
-            RESPONSE=$(curl -s http://localhost:7070/run -X POST -H "Content-Type: application/json" -d '{"snippet":"console.log(\"test\")"}' 2>/dev/null)
-            if echo "$RESPONSE" | grep -q '"ok":true'; then
-              echo "TypeScript runtime server is ready"
-              break
-            else
-              echo "Service running but not responding correctly. Response: $RESPONSE"
-            fi
-          else
-            echo "❌ TypeScript Runtime process died during health check (attempt $i/5)"
-            echo "Log output:"
-            cat ts-runtime.log || echo "No log file found"
-            echo "Integration tests cannot run without TypeScript Runtime service"
-            exit 1
-          fi
-          echo "Waiting for server to start... attempt $i/5"
-          sleep 5
-        done
-    
+
     - name: Run onemcp integration tests
       run: |
         cd src/onemcp
@@ -181,15 +87,7 @@ jobs:
         # Run integration tests - failures should block the pipeline
         echo "Running integration tests..."
         mvn test -Dtest="*IntegrationTest"
-    
-    - name: Stop TypeScript runtime server
-      if: always()
-      run: |
-        if [ ! -z "$SERVER_PID" ]; then
-          echo "Stopping TypeScript runtime server (PID: $SERVER_PID)"
-          kill $SERVER_PID || echo "Server already stopped"
-        fi
-    
+
     - name: Upload integration test results
       uses: actions/upload-artifact@v4
       if: always()
@@ -206,39 +104,30 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-    
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-    
+
     - name: Cache Maven dependencies
       uses: actions/cache@v4
       with:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
-    
-    - name: Cache npm dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.npm
-        key: ${{ runner.os }}-npm-${{ hashFiles('src/typescript-runtime/package-lock.json', 'cli/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-npm-
-          ${{ runner.os }}-
-    
+
     - name: Install xmllint
       run: |
         sudo apt-get update
         sudo apt-get install -y libxml2-utils
-    
+
     - name: Extract version from POM
       id: version
       run: |
@@ -248,36 +137,13 @@ jobs:
         echo "version=$VERSION_NUMBER" >> $GITHUB_OUTPUT
         echo "full_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
         echo "Current version: $CURRENT_VERSION (testing: $VERSION_NUMBER)"
-    
+
     - name: Build all components
       run: |
         echo "Building onemcp..."
         cd src/onemcp
-        mvn clean package spring-boot:repackage -DskipTests
-        
-        echo "Building acme-analytics-server..."
-        cd ../acme-analytics-server/server
         mvn clean package -DskipTests
-        
-        echo "Building typescript-runtime..."
-        cd ../../typescript-runtime
-        npm install --legacy-peer-deps
-        echo "Running TypeScript build..."
-        npm run build
-        echo "Verifying build output..."
-        ls -la dist/
-        ls -la dist/lib/ || echo "dist/lib directory not found"
-        echo "Checking for openapi-gen module..."
-        find dist/ -name "*openapi*" -type f || echo "No openapi files found in dist"
-        
-        # Check if the build was successful
-        if [ ! -f "dist/lib/openapi-gen.js" ]; then
-          echo "⚠️  TypeScript build incomplete - openapi-gen.js not found"
-          echo "This may cause service startup issues, but we'll continue with dev server"
-        else
-          echo "✅ TypeScript build successful"
-        fi
-    
+
     - name: Verify build artifacts
       run: |
         echo "Verifying build artifacts..."
@@ -291,112 +157,7 @@ jobs:
           echo "❌ onemcp JAR not found"
           exit 1
         fi
-        
-        # Check acme-analytics-server JAR
-        ACME_JAR=$(find src/acme-analytics-server/server/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" -not -name "original-*.jar" | head -1)
-        if [ -f "$ACME_JAR" ]; then
-          echo "✅ acme-analytics-server JAR found: $ACME_JAR"
-          ls -la "$ACME_JAR"
-        else
-          echo "❌ acme-analytics-server JAR not found"
-          exit 1
-        fi
-        
-        # Check typescript-runtime dist
-        if [ -d "src/typescript-runtime/dist" ]; then
-          echo "✅ typescript-runtime dist found"
-          ls -la src/typescript-runtime/dist/
-        else
-          echo "❌ typescript-runtime dist not found"
-          exit 1
-        fi
-    
-    - name: Start TypeScript Runtime Service
-      run: |
-        cd src/typescript-runtime
-        echo "Starting TypeScript Runtime service on port 7070..."
-        # Use dev server instead of production build to avoid module resolution issues
-        PORT=7070 npm run dev > ts-runtime.log 2>&1 &
-        TSRT_PID=$!
-        echo "TSRT_PID=$TSRT_PID" >> $GITHUB_ENV
-        echo "TypeScript Runtime PID: $TSRT_PID"
-        
-        # Wait a moment for the service to start
-        sleep 5
-        
-        # Check if the process is still running
-        if ! kill -0 $TSRT_PID 2>/dev/null; then
-          echo "❌ TypeScript Runtime process died immediately"
-          echo "Log output:"
-          cat ts-runtime.log || echo "No log file found"
-          echo "Attempting to start with more verbose output..."
-          npm run dev &
-          TSRT_PID=$!
-          echo "TSRT_PID=$TSRT_PID" >> $GITHUB_ENV
-          sleep 5
-        fi
-        
-        # Wait for service to start
-        echo "Waiting for TypeScript Runtime service to start..."
-        for i in {1..30}; do
-          if kill -0 $TSRT_PID 2>/dev/null; then
-            RESPONSE=$(curl -s http://localhost:7070/run -X POST -H "Content-Type: application/json" -d '{"snippet":"console.log(\"health check\")"}' 2>/dev/null)
-            if echo "$RESPONSE" | grep -q '"ok":true'; then
-              echo "✅ TypeScript Runtime service is ready"
-              break
-            else
-              echo "Service running but not responding correctly. Response: $RESPONSE"
-            fi
-          else
-            echo "❌ TypeScript Runtime process died during startup (attempt $i/30)"
-            echo "Log output:"
-            cat ts-runtime.log || echo "No log file found"
-            exit 1
-          fi
-          echo "Waiting for TypeScript Runtime service... attempt $i/30"
-          sleep 2
-        done
-    
-    - name: Start ACME Analytics Server
-      run: |
-        cd src/acme-analytics-server/server
-        ACME_JAR=$(find target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" -not -name "original-*.jar" | head -1)
-        
-        if [ -z "$ACME_JAR" ] || [ ! -f "$ACME_JAR" ]; then
-          echo "❌ ACME Analytics Server JAR not found"
-          echo "Available files in target/:"
-          ls -la target/ || echo "target directory not found"
-          exit 1
-        fi
-        
-        echo "Starting ACME Analytics Server on port 8081..."
-        echo "Using JAR: $ACME_JAR"
-        java -jar "$ACME_JAR" 8081 &
-        ACME_PID=$!
-        echo "ACME_PID=$ACME_PID" >> $GITHUB_ENV
-        
-        # Wait for service to start
-        echo "Waiting for ACME Analytics Server to start..."
-        for i in {1..30}; do
-          if kill -0 $ACME_PID 2>/dev/null; then
-            if curl -f --max-time 5 http://localhost:8081/health 2>/dev/null; then
-              echo "✅ ACME Analytics Server is ready"
-              break
-            else
-              echo "Server process running but not responding... attempt $i/30"
-            fi
-          else
-            echo "❌ ACME Analytics Server process died during startup (attempt $i/30)"
-            exit 1
-          fi
-          sleep 2
-        done
-        
-        if [ $i -eq 30 ]; then
-          echo "❌ ACME Analytics Server failed to start within 60 seconds"
-          exit 1
-        fi
-    
+
     - name: Start OneMCP Service
       run: |
         cd src/onemcp
@@ -436,110 +197,7 @@ jobs:
             sleep 2
           fi
         done
-    
-    - name: Validate TypeScript Runtime Service
-      run: |
-        echo "Testing TypeScript Runtime service endpoints..."
-        
-        # Test /run endpoint
-        echo "Testing /run endpoint..."
-        RESPONSE=$(curl -s -X POST http://localhost:7070/run \
-          -H "Content-Type: application/json" \
-          -d '{"snippet":"console.log(\"Hello from TypeScript Runtime\"); \"success\""}')
-        echo "Response: $RESPONSE"
-        
-        if echo "$RESPONSE" | grep -q '"ok":true'; then
-          echo "✅ TypeScript Runtime /run endpoint working"
-        else
-          echo "❌ TypeScript Runtime /run endpoint failed"
-          exit 1
-        fi
-        
-        # Test /sdk/upload endpoint
-        echo "Testing /sdk/upload endpoint..."
-        RESPONSE=$(curl -s -X POST http://localhost:7070/sdk/upload \
-          -F "spec=@/dev/null" \
-          -F "outDir=test")
-        echo "Response: $RESPONSE"
-        
-        if echo "$RESPONSE" | grep -q "error\|ok"; then
-          echo "✅ TypeScript Runtime /sdk/upload endpoint responding"
-        else
-          echo "❌ TypeScript Runtime /sdk/upload endpoint failed"
-          exit 1
-        fi
-    
-    - name: Validate ACME Analytics Server
-      run: |
-        echo "Testing ACME Analytics Server endpoints..."
-        
-        # Check if server is running
-        echo "Checking if ACME server process is running..."
-        if [ ! -z "$ACME_PID" ]; then
-          if kill -0 $ACME_PID 2>/dev/null; then
-            echo "✅ ACME server process is running (PID: $ACME_PID)"
-          else
-            echo "❌ ACME server process is not running (PID: $ACME_PID)"
-            exit 1
-          fi
-        else
-          echo "❌ ACME_PID not set"
-          exit 1
-        fi
-        
-        # Check if port is listening
-        echo "Checking if port 8081 is listening..."
-        if netstat -tlnp 2>/dev/null | grep -q ":8081"; then
-          echo "✅ Port 8081 is listening"
-        else
-          echo "❌ Port 8081 is not listening"
-          echo "Active ports:"
-          netstat -tlnp 2>/dev/null | grep -E ":(8080|8081|7070)" || echo "No relevant ports found"
-          exit 1
-        fi
-        
-        # Test /health endpoint with timeout
-        echo "Testing /health endpoint..."
-        RESPONSE=$(curl -s --max-time 10 http://localhost:8081/health)
-        echo "Response: $RESPONSE"
-        
-        if [ -z "$RESPONSE" ]; then
-          echo "❌ ACME Analytics Server /health endpoint returned empty response"
-          exit 1
-        elif echo "$RESPONSE" | grep -q "healthy"; then
-          echo "✅ ACME Analytics Server /health endpoint working"
-        else
-          echo "❌ ACME Analytics Server /health endpoint failed"
-          echo "Expected 'healthy' in response, got: $RESPONSE"
-          exit 1
-        fi
-        
-        # Test /fields endpoint
-        echo "Testing /fields endpoint..."
-        RESPONSE=$(curl -s http://localhost:8081/fields)
-        echo "Response: $RESPONSE"
-        
-        if echo "$RESPONSE" | grep -q "fields"; then
-          echo "✅ ACME Analytics Server /fields endpoint working"
-        else
-          echo "❌ ACME Analytics Server /fields endpoint failed"
-          exit 1
-        fi
-        
-        # Test /query endpoint
-        echo "Testing /query endpoint..."
-        RESPONSE=$(curl -s -X POST http://localhost:8081/query \
-          -H "Content-Type: application/json" \
-          -d '{"fields":["sale.id"],"limit":1}')
-        echo "Response: $RESPONSE"
-        
-        if echo "$RESPONSE" | grep -q "success\|data"; then
-          echo "✅ ACME Analytics Server /query endpoint working"
-        else
-          echo "❌ ACME Analytics Server /query endpoint failed"
-          exit 1
-        fi
-    
+
     - name: Validate OneMCP Service
       run: |
         echo "Testing OneMCP service endpoints..."
@@ -591,63 +249,24 @@ jobs:
             exit 1
           fi
         fi
-    
+
     - name: Test Service Integration
       run: |
         echo "Testing service integration..."
         
         # Test that all services can communicate
         echo "All services are running and responding:"
-        echo "✅ TypeScript Runtime: http://localhost:7070"
-        echo "✅ ACME Analytics Server: http://localhost:8081" 
         echo "✅ OneMCP: http://localhost:8080"
         
         # Verify no port conflicts
         echo "Checking for port conflicts..."
-        netstat -tlnp | grep -E ":(7070|8080|8081)" || echo "No port conflicts detected"
+        netstat -tlnp | grep -E ":(8080)" || echo "No port conflicts detected"
         
         echo ""
         echo "⚠️  Note: Service validation may fail due to external dependencies:"
-        echo "   - TypeScript Runtime: Requires proper build output"
         echo "   - OneMCP: Requires OpenAI API key and external services"
-        echo "   - ACME Analytics: May require database connections"
         echo "   This is expected in CI environment and doesn't affect artifact validation."
-    
-    - name: Validate TypeScript Runtime Service Health
-      run: |
-        echo "🔍 Validating TypeScript Runtime service health..."
-        
-        # Test /run endpoint
-        echo "Testing TypeScript Runtime /run endpoint..."
-        RESPONSE=$(curl -s -X POST http://localhost:7070/run \
-          -H "Content-Type: application/json" \
-          -d '{"snippet":"console.log(\"CI Health Check\"); \"success\""}' \
-          --max-time 10)
-        
-        if echo "$RESPONSE" | grep -q '"ok":true'; then
-          echo "✅ TypeScript Runtime service working"
-        else
-          echo "❌ TypeScript Runtime service failed"
-          echo "Response: $RESPONSE"
-          exit 1
-        fi
-    
-    - name: Validate Mock Server Service Health
-      run: |
-        echo "🔍 Validating Mock Server (ACME Analytics) service health..."
-        
-        # Test /health endpoint
-        echo "Testing ACME Analytics Server /health endpoint..."
-        RESPONSE=$(curl -s --max-time 10 http://localhost:8081/health)
-        
-        if echo "$RESPONSE" | grep -q "healthy"; then
-          echo "✅ ACME Analytics Server service working"
-        else
-          echo "❌ ACME Analytics Server service failed"
-          echo "Response: $RESPONSE"
-          exit 1
-        fi
-    
+
     - name: Validate OpenTelemetry Collector Service Health
       run: |
         echo "🔍 Validating OpenTelemetry Collector service health..."
@@ -666,21 +285,11 @@ jobs:
           echo "   This is expected - OTEL Collector runs in Docker container only"
           echo "   Service validation will be performed during Docker container testing"
         fi
-    
+
     - name: Stop all services
       if: always()
       run: |
         echo "Stopping all services..."
-        
-        if [ ! -z "$TSRT_PID" ]; then
-          echo "Stopping TypeScript Runtime service (PID: $TSRT_PID)"
-          kill $TSRT_PID || echo "TypeScript Runtime service already stopped"
-        fi
-        
-        if [ ! -z "$ACME_PID" ]; then
-          echo "Stopping ACME Analytics Server (PID: $ACME_PID)"
-          kill $ACME_PID || echo "ACME Analytics Server already stopped"
-        fi
         
         if [ ! -z "$ONEMCP_PID" ]; then
           echo "Stopping OneMCP service (PID: $ONEMCP_PID)"
@@ -692,17 +301,13 @@ jobs:
         
         # Force kill any remaining processes on our ports
         pkill -f "java.*onemcp" || echo "No onemcp processes to kill"
-        pkill -f "java.*acme" || echo "No acme processes to kill"
-        pkill -f "node.*typescript-runtime" || echo "No typescript-runtime processes to kill"
-    
+
     - name: Upload build artifacts for Docker
       uses: actions/upload-artifact@v4
       with:
         name: build-artifacts
         path: |
           src/onemcp/target/*.jar
-          src/acme-analytics-server/server/target/*.jar
-          src/typescript-runtime/dist/
         retention-days: 7
 
   # Stage 4: Docker Build & Container Validation - Multi-platform container builds and testing
@@ -717,40 +322,31 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-    
+
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
-    
+
     - name: Cache Maven dependencies
       uses: actions/cache@v4
       with:
         path: ~/.m2
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
-    
-    - name: Cache npm dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.npm
-        key: ${{ runner.os }}-npm-${{ hashFiles('src/typescript-runtime/package-lock.json', 'cli/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-npm-
-          ${{ runner.os }}-
-    
+
     - name: Download build artifacts
       uses: actions/download-artifact@v4
       with:
         name: build-artifacts
         path: .
-    
+
     - name: Build artifacts if not available
       if: always()
       run: |
@@ -770,30 +366,11 @@ jobs:
         mvn clean package spring-boot:repackage -DskipTests
         echo "After maven build: $(ls -la target/ || echo 'target directory not found')"
         
-        # Build acme-analytics-server
-        echo "Building acme-analytics-server..."
-        cd ../acme-analytics-server/server
-        echo "Current directory: $(pwd)"
-        echo "Contents: $(ls -la)"
-        mvn clean package -DskipTests
-        echo "After maven build: $(ls -la target/ || echo 'target directory not found')"
-        
-        # Build typescript-runtime
-        echo "Building typescript-runtime..."
-        cd ../../typescript-runtime
-        echo "Current directory: $(pwd)"
-        echo "Contents: $(ls -la)"
-        npm install --legacy-peer-deps
-        npm run build
-        echo "After npm build: $(ls -la dist/ || echo 'dist directory not found')"
-        
         cd ../..
         echo "Back to root directory: $(pwd)"
         echo "Final verification:"
         echo "onemcp target: $(ls -la src/onemcp/target/ || echo 'onemcp target not found')"
-        echo "acme target: $(ls -la src/acme-analytics-server/server/target/ || echo 'acme target not found')"
-        echo "typescript dist: $(ls -la src/typescript-runtime/dist/ || echo 'typescript dist not found')"
-    
+
     - name: Verify artifacts for Docker build
       run: |
         echo "Verifying artifacts are available for Docker build..."
@@ -806,10 +383,6 @@ jobs:
         echo "Checking directory structure..."
         echo "src/onemcp exists: $([ -d src/onemcp ] && echo 'yes' || echo 'no')"
         echo "src/onemcp/target exists: $([ -d src/onemcp/target ] && echo 'yes' || echo 'no')"
-        echo "src/acme-analytics-server/server exists: $([ -d src/acme-analytics-server/server ] && echo 'yes' || echo 'no')"
-        echo "src/acme-analytics-server/server/target exists: $([ -d src/acme-analytics-server/server/target ] && echo 'yes' || echo 'no')"
-        echo "src/typescript-runtime exists: $([ -d src/typescript-runtime ] && echo 'yes' || echo 'no')"
-        echo "src/typescript-runtime/dist exists: $([ -d src/typescript-runtime/dist ] && echo 'yes' || echo 'no')"
         
         # Check onemcp JAR
         if [ -d src/onemcp/target ]; then
@@ -831,38 +404,19 @@ jobs:
           echo "Build step may not have run yet"
           exit 1
         fi
-        
-        # Check acme-analytics-server JAR
-        ACME_JAR=$(find src/acme-analytics-server/server/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" -not -name "original-*.jar" | head -1)
-        if [ -f "$ACME_JAR" ]; then
-          echo "✅ acme-analytics-server JAR found: $ACME_JAR"
-          ls -la "$ACME_JAR"
-        else
-          echo "❌ acme-analytics-server JAR not found"
-          exit 1
-        fi
-        
-        # Check typescript-runtime dist
-        if [ -d "src/typescript-runtime/dist" ]; then
-          echo "✅ typescript-runtime dist found"
-          ls -la src/typescript-runtime/dist/
-        else
-          echo "❌ typescript-runtime dist not found"
-          exit 1
-        fi
-    
+
     - name: Set up QEMU
       if: matrix.platform == 'linux/arm64'
       uses: docker/setup-qemu-action@v3
-    
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
-    
+
     - name: Install xmllint
       run: |
         sudo apt-get update
         sudo apt-get install -y libxml2-utils
-    
+
     - name: Extract version from POM
       id: version
       run: |
@@ -872,7 +426,7 @@ jobs:
         echo "version=$VERSION_NUMBER" >> $GITHUB_OUTPUT
         echo "full_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
         echo "Current version: $CURRENT_VERSION (testing: $VERSION_NUMBER)"
-    
+
     - name: Build base image
       run: |
         VERSION="${{ steps.version.outputs.version }}"
@@ -891,7 +445,7 @@ jobs:
           echo "❌ No base image found locally"
           exit 1
         fi
-    
+
     - name: Build product image
       run: |
         VERSION="${{ steps.version.outputs.version }}"
@@ -913,7 +467,7 @@ jobs:
         fi
         
         ./scripts/docker/build-product.sh "$VERSION" "$JAR_NAME" "" --platform "${{ matrix.platform }}"
-    
+
     - name: Container Validation
       run: |
         VERSION="${{ steps.version.outputs.version }}"

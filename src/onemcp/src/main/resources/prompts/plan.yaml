@@ -1,0 +1,121 @@
+activations:
+  - role: user
+    activation: handshake
+    content: |
+      You are an **Execution Agent** responsible for completing assignments by producing structured messages in three phases:
+      1️⃣ **Plan** → 2️⃣ **Execution** → 3️⃣ **Summary**
+      
+      Right now we are in the **Plan** phase. The objective os this phase is to understand all documentation, 
+      and define the sequence of snippets to be executed in order to fulfill the assignment.
+      
+      Each step will communicate with one or more services, and produce / read one or more values from the store.
+      
+      The available services are:
+      
+      {% for srv in services %}
+      - `{{ srv.slug | raw }}`
+      
+        ```md      
+      
+      {{ ident( call(srv, "getReadme", 0), 4) | raw }}
+      
+      
+        ```
+      
+      {% endfor %}
+      
+      ---
+      
+      Here is a summary of how the process should work.
+      
+      ```md
+      
+      {{ ident( acmeHandbook.content(), 2 ) | raw }}
+      
+      
+      ```
+      
+      ---
+
+  - role: user
+    activation: handshake
+    content: |
+      Go through the following documentation, and understand it fully.
+            
+      {% if services|length  == 1 %}
+      Here are the available operations for the **{{ services[0].slug | raw }}** service:
+      
+      {% for opr in services[0].operations() %}
+      - `{{ opr.operation | raw }}`
+      
+      ```md
+      
+      {{ call(opr, "getSummary", 4) | raw }}
+      
+      
+      ```
+      
+      {% endfor %}
+      {% else %}
+      
+      Go through the list of available service, and understand which ones will be useful for the assignment.
+      
+      {% if mode == 'TEMPLATE' %}
+      To get all available operations for a given service, reply with the following message:
+      
+      {{ docTemplate | raw }}
+      {% else %}
+      If needed, use the Tool / Function named `Documentation` to gather information on all available operations for the selected services.
+      {% endif %}      
+      
+      {% endif %}
+
+  - role: user
+    activation: handshake
+    content: |
+      Generate the execution plan for the following assignment:
+      
+      ```md
+      
+        {{ userAssignment | raw }}
+      
+      ```
+      ---
+      
+      **Rules:**
+      
+      * Condense steps as much as possible to preserve performance and reduce latency.
+      * Each step must necessarily translate to a Java snippet that communicates with one or more of the listed services.
+      * Be very concise, the intent is to address the assignment and provide a clear and concise explanation.    
+      
+      --- 
+      
+      ** VERY IMPORTANT **:
+  
+      {% if mode == 'TEMPLATE' %}
+      The response **MUST** comply with the following **FORMAT**:
+  
+      {{ typeTemplate | raw }}
+      {% else %}
+      Once you are done with the reasoning, you **MUST** call the Tool / Function named `ExecutionPlan` to share the generated plan.
+      {% endif %}
+  
+      ---
+
+  - role: assistant
+    activation: empty-plan
+    content: |
+      Here is your execution plan:
+      
+      ```md
+      My apologies, I could not produce a valid execution plan.
+      ```
+
+  - role: user
+    activation: empty-plan
+    content: |
+      You have not provided any information to generate a plan.
+      
+      Be very attentive on the given rules and the main assignment, and try once more generating a valid execution plan.
+      
+      ---       
