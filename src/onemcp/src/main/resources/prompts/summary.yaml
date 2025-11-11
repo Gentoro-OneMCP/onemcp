@@ -1,0 +1,57 @@
+activations:
+  - role: user
+    activation: summary
+    content: |
+      ## Goal 
+      
+      Based on all provided information, help me formulate an answer to the following question:
+      
+      ```md
+      
+      {{ ident(assignment, 2) | raw }}
+      
+      
+      ```
+      
+      ---
+      
+      ## Considerations
+      
+      Be very concise, the intent is to address the assignment and provide a clear and concise explanation.
+      
+      ---     
+      
+      ## Values
+      
+      {% for value in variables %}
+      
+      - **`{{ value.identifier | raw }}`**
+        ```md
+      
+      {{ ident(value.description, 4) | raw }}
+      
+      
+        ```
+      
+      
+      ## Value
+      
+        ```json
+      
+      {{ ident(value.content, 4) | raw }}
+      
+        ```
+
+      ---
+      {% endfor %}       
+
+  - role: user
+    activation: summary
+    content: |
+      {% if mode == 'TEMPLATE' %}
+      Format the answer using **exactly this format**:
+      
+      {{ typeTemplate | raw }}
+      {% else %}
+      Generate a descriptive answer that properly answers the original assigment.
+      {% endif %}

@@ -1,8 +1,0 @@
-# Local environment overrides
-.env.local
-
-# Build outputs
-/dist
-
-# Node
-node_modules

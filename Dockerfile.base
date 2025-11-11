@@ -31,10 +31,8 @@ RUN mkdir -p /opt/bin /var/log/supervisor
 COPY scripts/docker/entrypoint.sh /opt/bin/entrypoint.sh
 COPY scripts/docker/run-otel.sh /opt/bin/run-otel.sh
 COPY scripts/docker/run-app.sh /opt/bin/run-app.sh
-COPY scripts/docker/run-ts.sh /opt/bin/run-ts.sh
-COPY scripts/docker/run-mock.sh /opt/bin/run-mock.sh
 COPY scripts/docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-RUN chmod +x /opt/bin/entrypoint.sh /opt/bin/run-otel.sh /opt/bin/run-app.sh /opt/bin/run-ts.sh /opt/bin/run-mock.sh
+RUN chmod +x /opt/bin/entrypoint.sh /opt/bin/run-otel.sh /opt/bin/run-app.sh
 
 ENV PATH="/opt/bin:${PATH}"
 ENTRYPOINT ["/opt/bin/entrypoint.sh"]
