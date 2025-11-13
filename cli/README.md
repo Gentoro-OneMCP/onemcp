@@ -2,7 +2,7 @@
 
 The Gentoro One MCP CLI provides a fast, consistent way to connect your APIs to AI models that support the Model Context Protocol (MCP).
 
-It removes the need to build custom adapters or middleware. You can start with a built-in mock environment or connect your own service with minimal setup.
+It removes the need to build custom adapters or middleware—define a handbook for your service and the CLI will handle the rest.
 
 ## Quick Start
 
@@ -31,17 +31,7 @@ Handbook: ecommerce-api
 Provider: openai
 MCP URL: http://localhost:8080/mcp
 Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💡 Mock Server Active - Try These Example Queries:
-
-  > Show me electronics sales in California last quarter.
-  > List top customers by revenue.
-  > Compare revenue trends by region.
-  > What are the top-selling products this month?
-  > Show me sales data for New York vs Texas.
-
-Type "help" anytime for more commands.
+Ask questions about your configured handbook. Type "help" for tips.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ? You: Show me sales data for New York vs Texas.
@@ -66,17 +56,14 @@ Key takeaways
 
 That's it! The CLI will automatically:
 - Run the setup wizard (choose your AI provider) - for the first time.
-- Start all required services
-- Launch interactive chat with example queries
+- Start the OneMCP service
+- Open the interactive chat interface
 
 ## Requirements
 
 - **Node.js** >= 20
 - **Java** 21 (for running the Java application)
 - **Maven** (for building the Java application)
-
-Optional:
-- **OpenTelemetry Collector** (for telemetry)
 
 For detailed installation options, see the [Advanced Installation](#advanced-installation) section below.
 
@@ -92,26 +79,16 @@ npm install && npm run build && npm link
 
 ### Getting Started
 
-Start chatting with the built-in Acme Analytics mock service:
+Start chatting with your active handbook:
 
 ```bash
 onemcp chat
 ```
 
-**Choose your starting point**: During setup, you can either select the included ACME Analytics Server sample mode to explore a complete example with documentation, API specs, and sample queries, or set up your own API service from scratch.
-
 The first time you run this, it will:
 1. Launch an interactive setup wizard to choose your AI provider
-2. Start all required services automatically
-3. Open the interactive chat interface with example queries
-
-### Try Example Queries
-
-With the mock Acme Analytics service, you can try queries like:
-- "Show me electronics sales in California last quarter"
-- "List top customers by revenue"
-- "Compare revenue trends by region"
-- "What are the top-selling products this month?"
+2. Start the OneMCP service automatically
+3. Open the interactive chat interface
 
 Type `help` in chat mode for additional commands, including `switch` to change handbooks during chat.
 
@@ -199,14 +176,11 @@ onemcp --help        # Show help
 
 ## Architecture
 
-The CLI manages multiple services that run as child processes:
+The CLI manages the lifecycle of the OneMCP Java service:
 
-- **One MCP Server** (port 8080) - Main Spring Boot application
-- **TypeScript Runtime** (port 7070) - Executes TypeScript snippets
-- **Mock Server** (port 8082) - Acme Analytics (optional)
-- **OpenTelemetry Collector** (port 4317) - Telemetry collection (optional)
+- **OneMCP Service** (port 8080) - Main MCP application providing the `/mcp` endpoint.
 
-All services include automatic health checks and log management.
+The CLI handles automatic health checks, process management, and log collection for this service.
 
 ## Configuration
 

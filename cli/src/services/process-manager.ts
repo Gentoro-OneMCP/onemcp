@@ -115,7 +115,7 @@ export class ProcessManager extends EventEmitter {
       }
 
       // Emit error for required services only
-      const optionalServices = ['otel'];
+      const optionalServices: string[] = [];
       if (!optionalServices.includes(config.name || '')) {
         this.emit('error', { name, error: enhancedError });
       } else {
@@ -445,17 +445,11 @@ export class ProcessManager extends EventEmitter {
       errorMessage += '\n\nPossible causes:';
       errorMessage += '\n  • Handbook directory or Agent.md file missing';
       errorMessage += '\n  • Java application failed to start due to configuration issues';
-      errorMessage += '\n  • Required dependencies (ts-runtime) not available';
+      errorMessage += '\n  • Required dependencies not available';
       errorMessage += '\n\nCheck the app service logs with: onemcp logs app';
       if (lastError) {
         errorMessage += `\n\nLast health check error: ${lastError}`;
       }
-    } else if (config.name === 'ts-runtime') {
-      errorMessage += '\n\nPossible causes:';
-      errorMessage += '\n  • Node.js runtime issues';
-      errorMessage += '\n  • Port 7070 already in use';
-      errorMessage += '\n  • Missing dependencies in TypeScript runtime';
-      errorMessage += '\n\nCheck the ts-runtime service logs with: onemcp logs ts-runtime';
     }
 
     throw new Error(errorMessage);

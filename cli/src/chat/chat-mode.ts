@@ -44,16 +44,10 @@ export class ChatMode {
     console.log(chalk.dim(`Provider: ${this.handbookConfig?.provider || 'Not configured'}`));
     console.log(chalk.dim(`MCP URL: ${this.mcpUrl}`));
     console.log(chalk.dim(`Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook`));
+    console.log();
+    console.log(chalk.dim('Ask questions about your configured handbook. Type "help" for tips.'));
     console.log(chalk.dim('━'.repeat(60)));
     console.log();
-
-    // Show example queries if mock server is running OR if user has mock mode configured
-    const hasMockServer = this.agentStatus.services.some((service: any) => service.name === 'mock' && service.running);
-    const hasMockConfigured = await this.isMockModeConfigured();
-
-    if (hasMockServer || hasMockConfigured) {
-      this.showMockExamples();
-    }
 
     // Main chat loop
     await this.chatLoop();
@@ -209,44 +203,6 @@ export class ChatMode {
   }
 
   /**
-   * Check if mock mode is configured (no real services configured)
-   */
-  private async isMockModeConfigured(): Promise<boolean> {
-    try {
-      const services = await configManager.listServices();
-      // If no services are configured, user likely wants mock mode
-      return services.length === 0;
-    } catch {
-      return true; // Default to showing examples if we can't check
-    }
-  }
-
-  /**
-   * Show example queries for mock server
-   */
-  private showMockExamples(): void {
-    const isRunning = this.agentStatus.services.some((service: any) => service.name === 'mock' && service.running);
-
-    console.log(chalk.bold.yellow(`${isRunning ? '💡' : '💭'} ${isRunning ? 'Mock Server Active' : 'Mock Mode Available'} - Try These Example Queries:`));
-    console.log();
-    console.log(chalk.cyan('  > Show me electronics sales in California last quarter.'));
-    console.log(chalk.cyan('  > List top customers by revenue.'));
-    console.log(chalk.cyan('  > Compare revenue trends by region.'));
-    console.log(chalk.cyan('  > What are the top-selling products this month?'));
-    console.log(chalk.cyan('  > Show me sales data for New York vs Texas.'));
-    console.log();
-
-    if (!isRunning) {
-      console.log(chalk.dim('💡 Tip: The agent will automatically start with mock data if no services are configured'));
-      console.log();
-    }
-
-    console.log(chalk.dim('Type "help" anytime for more commands.'));
-    console.log(chalk.dim('━'.repeat(60)));
-    console.log();
-  }
-
-  /**
    * Show help message
    */
   private showHelp(): void {
@@ -258,11 +214,11 @@ export class ChatMode {
     console.log(chalk.cyan('  switch ') + ' - Switch to a different handbook');
     console.log(chalk.cyan('  exit   ') + ' - Exit chat mode');
     console.log();
-    console.log(chalk.bold('Example Queries:'));
+    console.log(chalk.bold('Example Prompts:'));
     console.log();
-    console.log(chalk.dim('  > Show me electronics sales in California last quarter.'));
-    console.log(chalk.dim('  > List top customers by revenue.'));
-    console.log(chalk.dim('  > Compare revenue trends by region.'));
+    console.log(chalk.dim('  > Summarize the purpose of this handbook.'));
+    console.log(chalk.dim('  > What API operations are available for orders?'));
+    console.log(chalk.dim('  > Generate a request example for the customer search endpoint.'));
     console.log();
   }
 
