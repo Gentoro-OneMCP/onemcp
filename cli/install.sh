@@ -211,21 +211,21 @@ build_java_app() {
     fi
 }
 
-build_typescript_runtime() {
-    log_info "Building TypeScript Runtime (this may take a while)..."
+# build_typescript_runtime() {
+#     log_info "Building TypeScript Runtime (this may take a while)..."
     
-    cd "$INSTALL_DIR/src/typescript-runtime"
-    npm install --silent
-    npm run build
+#     cd "$INSTALL_DIR/src/typescript-runtime"
+#     npm install --silent
+#     npm run build
     
-    if [ $? -eq 0 ]; then
-        log_success "TypeScript Runtime built successfully"
-        echo ""
-    else
-        log_error "Failed to build TypeScript Runtime"
-        exit 1
-    fi
-}
+#     if [ $? -eq 0 ]; then
+#         log_success "TypeScript Runtime built successfully"
+#         echo ""
+#     else
+#         log_error "Failed to build TypeScript Runtime"
+#         exit 1
+#     fi
+# }
 
 build_mock_server() {
     log_info "Building Mock Server..."
