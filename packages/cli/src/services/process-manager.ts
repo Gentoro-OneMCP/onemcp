@@ -115,7 +115,7 @@ export class ProcessManager extends EventEmitter {
       }
 
       // Emit error for required services only
-      const optionalServices: string[] = [];
+      const optionalServices: string[] = ['otel'];
       if (!optionalServices.includes(config.name || '')) {
         this.emit('error', { name, error: enhancedError });
       } else {

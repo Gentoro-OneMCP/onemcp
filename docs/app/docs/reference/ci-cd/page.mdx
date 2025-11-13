@@ -60,20 +60,20 @@ To run the same tests that run in CI/CD locally:
 ### Unit Tests
 
 ```bash
-cd src/onemcp && mvn test
+cd packages/server && mvn test
 ```
 
 ### Service Validation
 
 ```bash
 # Build Java service
-cd src/onemcp && mvn package -DskipTests && cd ../..
+cd packages/server && mvn package -DskipTests && cd ../..
 
 # Build CLI
-cd cli && npm run build && cd ..
+cd packages/cli && npm run build && cd ..
 
 # Start service
-java -jar src/onemcp/target/onemcp-*.jar &
+java -jar packages/server/target/onemcp-*.jar &
 
 # Wait for the service to start
 sleep 10

@@ -70,8 +70,16 @@ describe('HandbookManager', () => {
         .mockResolvedValueOnce(mockDirents as never) // First call for listing handbooks
         .mockResolvedValue([] as never); // Subsequent calls for validation (apis/, docs/ dirs)
       
-      // Mock pathExists for validation checks
-      jest.spyOn(fs, 'pathExists').mockResolvedValue(true as never);
+      // Mock pathExists - return true for validation checks, false for config files
+      const pathExistsSpy = jest.spyOn(fs, 'pathExists');
+      pathExistsSpy.mockImplementation((path: string) => {
+        // Return false for config file paths (so loadHandbookConfig returns null)
+        if (typeof path === 'string' && path.includes('/config/handbook.yaml')) {
+          return Promise.resolve(false);
+        }
+        // Return true for all other paths (handbook dirs, Agent.md, etc.)
+        return Promise.resolve(true);
+      });
 
       const handbooks = await handbookManager.list();
 
@@ -92,7 +100,15 @@ describe('HandbookManager', () => {
       const pathExistsSpy = jest.spyOn(fs, 'pathExists');
       pathExistsSpy
         .mockResolvedValueOnce(true as never) // handbook dir exists
-        .mockResolvedValueOnce(true as never); // Agent.md exists
+        .mockResolvedValueOnce(true as never) // Agent.md exists
+        .mockResolvedValueOnce(true as never) // apis/ directory exists (required check)
+        .mockResolvedValueOnce(true as never) // docs/ directory exists (recommended check)
+        .mockResolvedValueOnce(true as never) // state/ directory exists (recommended check)
+        .mockResolvedValueOnce(true as never) // apis/ directory exists (for OpenAPI check)
+        .mockResolvedValueOnce(true as never); // docs/ directory exists (for docs check)
+
+      // Mock readdir for apis and docs directories
+      jest.spyOn(fs, 'readdir').mockResolvedValue([] as never);
 
       const result = await handbookManager.validate('test-handbook');
 

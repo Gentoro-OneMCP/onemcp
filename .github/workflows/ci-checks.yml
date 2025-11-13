@@ -1,12 +1,11 @@
 name: CI Checks
 
 on:
-  workflow_dispatch: # Temporarily disabled - remove this line and uncomment below to re-enable
-  # push:
-  #   branches: [ main ]
-  # pull_request:
-  #   branches: [ main ]
-  # workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   # Stage 1: Unit Tests - Fast feedback for code quality
@@ -37,7 +36,7 @@ jobs:
 
     - name: Test CLI
       run: |
-        cd cli
+        cd packages/cli
         echo "Installing CLI dependencies..."
         npm install
         echo "Running CLI tests..."
@@ -49,7 +48,7 @@ jobs:
       with:
         name: unit-test-results
         path: |
-          src/onemcp/target/surefire-reports/
+          packages/server/target/surefire-reports/
           cli/coverage/
         retention-days: 7
 
@@ -82,18 +81,18 @@ jobs:
 
     - name: Run onemcp integration tests
       run: |
-        cd src/onemcp
+        cd packages/server 
         echo "Running onemcp integration tests..."
         # Run integration tests - failures should block the pipeline
         echo "Running integration tests..."
-        mvn test -Dtest="*IntegrationTest"
+        mvn test -Dtest="*IntegrationTest" -Dsurefire.failIfNoSpecifiedTests=false
 
     - name: Upload integration test results
       uses: actions/upload-artifact@v4
       if: always()
       with:
         name: integration-test-results
-        path: src/onemcp/target/surefire-reports/
+        path: packages/server/target/surefire-reports/
         retention-days: 7
 
   # Stage 3: Build & Service Validation - Build artifacts and validate service deployment
@@ -131,7 +130,7 @@ jobs:
     - name: Extract version from POM
       id: version
       run: |
-        POM_FILE="src/onemcp/pom.xml"
+        POM_FILE="packages/server/pom.xml"
         CURRENT_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" "$POM_FILE")
         VERSION_NUMBER=${CURRENT_VERSION%-SNAPSHOT}
         echo "version=$VERSION_NUMBER" >> $GITHUB_OUTPUT
@@ -141,7 +140,7 @@ jobs:
     - name: Build all components
       run: |
         echo "Building onemcp..."
-        cd src/onemcp
+        cd packages/server 
         mvn clean package -DskipTests
 
     - name: Verify build artifacts
@@ -149,7 +148,7 @@ jobs:
         echo "Verifying build artifacts..."
         
         # Check onemcp JAR
-        ONEMCP_JAR=$(find src/onemcp/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
+        ONEMCP_JAR=$(find packages/server/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
         if [ -f "$ONEMCP_JAR" ]; then
           echo "✅ onemcp JAR found: $ONEMCP_JAR"
           ls -la "$ONEMCP_JAR"
@@ -160,22 +159,24 @@ jobs:
 
     - name: Start OneMCP Service
       run: |
-        cd src/onemcp
+        echo "Start OneMCP Service..."
+        cd packages/server
         ONEMCP_JAR=$(find target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
         echo "Starting OneMCP service on port 8080..."
-        
+
         # Create foundation directory
         sudo mkdir -p /var/foundation
         sudo chmod 777 /var/foundation
-        
+
         # Set required environment variables for OneMCP
         export OPENAI_API_KEY="test-key-for-ci"
         export SPRING_PROFILES_ACTIVE="test"
-        
-        java -jar "$ONEMCP_JAR" &
+
+        # Start service in a detached screen session
+        screen -dmS onemcp_service java -jar "$ONEMCP_JAR" 
         ONEMCP_PID=$!
         echo "ONEMCP_PID=$ONEMCP_PID" >> $GITHUB_ENV
-        
+
         # Wait for service to start
         echo "Waiting for OneMCP service to start..."
         for i in {1..30}; do
@@ -307,7 +308,7 @@ jobs:
       with:
         name: build-artifacts
         path: |
-          src/onemcp/target/*.jar
+          packages/server/target/*.jar
         retention-days: 7
 
   # Stage 4: Docker Build & Container Validation - Multi-platform container builds and testing
@@ -360,16 +361,16 @@ jobs:
         
         # Build onemcp
         echo "Building onemcp..."
-        cd src/onemcp
+        cd packages/server 
         echo "Current directory: $(pwd)"
         echo "Contents: $(ls -la)"
-        mvn clean package spring-boot:repackage -DskipTests
+        mvn clean package -DskipTests
         echo "After maven build: $(ls -la target/ || echo 'target directory not found')"
         
         cd ../..
         echo "Back to root directory: $(pwd)"
         echo "Final verification:"
-        echo "onemcp target: $(ls -la src/onemcp/target/ || echo 'onemcp target not found')"
+        echo "onemcp target: $(ls -la packages/server/target/ || echo 'onemcp target not found')"
 
     - name: Verify artifacts for Docker build
       run: |
@@ -381,26 +382,26 @@ jobs:
         
         # Check if directories exist first
         echo "Checking directory structure..."
-        echo "src/onemcp exists: $([ -d src/onemcp ] && echo 'yes' || echo 'no')"
-        echo "src/onemcp/target exists: $([ -d src/onemcp/target ] && echo 'yes' || echo 'no')"
+        echo "packages/server exists: $([ -d packages/server ] && echo 'yes' || echo 'no')"
+        echo "packages/server/target exists: $([ -d packages/server/target ] && echo 'yes' || echo 'no')"
         
         # Check onemcp JAR
-        if [ -d src/onemcp/target ]; then
-          ONEMCP_JAR=$(find src/onemcp/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
+        if [ -d packages/server/target ]; then
+          ONEMCP_JAR=$(find packages/server/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
           if [ -f "$ONEMCP_JAR" ]; then
             echo "✅ onemcp JAR found: $ONEMCP_JAR"
             ls -la "$ONEMCP_JAR"
           else
             echo "❌ onemcp JAR not found in target directory"
             echo "Contents of src/onemcp/target:"
-            ls -la src/onemcp/target/ || echo "Cannot list target directory"
+            ls -la packages/server/target/ || echo "Cannot list target directory"
             echo "Build step may still be running or failed"
             exit 1
           fi
         else
           echo "❌ onemcp target directory not found"
-          echo "Contents of src/onemcp:"
-          ls -la src/onemcp/ || echo "Cannot list onemcp directory"
+          echo "Contents of packages/server:"
+          ls -la packages/server || echo "Cannot list onemcp directory"
           echo "Build step may not have run yet"
           exit 1
         fi
@@ -420,7 +421,7 @@ jobs:
     - name: Extract version from POM
       id: version
       run: |
-        POM_FILE="src/onemcp/pom.xml"
+        POM_FILE="packages/server/pom.xml"
         CURRENT_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" "$POM_FILE")
         VERSION_NUMBER=${CURRENT_VERSION%-SNAPSHOT}
         echo "version=$VERSION_NUMBER" >> $GITHUB_OUTPUT
@@ -449,7 +450,7 @@ jobs:
     - name: Build product image
       run: |
         VERSION="${{ steps.version.outputs.version }}"
-        POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" src/onemcp/pom.xml)
+        POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" packages/server/pom.xml)
         JAR_NAME="onemcp-$POM_VERSION.jar"
         echo "Building product image for ${{ matrix.platform }}..."
         

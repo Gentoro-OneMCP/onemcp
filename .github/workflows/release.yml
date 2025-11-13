@@ -4,7 +4,7 @@ on:
   # push:  # Temporarily disabled - uncomment below to re-enable
   #   tags:
   #     - 'v*'
-  workflow_dispatch:  # Temporarily disabled - uncomment above to re-enable
+  workflow_dispatch:
     inputs:
       version_type:
         description: 'Version bump type'

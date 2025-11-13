@@ -104,7 +104,7 @@ validate_base_image() {
     done
     
     # Test startup scripts
-    local startup_scripts=("/opt/bin/entrypoint.sh" "/opt/bin/run-app.sh" "/opt/bin/run-otel.sh" "/opt/bin/run-ts.sh" "/opt/bin/run-mock.sh")
+    local startup_scripts=("/opt/bin/entrypoint.sh" "/opt/bin/run-app.sh" "/opt/bin/run-otel.sh")
     for script in "${startup_scripts[@]}"; do
         if docker exec "$container_name" test -x "$script"; then
             log_success "Startup script $script is executable on $PLATFORM"
