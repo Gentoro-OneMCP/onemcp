@@ -1,12 +1,11 @@
 name: CI Checks
 
 on:
-  workflow_dispatch: # Temporarily disabled - remove this line and uncomment below to re-enable
-  # push:
-  #   branches: [ main ]
-  # pull_request:
-  #   branches: [ main ]
-  # workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   # Stage 1: Unit Tests - Fast feedback for code quality
