@@ -84,6 +84,8 @@ export class AgentService {
     // Find project root
     const projectRoot = this.findProjectRoot();
 
+    const onemcpJar = await this.resolveOnemcpJar(projectRoot);
+
     // Register OpenTelemetry Collector
     processManager.register({
       name: 'otel',
@@ -115,8 +117,6 @@ export class AgentService {
     });
 
     // Register OneMCP (Java application)
-    const onemcpJar = join(projectRoot, 'src/onemcp/target/onemcp-0.1.0-SNAPSHOT.jar');
-
     processManager.register({
       name: 'app',
       command: 'java',
@@ -149,6 +149,40 @@ export class AgentService {
     });
 
     this.initialized = true;
+  }
+
+  /**
+   * Resolve the built OneMCP jar path regardless of version or packaging plugin.
+   */
+  private async resolveOnemcpJar(projectRoot: string): Promise<string> {
+    const targetDir = join(projectRoot, 'src/onemcp/target');
+
+    let artifacts: string[];
+    try {
+      artifacts = await fs.readdir(targetDir);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Could not read ${targetDir}: ${message}. Ensure the Java build step completed successfully.`
+      );
+    }
+
+    const patterns = [
+      /^onemcp-.*-jar-with-dependencies\.jar$/,
+      /^onemcp-.*\.jar$/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = artifacts.find((file) => pattern.test(file));
+      if (match) {
+        return join(targetDir, match);
+      }
+    }
+
+    throw new Error(
+      `Could not find a OneMCP jar in ${targetDir}. Run "mvn clean package -DskipTests" and try again.`
+    );
   }
 
   /**

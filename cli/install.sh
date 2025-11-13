@@ -200,7 +200,7 @@ build_java_app() {
     log_info "Building Java application..."
 
     cd "$INSTALL_DIR/src/onemcp"
-    mvn clean package spring-boot:repackage -DskipTests -q
+    mvn clean package -DskipTests -q
 
     if [ $? -eq 0 ]; then
         log_success "Java application built successfully"
