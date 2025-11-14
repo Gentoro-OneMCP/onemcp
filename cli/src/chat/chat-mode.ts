@@ -165,10 +165,10 @@ export class ChatMode {
       await client.connect(transport);
 
       try {
-        // Call the gentoro.run tool with timeout
+        // Call the onemcp.run tool with timeout
         const result: any = await client.callTool(
           {
-            name: 'gentoro.run',
+            name: 'onemcp.run',
             arguments: {
               prompt: userMessage,
               options: {},

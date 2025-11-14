@@ -11,7 +11,7 @@
   },
   "tools": [
     {
-      "name": "gentoro.run",
+      "name": "onemcp.run",
       "description": "Execute natural language prompts using the OneMCP orchestrator"
     }
   ]
