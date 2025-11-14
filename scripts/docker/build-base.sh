@@ -5,7 +5,7 @@ VERSION="${1:-latest}"
 PUSH_FLAG="${2:-}"
 PLATFORM_FLAG="${3:-}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DOCKERFILE="$ROOT_DIR/Dockerfile.base"
+DOCKERFILE="$ROOT_DIR/scripts/docker/Dockerfile.base"
 
 # Default platforms for multi-arch builds
 PLATFORMS="${DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
