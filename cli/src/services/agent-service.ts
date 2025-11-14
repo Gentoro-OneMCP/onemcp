@@ -472,9 +472,10 @@ export class AgentService {
   }
 
   private buildJavaArgs(jarPath: string, activeProfile: string, port: number): string[] {
+    console.log('Building Java args with active profile:', activeProfile);
+    console.log('Building Java args with port:', port);
+    console.log('Building Java args with jar path:', jarPath);
     return [
-      `-Dllm.active-profile=${activeProfile}`,
-      `-Dhttp.port=${port}`,
       '-jar',
       jarPath,
       '--mode',
