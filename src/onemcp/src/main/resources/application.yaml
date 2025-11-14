@@ -56,7 +56,7 @@ llm:
     provider: anthropic
   gemini-flash:
     apiKey: ${env:GEMINI_API_KEY:-...}
-    model: ${env:GEMINI_MODEL_NAME:-gemini-2.5-flash-lite}
+    model: ${env:GEMINI_MODEL_NAME:-gemini-2.5-flash}
     provider: gemini
   gemini-pro:
     apiKey: ${env:GEMINI_API_KEY:-...}
