@@ -1,21 +1,3 @@
-  private resolveActiveProfile(provider?: string): string {
-    const normalized = (provider || 'openai').toLowerCase();
-    switch (normalized) {
-      case 'gemini':
-        return 'gemini-flash';
-      case 'anthropic':
-        return 'anthropic-sonnet';
-      default:
-        return 'openai';
-    }
-  }
-
-    const configs = (processManager as unknown as { configs: Map<string, ProcessConfig> }).configs;
-    for (const [name, config] of configs.entries()) {
-      if (config.port) {
-        portsToCheck.push({ name, port: config.port });
-      }
-    }
 /**
  * OneMCP service manager
  */
@@ -297,7 +279,7 @@ export class AgentService {
     // We need to access all configs - this is a bit hacky but necessary for cleanup
     const configs = (processManager as unknown as { configs: Map<string, ProcessConfig> }).configs;
     for (const [name, config] of configs.entries()) {
-      if (config.port && !['otel'].includes(name)) { // Skip otel as it's optional
+      if (config.port) {
         portsToCheck.push({ name, port: config.port });
       }
     }
@@ -458,6 +440,18 @@ export class AgentService {
           LLM_ACTIVE_PROFILE: activeProfile,
         };
       }
+    }
+  }
+
+  private resolveActiveProfile(provider?: string): string {
+    const normalized = (provider || 'openai').toLowerCase();
+    switch (normalized) {
+      case 'gemini':
+        return 'gemini-flash';
+      case 'anthropic':
+        return 'anthropic-sonnet';
+      default:
+        return 'openai';
     }
   }
 
