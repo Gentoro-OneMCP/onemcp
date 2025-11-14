@@ -538,22 +538,8 @@ export class AgentService {
     appConfig.args = this.buildJavaArgs(jarPath, activeProfile, port);
   }
 
-  private maskValue(value: string | undefined): string {
-    if (!value) {
-      return '<empty>';
-    }
-    if (value.length <= 4) {
-      return value;
-    }
-    return `${value.slice(0, 4)}…(${value.length})`;
-  }
-
   private logEnvUpdate(context: string, env: Record<string, string | undefined>): void {
-    const maskedEntries = Object.entries(env).reduce<Record<string, string>>((acc, [key, value]) => {
-      acc[key] = this.maskValue(value);
-      return acc;
-    }, {});
-    console.log(`[AgentService] env update (${context}):`, maskedEntries);
+    console.log(`[AgentService] env update (${context}):`, env);
   }
 
   /**
