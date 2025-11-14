@@ -9,7 +9,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { configManager } from '../config/manager.js';
 import { agentService } from '../services/agent-service.js';
 import { handbookManager } from '../handbook/manager.js';
-import { ChatMessage, ModelProvider, GlobalConfig, HandbookConfig } from '../types.js';
+import { ChatMessage, ModelProvider, HandbookConfig } from '../types.js';
 
 export class ChatMode {
   private messages: ChatMessage[] = [];
@@ -46,8 +46,12 @@ export class ChatMode {
     console.log(chalk.dim(`Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook`));
     console.log();
     console.log(chalk.dim('Ask questions about your configured handbook. Type "help" for tips.'));
-    console.log(chalk.dim('━'.repeat(60)));
-    console.log();
+    if (this.isAcmeHandbook()) {
+      this.showAcmeExamples();
+    } else {
+      console.log(chalk.dim('━'.repeat(60)));
+      console.log();
+    }
 
     // Main chat loop
     await this.chatLoop();
@@ -162,11 +166,9 @@ export class ChatMode {
       );
 
       // Connect to the MCP server
-      console.log('Connecting to MCP server with transport:', transport);
       await client.connect(transport);
 
       try {
-        console.log('Calling onemcp.run tool with user message:', userMessage);
         // Call the onemcp.run tool with timeout
         const result: any = await client.callTool(
           {
@@ -218,10 +220,39 @@ export class ChatMode {
     console.log();
     console.log(chalk.bold('Example Prompts:'));
     console.log();
-    console.log(chalk.dim('  > Summarize the purpose of this handbook.'));
-    console.log(chalk.dim('  > What API operations are available for orders?'));
-    console.log(chalk.dim('  > Generate a request example for the customer search endpoint.'));
+    console.log(chalk.dim('  > Show me electronics sales in California last quarter.'));
+    console.log(chalk.dim('  > List top customers by revenue.'));
+    console.log(chalk.dim('  > Compare revenue trends by region.'));
     console.log();
+  }
+
+  /**
+   * Show example queries tailored for the bundled Acme Analytics handbook
+   */
+  private showAcmeExamples(): void {
+    console.log(chalk.bold.yellow('💡 Acme Analytics Example Queries'));
+    console.log();
+    console.log(chalk.cyan('  > Show total sales for 2024.'));
+    console.log(chalk.cyan('  > Show me total revenue by category in 2024.'));
+    console.log(chalk.cyan('  > Show me electronics sales in California last quarter.'));
+    console.log(chalk.cyan('  > What are the top-selling products this month?'));
+    console.log(chalk.cyan('  > Show me sales data for New York vs Texas.'));
+    console.log();
+    console.log(chalk.dim('━'.repeat(60)));
+    console.log();
+  }
+
+  /**
+   * Determine if the current handbook matches the bundled Acme Analytics example
+   */
+  private isAcmeHandbook(): boolean {
+    const name = this.currentHandbook?.toLowerCase() ?? '';
+    if (name.includes('acme')) {
+      return true;
+    }
+
+    const configName = this.handbookConfig?.name?.toLowerCase() ?? '';
+    return configName.includes('acme');
   }
 
   /**
