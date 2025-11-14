@@ -94,8 +94,6 @@ export class AgentService {
       LLM_ACTIVE_PROFILE: activeProfile,
     };
 
-    this.logEnvUpdate('initialize', initialEnv);
-
     processManager.register({
       name: 'app',
       command: 'java',
@@ -396,22 +394,9 @@ export class AgentService {
           INFERENCE_DEFAULT_PROVIDER: provider,
           LLM_ACTIVE_PROFILE: activeProfile,
         };
-        this.logEnvUpdate('handbook-config', {
-          FOUNDATION_DIR: handbookPath,
-          OPENAI_API_KEY: apiKeys.openai || '',
-          GEMINI_API_KEY: apiKeys.gemini || '',
-          ANTHROPIC_API_KEY: apiKeys.anthropic || '',
-          INFERENCE_DEFAULT_PROVIDER: provider,
-          LLM_ACTIVE_PROFILE: activeProfile,
-        });
         this.applyActiveProfileArgs(appConfig, activeProfile);
       } else {
         const fallbackProfile = this.resolveActiveProfile(config?.provider);
-        this.logEnvUpdate('handbook-fallback', {
-          FOUNDATION_DIR: handbookPath,
-          INFERENCE_DEFAULT_PROVIDER: config?.provider || 'openai',
-          LLM_ACTIVE_PROFILE: fallbackProfile,
-        });
         this.applyActiveProfileArgs(appConfig, fallbackProfile);
       }
     }
@@ -440,11 +425,6 @@ export class AgentService {
           config?.provider ||
           'openai';
         const activeProfile = this.resolveActiveProfile(provider);
-        this.logEnvUpdate('options-port', {
-          SERVER_PORT: options.port.toString(),
-          INFERENCE_DEFAULT_PROVIDER: provider,
-          LLM_ACTIVE_PROFILE: activeProfile,
-        });
         this.applyActiveProfileArgs(appConfig, activeProfile);
       }
     }
@@ -456,9 +436,6 @@ export class AgentService {
           ...appConfig.env,
           FOUNDATION_DIR: options.handbookDir,
         };
-        this.logEnvUpdate('options-handbookDir', {
-          FOUNDATION_DIR: options.handbookDir,
-        });
       }
     }
 
@@ -479,11 +456,6 @@ export class AgentService {
           INFERENCE_DEFAULT_PROVIDER: options.provider,
           LLM_ACTIVE_PROFILE: activeProfile,
         };
-        this.logEnvUpdate('options-provider', {
-          [keyEnvVar]: options.apiKey,
-          INFERENCE_DEFAULT_PROVIDER: options.provider,
-          LLM_ACTIVE_PROFILE: activeProfile,
-        });
         this.applyActiveProfileArgs(appConfig, activeProfile);
       }
     }
@@ -536,10 +508,6 @@ export class AgentService {
         : parseInt(appConfig.env?.SERVER_PORT ?? '', 10) || 8080;
 
     appConfig.args = this.buildJavaArgs(jarPath, activeProfile, port);
-  }
-
-  private logEnvUpdate(context: string, env: Record<string, string | undefined>): void {
-    console.log(`[AgentService] env update (${context}):`, env);
   }
 
   /**
