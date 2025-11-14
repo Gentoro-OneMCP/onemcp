@@ -72,3 +72,42 @@ Full documentation is available at [https://onemcp.gentoro.com/docs](https://one
 ### ℹ️ CLI Details
 
 For detailed CLI documentation, all commands, and advanced features, see the [CLI README](cli/README.md).
+
+
+## 🤝 Contributing
+
+We welcome contributions of all kinds — bug reports, feature requests, code improvements, documentation updates, and examples.
+
+To contribute:
+
+1. **Fork** the repository  
+2. **Create a feature branch**  
+   ```bash
+   git checkout -b feature/my-improvement
+   ```
+3. **Make your changes**  
+4. **Submit a Pull Request** with a clear explanation of the changes
+
+Before opening a PR:
+
+- Ensure tests pass  
+- Follow existing code patterns  
+- Avoid introducing breaking changes  
+- Keep commits clean and focused
+
+If you're new, check out issues labeled **good first issue** or **help wanted**.  
+We’re happy to support new contributors!
+
+
+## 🌐 Join Our Community
+
+Be part of the growing OneMCP ecosystem! Engage with other developers, share ideas, and stay updated on new features.
+
+- **GitHub Discussions:** Join conversations and ask questions in the Discussions tab  
+- **Discord:** (Coming soon)  
+- **Twitter/X:** Follow product updates and announcements  
+- **Email:** Contact us at support@gentoro.com for questions or collaborations
+
+We’d love to have you involved — whether you're building integrations, experimenting with agent workflows, or improving the core platform.
+
+By contributing, you agree that your contributions will be licensed under the Apache 2.0 License.

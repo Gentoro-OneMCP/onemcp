@@ -6,7 +6,7 @@ JAR_NAME="${2:-}"
 PUSH_FLAG="${3:-}"
 PLATFORM_FLAG="${4:-}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-POM="$ROOT_DIR/src/onemcp/pom.xml"
+POM="$ROOT_DIR/packages/server/pom.xml"
 
 # Default platforms for multi-arch builds
 PLATFORMS="${DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
@@ -26,11 +26,11 @@ if [[ -z "$JAR_NAME" ]]; then
 
   # Build app JAR if not already built
   echo "Building application JAR..."
-  ( cd "$ROOT_DIR/src/onemcp" && ./mvnw -q -DskipTests package )
+  ( cd "$ROOT_DIR/packages/server" && ./mvnw -q -DskipTests package )
 fi
 
 # Validate JAR exists
-JAR_PATH="$ROOT_DIR/src/onemcp/target/$JAR_NAME"
+JAR_PATH="$ROOT_DIR/packages/server/target/$JAR_NAME"
 if [[ ! -f "$JAR_PATH" ]]; then
   echo "JAR file not found: $JAR_PATH"
   exit 1
@@ -58,7 +58,7 @@ if [[ "$PUSH_FLAG" == "--push" ]]; then
   BUILD_ARGS=(
     -f "$ROOT_DIR/Dockerfile"
     --platform "$PLATFORMS"
-    --build-arg "APP_JAR=src/onemcp/target/$JAR_NAME"
+    --build-arg "APP_JAR=$ROOT_DIR/packages/server/target/$JAR_NAME"
     --build-arg "BASE_IMAGE=admingentoro/gentoro:base-$VERSION"
     -t "admingentoro/gentoro:$VERSION"
     -t "admingentoro/gentoro:latest"
@@ -89,8 +89,8 @@ else
 
   BUILD_CMD="docker build"
   BUILD_ARGS=(
-    -f "$ROOT_DIR/Dockerfile"
-    --build-arg "APP_JAR=src/onemcp/target/$JAR_NAME"
+    -f "$ROOT_DIR/scripts/docker/Dockerfile"
+    --build-arg "APP_JAR=packages/server/target/$JAR_NAME"
     --build-arg "BASE_IMAGE=$BASE_IMAGE_NAME"
     -t "admingentoro/gentoro:$VERSION"
     -t "admingentoro/gentoro:latest"
