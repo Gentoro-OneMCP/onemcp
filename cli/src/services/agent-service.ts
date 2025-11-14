@@ -84,19 +84,23 @@ export class AgentService {
     const activeProfile = this.resolveActiveProfile(config?.provider);
     const javaArgs = this.buildJavaArgs(onemcpJar, activeProfile, port);
 
+    const initialEnv = {
+      SERVER_PORT: port.toString(),
+      FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
+      OPENAI_API_KEY: config?.apiKeys?.openai || '',
+      GEMINI_API_KEY: config?.apiKeys?.gemini || '',
+      ANTHROPIC_API_KEY: config?.apiKeys?.anthropic || '',
+      INFERENCE_DEFAULT_PROVIDER: config?.provider || 'openai',
+      LLM_ACTIVE_PROFILE: activeProfile,
+    };
+
+    this.logEnvUpdate('initialize', initialEnv);
+
     processManager.register({
       name: 'app',
       command: 'java',
       args: javaArgs,
-      env: {
-        SERVER_PORT: port.toString(),
-        FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
-        OPENAI_API_KEY: config?.apiKeys?.openai || '',
-        GEMINI_API_KEY: config?.apiKeys?.gemini || '',
-        ANTHROPIC_API_KEY: config?.apiKeys?.anthropic || '',
-        INFERENCE_DEFAULT_PROVIDER: config?.provider || 'openai',
-        LLM_ACTIVE_PROFILE: activeProfile,
-      },
+      env: initialEnv,
       port,
       healthCheckUrl: `http://localhost:${port}/mcp`,
     });
@@ -358,7 +362,7 @@ export class AgentService {
   /**
    * Update process environments based on current handbook configuration
    */
-  private async updateEnvironmentForCurrentHandbook(options: StartOptions): Promise<void> {
+  private async updateEnvironmentForCurrentHandbook(_options: StartOptions): Promise<void> {
     const config = await configManager.getGlobalConfig();
     const currentHandbook = config?.currentHandbook;
 
@@ -373,7 +377,7 @@ export class AgentService {
     const appConfig = processManager.getConfig('app');
     if (appConfig) {
       // Set foundation directory
-      appConfig.env = {
+        appConfig.env = {
         ...appConfig.env,
         FOUNDATION_DIR: handbookPath,
       };
@@ -392,9 +396,22 @@ export class AgentService {
           INFERENCE_DEFAULT_PROVIDER: provider,
           LLM_ACTIVE_PROFILE: activeProfile,
         };
+        this.logEnvUpdate('handbook-config', {
+          FOUNDATION_DIR: handbookPath,
+          OPENAI_API_KEY: apiKeys.openai || '',
+          GEMINI_API_KEY: apiKeys.gemini || '',
+          ANTHROPIC_API_KEY: apiKeys.anthropic || '',
+          INFERENCE_DEFAULT_PROVIDER: provider,
+          LLM_ACTIVE_PROFILE: activeProfile,
+        });
         this.applyActiveProfileArgs(appConfig, activeProfile);
       } else {
         const fallbackProfile = this.resolveActiveProfile(config?.provider);
+        this.logEnvUpdate('handbook-fallback', {
+          FOUNDATION_DIR: handbookPath,
+          INFERENCE_DEFAULT_PROVIDER: config?.provider || 'openai',
+          LLM_ACTIVE_PROFILE: fallbackProfile,
+        });
         this.applyActiveProfileArgs(appConfig, fallbackProfile);
       }
     }
@@ -423,6 +440,11 @@ export class AgentService {
           config?.provider ||
           'openai';
         const activeProfile = this.resolveActiveProfile(provider);
+        this.logEnvUpdate('options-port', {
+          SERVER_PORT: options.port.toString(),
+          INFERENCE_DEFAULT_PROVIDER: provider,
+          LLM_ACTIVE_PROFILE: activeProfile,
+        });
         this.applyActiveProfileArgs(appConfig, activeProfile);
       }
     }
@@ -434,6 +456,9 @@ export class AgentService {
           ...appConfig.env,
           FOUNDATION_DIR: options.handbookDir,
         };
+        this.logEnvUpdate('options-handbookDir', {
+          FOUNDATION_DIR: options.handbookDir,
+        });
       }
     }
 
@@ -454,6 +479,11 @@ export class AgentService {
           INFERENCE_DEFAULT_PROVIDER: options.provider,
           LLM_ACTIVE_PROFILE: activeProfile,
         };
+        this.logEnvUpdate('options-provider', {
+          [keyEnvVar]: options.apiKey,
+          INFERENCE_DEFAULT_PROVIDER: options.provider,
+          LLM_ACTIVE_PROFILE: activeProfile,
+        });
         this.applyActiveProfileArgs(appConfig, activeProfile);
       }
     }
@@ -506,6 +536,24 @@ export class AgentService {
         : parseInt(appConfig.env?.SERVER_PORT ?? '', 10) || 8080;
 
     appConfig.args = this.buildJavaArgs(jarPath, activeProfile, port);
+  }
+
+  private maskValue(value: string | undefined): string {
+    if (!value) {
+      return '<empty>';
+    }
+    if (value.length <= 4) {
+      return value;
+    }
+    return `${value.slice(0, 4)}…(${value.length})`;
+  }
+
+  private logEnvUpdate(context: string, env: Record<string, string | undefined>): void {
+    const maskedEntries = Object.entries(env).reduce<Record<string, string>>((acc, [key, value]) => {
+      acc[key] = this.maskValue(value);
+      return acc;
+    }, {});
+    console.log(`[AgentService] env update (${context}):`, maskedEntries);
   }
 
   /**
