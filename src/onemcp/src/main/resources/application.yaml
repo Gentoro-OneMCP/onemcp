@@ -22,7 +22,7 @@ logging:
       modelcontextprotocol: INFO
 
 http:
-  port: ${sys:http.port:-8080}
+  port: ${env:SERVER_PORT:-8080}
   hostname: 0.0.0.0
   acme:
     context-path: /acme
