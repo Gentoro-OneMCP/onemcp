@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json && npm run copy-example-handbook && chmod +x dist/index.js",
-    "copy-example-handbook": "cp -r ../src/acme-analytics-server/onemcp-handbook dist/example-handbook",
+    "copy-example-handbook": "node ./scripts/copy-example-handbook.mjs",
     "start": "node dist/index.js",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:watch": "NODE_OPTIONS=--experimental-vm-modules jest --watch",
