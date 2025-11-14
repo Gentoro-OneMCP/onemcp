@@ -83,6 +83,8 @@ export class AgentService {
     const onemcpJar = await this.resolveOnemcpJar(projectRoot);
 
     // Register OneMCP (Java application)
+    const activeProfile = this.resolveActiveProfile(config?.provider);
+
     processManager.register({
       name: 'app',
       command: 'java',
@@ -94,6 +96,7 @@ export class AgentService {
         GEMINI_API_KEY: config?.apiKeys?.gemini || '',
         ANTHROPIC_API_KEY: config?.apiKeys?.anthropic || '',
         INFERENCE_DEFAULT_PROVIDER: config?.provider || 'openai',
+        LLM_ACTIVE_PROFILE: activeProfile,
       },
       port,
       healthCheckUrl: `http://localhost:${port}/mcp`,
@@ -379,6 +382,7 @@ export class AgentService {
       // Set API keys and provider from handbook config
       if (handbookConfig) {
         const provider = handbookConfig.provider || config?.provider || 'openai';
+        const activeProfile = this.resolveActiveProfile(provider);
         const apiKeys = handbookConfig.apiKeys || config?.apiKeys || {};
 
         appConfig.env = {
@@ -387,6 +391,7 @@ export class AgentService {
           GEMINI_API_KEY: apiKeys.gemini || '',
           ANTHROPIC_API_KEY: apiKeys.anthropic || '',
           INFERENCE_DEFAULT_PROVIDER: provider,
+          LLM_ACTIVE_PROFILE: activeProfile,
         };
       }
     }
@@ -429,13 +434,27 @@ export class AgentService {
             : options.provider === 'gemini'
             ? 'GEMINI_API_KEY'
             : 'ANTHROPIC_API_KEY';
+        const activeProfile = this.resolveActiveProfile(options.provider);
 
         appConfig.env = {
           ...appConfig.env,
           [keyEnvVar]: options.apiKey,
           INFERENCE_DEFAULT_PROVIDER: options.provider,
+          LLM_ACTIVE_PROFILE: activeProfile,
         };
       }
+    }
+  }
+
+  private resolveActiveProfile(provider?: string): string {
+    const normalized = (provider || 'openai').toLowerCase();
+    switch (normalized) {
+      case 'gemini':
+        return 'gemini-flash';
+      case 'anthropic':
+        return 'anthropic-sonnet';
+      default:
+        return 'openai';
     }
   }
 
