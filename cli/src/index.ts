@@ -76,6 +76,31 @@ program
   .command('chat [handbook]')
   .description('Open interactive chat mode')
   .action(async (handbook) => {
+    let startedByChat = false;
+    let cleanedUp = false;
+
+    const cleanup = async () => {
+      if (cleanedUp) {
+        return;
+      }
+      cleanedUp = true;
+
+      if (startedByChat) {
+        console.log(chalk.dim('\n⏹  Stopping OneMCP service...'));
+        try {
+          await agentService.stop();
+          console.log(chalk.dim('✅ Service stopped'));
+        } catch (stopError: any) {
+          console.log(chalk.red('⚠️  Failed to stop service cleanly:'), stopError.message);
+        }
+      }
+    };
+
+    const handleSigint = () => {
+      console.log(chalk.yellow('\nReceived Ctrl+C. Cleaning up...'));
+      cleanup().finally(() => process.exit(0));
+    };
+
     try {
       // Check if setup is needed
       if (await SetupWizard.isSetupNeeded()) {
@@ -87,6 +112,7 @@ program
       // Check if agent is running
       const agentStatus = await agentService.getStatus();
       if (!agentStatus.running) {
+        startedByChat = true;
         console.log(chalk.dim('Starting One MCP service...'));
         console.log();
 
@@ -100,16 +126,23 @@ program
         } catch (error: any) {
           console.error(chalk.red('❌ Failed to start services:'), error.message);
           console.log();
+          await cleanup();
           console.log(chalk.yellow('Try running "onemcp doctor" to check your environment'));
           process.exit(1);
         }
       }
 
+      process.on('SIGINT', handleSigint);
+
       // Start chat mode
       await chatMode.start(handbook);
+      await cleanup();
     } catch (error: any) {
+      await cleanup();
       console.error(chalk.red('Error:'), error.message);
       process.exit(1);
+    } finally {
+      process.off('SIGINT', handleSigint);
     }
   });
 
