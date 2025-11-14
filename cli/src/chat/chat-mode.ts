@@ -162,9 +162,11 @@ export class ChatMode {
       );
 
       // Connect to the MCP server
+      console.log('Connecting to MCP server with transport:', transport);
       await client.connect(transport);
 
       try {
+        console.log('Calling onemcp.run tool with user message:', userMessage);
         // Call the onemcp.run tool with timeout
         const result: any = await client.callTool(
           {

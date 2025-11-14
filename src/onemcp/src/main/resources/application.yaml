@@ -41,7 +41,7 @@ http:
 
 
 llm:
-  active-profile: '${sys:llm.active-profile:-gemini-flash}'
+  active-profile: '${env:ACTIVE_PROFILE:-gemini-flash}'
   ollama:
     baseUrl: http://192.168.2.77:11434
     model: qwen3-coder:30b
