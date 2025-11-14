@@ -82,7 +82,7 @@ export class AgentService {
 
     const onemcpJar = await this.resolveOnemcpJar(projectRoot);
     const activeProfile = this.resolveActiveProfile(config?.provider);
-    const javaArgs = this.buildJavaArgs(onemcpJar, activeProfile);
+    const javaArgs = this.buildJavaArgs(onemcpJar, activeProfile, port);
 
     processManager.register({
       name: 'app',
@@ -404,6 +404,8 @@ export class AgentService {
    * Update process environments based on options
    */
   private async updateProcessEnvironments(options: StartOptions): Promise<void> {
+    const config = await configManager.getGlobalConfig();
+
     // This would update the registered process configs with new environment variables
     // For now, we'll need to re-register with updated configs
     if (options.port) {
@@ -415,6 +417,13 @@ export class AgentService {
         };
         appConfig.port = options.port;
         appConfig.healthCheckUrl = `http://localhost:${options.port}/actuator/health`;
+        const provider =
+          appConfig.env?.INFERENCE_DEFAULT_PROVIDER ||
+          options.provider ||
+          config?.provider ||
+          'openai';
+        const activeProfile = this.resolveActiveProfile(provider);
+        this.applyActiveProfileArgs(appConfig, activeProfile);
       }
     }
 
@@ -462,8 +471,15 @@ export class AgentService {
     }
   }
 
-  private buildJavaArgs(jarPath: string, activeProfile: string): string[] {
-    return [`-Dllm.active-profile=${activeProfile}`, '-jar', jarPath];
+  private buildJavaArgs(jarPath: string, activeProfile: string, port: number): string[] {
+    return [
+      `-Dllm.active-profile=${activeProfile}`,
+      `-Dhttp.port=${port}`,
+      '-jar',
+      jarPath,
+      '--mode',
+      'server',
+    ];
   }
 
   private applyActiveProfileArgs(appConfig: ProcessConfig, activeProfile: string): void {
@@ -483,7 +499,12 @@ export class AgentService {
       return;
     }
 
-    appConfig.args = this.buildJavaArgs(jarPath, activeProfile);
+    const port =
+      typeof appConfig.port === 'number'
+        ? appConfig.port
+        : parseInt(appConfig.env?.SERVER_PORT ?? '', 10) || 8080;
+
+    appConfig.args = this.buildJavaArgs(jarPath, activeProfile, port);
   }
 
   /**
