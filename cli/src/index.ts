@@ -10,7 +10,6 @@ import logSymbols from 'log-symbols';
 import { setupWizard, SetupWizard } from './wizard/setup.js';
 import { configManager } from './config/manager.js';
 import { agentService } from './services/agent-service.js';
-import { processManager } from './services/process-manager.js';
 import { chatMode } from './chat/chat-mode.js';
 import { handbookManager } from './handbook/manager.js';
 import { paths } from './config/paths.js';
@@ -88,49 +87,21 @@ program
       // Check if agent is running
       const agentStatus = await agentService.getStatus();
       if (!agentStatus.running) {
-        console.log(chalk.dim('Starting One MCP services...'));
+        console.log(chalk.dim('Starting One MCP service...'));
         console.log();
 
-        // Ensure OTEL config
-        await agentService.ensureOtelConfig();
-
-        // Determine if we should start in mock mode
-        const config = await configManager.getGlobalConfig();
-        const mockMode = !config?.currentHandbook || config.currentHandbook === 'acme-analytics';
-
-        const startOptions = {
-          mockMode,
-        };
-
         // Start services with logging
-        console.log(chalk.dim('🔄 Starting services...'));
+        console.log(chalk.dim('🔄 Starting service...'));
 
         try {
-          await agentService.start(startOptions);
-          console.log(chalk.dim('✅ Services started successfully'));
+          await agentService.start();
+          console.log(chalk.dim('✅ Service started successfully'));
           console.log();
         } catch (error: any) {
           console.error(chalk.red('❌ Failed to start services:'), error.message);
           console.log();
           console.log(chalk.yellow('Try running "onemcp doctor" to check your environment'));
           process.exit(1);
-        }
-      } else {
-        // Agent is running, but check if we need to start mock server
-        const config = await configManager.getGlobalConfig();
-        const shouldHaveMock = !config?.currentHandbook || config.currentHandbook === 'acme-analytics';
-        const mockService = agentStatus.services.find(s => s.name === 'mock');
-
-        if (shouldHaveMock && mockService && !mockService.running) {
-          console.log(chalk.dim('Starting mock server for testing...'));
-          try {
-            await processManager.start('mock');
-            console.log(chalk.dim('✅ Mock server started successfully'));
-            console.log();
-          } catch (error: any) {
-            console.log(chalk.dim('⚠ Mock server not available (optional) - continuing without'));
-            console.log();
-          }
         }
       }
 
@@ -148,7 +119,7 @@ program
 program
   .command('logs')
   .description('Show logs')
-  .argument('[service]', 'Service name (app, ts-runtime, otel, mock)')
+  .argument('[service]', 'Service name (app)')
   .option('-n, --lines <count>', 'Number of lines to show', '50')
   .option('-f, --follow', 'Follow log output')
   .action(async (service, options) => {
@@ -160,7 +131,7 @@ program
         console.log(logs);
       } else {
         // Show all logs
-        const services = ['app', 'ts-runtime', 'otel', 'mock'];
+        const services = ['app'];
         for (const svc of services) {
           console.log(chalk.bold.cyan(`\n=== ${svc} ===\n`));
           const logs = await agentService.getLogs(svc, lines);

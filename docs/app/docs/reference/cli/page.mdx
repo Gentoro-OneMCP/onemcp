@@ -52,9 +52,8 @@ onemcp chat [handbook]
 
 **Behavior:**
 - On first run, launches setup wizard
-- Automatically starts all required services
+- Automatically starts the OneMCP service
 - Opens interactive chat interface
-- Provides example queries for mock server
 
 **Interactive Commands:**
 - `exit` - Exit chat mode
@@ -70,16 +69,10 @@ onemcp chat
 
 # Chat with specific handbook
 onemcp chat analytics-dashboard
-
-# Chat with ACME Analytics example
-onemcp chat ecommerce-api
 ```
 
 **Services Started:**
-- OneMCP Server (port 8080)
-- TypeScript Runtime (port 7070)
-- Mock Server (port 8082, if using ACME Analytics)
-- OpenTelemetry Collector (port 4317, optional)
+- OneMCP Service (port 8080)
 
 ### onemcp stop
 
@@ -120,9 +113,7 @@ onemcp status
 onemcp status
 
 # Output:
-# OneMCP Server (8080): healthy (uptime: 2h 15m)
-# TypeScript Runtime (7070): healthy (uptime: 2h 15m)
-# Mock Server (8082): healthy (uptime: 2h 15m)
+# OneMCP Service (8080): healthy (uptime: 2h 15m)
 ```
 
 ### onemcp update
@@ -298,7 +289,8 @@ onemcp handbook validate
 
 **Checks:**
 - Handbook directory exists
-- Required directories present (`apis/`, `docs/`, `regression/`, `state/`)
+- Required directory present (`apis/`)
+- Recommended directories available (`docs/`, `state/`)
 - `Agent.md` exists and is readable
 - OpenAPI specs are valid YAML/JSON
 - Documentation files are valid Markdown
@@ -504,8 +496,6 @@ onemcp doctor
 - Node.js version (>= 20)
 - Java version (21)
 - Maven installation
-- Network connectivity
-- Port availability (8080, 7070, 8082, 4317)
 - Configuration file validity
 - Handbook directory structure
 
@@ -518,10 +508,6 @@ onemcp doctor
 # ✓ Node.js 20.10.0 (required: >= 20)
 # ✓ Java 21.0.1 (required: 21)
 # ✓ Maven 3.9.5
-# ✓ Network connectivity
-# ✓ Port 8080 available
-# ✓ Port 7070 available
-# ✓ Port 8082 available
 # ✓ Configuration valid
 # ✓ Handbook directory exists
 #
@@ -537,7 +523,7 @@ onemcp logs [service] [options]
 ```
 
 **Arguments:**
-- `service` (optional) - Service name (`app`, `typescript`, `mock`, `otel`)
+- `service` (optional) - Service name (`app`)
 
 **Options:**
 - `-f, --follow` - Follow log output (like `tail -f`)
@@ -552,18 +538,12 @@ onemcp logs
 # View app logs
 onemcp logs app
 
-# Follow TypeScript runtime logs
-onemcp logs typescript -f
-
-# Show last 50 lines of mock server logs
-onemcp logs mock -n 50
+# Follow app logs
+onemcp logs app -f
 ```
 
 **Log Files:**
 - `~/.onemcp/logs/app.log` - OneMCP server
-- `~/.onemcp/logs/typescript.log` - TypeScript runtime
-- `~/.onemcp/logs/mock.log` - Mock server
-- `~/.onemcp/logs/otel.log` - OpenTelemetry collector
 - `~/.onemcp/logs/archived/` - Archived logs
 
 ### onemcp --version
@@ -623,9 +603,6 @@ handbookDir: ~/handbooks           # Handbooks directory
 logDir: ~/.onemcp/logs             # Logs directory
 ports:                             # Service ports (optional)
   app: 8080
-  typescript: 7070
-  mock: 8082
-  otel: 4317
 ```
 
 **Fields:**

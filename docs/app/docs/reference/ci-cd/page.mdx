@@ -8,38 +8,26 @@ This project uses GitHub Actions for continuous integration and deployment. The 
 
 ## Pipeline Stages
 
-The CI/CD pipeline consists of four main stages:
+The CI/CD pipeline consists of three main stages:
 
 ### 1. Unit Tests
-Fast feedback for code quality across all projects:
-- **OneMCP** (Java/Spring Boot)
-- **acme-analytics-server** (Java mock server)
-- **typescript-runtime** (Node.js/TypeScript)
+Fast feedback for code quality across the core Java service.
 
-**Trigger**: Every push and pull request
+**Trigger**: Every push and pull request.
 
-### 2. Integration Tests
-Test component interactions (OneMCP ↔ TypeScript runtime):
-- Starts TypeScript runtime service
-- Runs integration test suite
-- Validates cross-service communication
-
-**Status**: Optional (prevents external dependency failures from blocking the pipeline)
-
-### 3. Build & Service Validation
+### 2. Build & Service Validation
 Build artifacts and validate full system deployment:
-- Builds all Java services
-- Packages TypeScript runtime
-- Validates services can start and communicate
-- Tests end-to-end system functionality
+- Builds the OneMCP Java application
+- Builds the CLI package
+- Verifies the service can start successfully
 
 **Status**: Optional (resilient to transient failures)
 
-### 4. Docker Build & Container Validation
+### 3. Docker Build & Container Validation
 Build and test containerized deployment:
 - Builds Docker images for both AMD64 and ARM64
 - Validates container functionality on both architectures
-- Tests all service modes (app, otel, typescript runtime)
+- Exercises the container entrypoint
 - Verifies multi-platform compatibility
 
 **Platforms**: `linux/amd64`, `linux/arm64`
@@ -72,51 +60,29 @@ To run the same tests that run in CI/CD locally:
 ### Unit Tests
 
 ```bash
-# Java services
 cd src/onemcp && mvn test
-cd src/acme-analytics-server/server && mvn test
-
-# TypeScript runtime
-cd src/typescript-runtime && npm test
-```
-
-### Integration Tests
-
-```bash
-# Start TypeScript runtime
-cd src/typescript-runtime && npm run dev &
-
-# Run integration tests
-cd src/onemcp && mvn test -Dtest="*IntegrationTest"
-
-# Stop TypeScript runtime
-pkill -f "npm run dev"
 ```
 
 ### Service Validation
 
 ```bash
-# Build all services
-cd src/onemcp && mvn package -DskipTests
-cd src/acme-analytics-server/server && mvn package -DskipTests
-cd src/typescript-runtime && npm run build
+# Build Java service
+cd src/onemcp && mvn package -DskipTests && cd ../..
 
-# Start services
+# Build CLI
+cd cli && npm run build && cd ..
+
+# Start service
 java -jar src/onemcp/target/onemcp-*.jar &
-java -jar src/acme-analytics-server/server/target/acme-analytics-*.jar &
-cd src/typescript-runtime && npm start &
 
-# Wait for services to start
+# Wait for the service to start
 sleep 10
 
-# Test services (add your own validation commands)
+# Test service (add your own validation commands)
 curl http://localhost:8080/actuator/health
-curl http://localhost:8082/api/health
-curl http://localhost:7070/health
 
-# Stop services
-pkill -f "java -jar"
-pkill -f "npm start"
+# Stop service
+pkill -f "java -jar .*onemcp"
 ```
 
 ### Container Validation
@@ -158,7 +124,7 @@ chore(component): maintenance tasks
 Examples:
 ```
 feat(agent): add support for Claude 3.5 Sonnet
-fix(runtime): resolve TypeScript compilation error
+fix(app): resolve MCP response parsing error
 docs(guides): add foundation validation guide
 test(integration): add MCP endpoint integration tests
 ```
@@ -174,12 +140,12 @@ cd src/onemcp && mvn test -X
 mvn test -Dtest=MyTestClass#myTestMethod
 ```
 
-#### Integration Test Failures
+#### Service Validation Failures
 ```bash
-# Check TypeScript runtime logs
-cd src/typescript-runtime && npm run dev
+# Tail OneMCP service logs
+onemcp logs app -f
 
-# Run integration tests with debug logging
+# Run service validation with debug logging
 cd src/onemcp && mvn test -Dtest="*IntegrationTest" -X
 ```
 

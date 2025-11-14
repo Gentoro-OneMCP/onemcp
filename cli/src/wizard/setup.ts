@@ -46,9 +46,9 @@ export class SetupWizard {
 
       // Step 4: Service authentication
       serviceConfig = await this.configureService();
-    } else if (mode === 'mock') {
-      // Copy ACME Analytics example handbook for mock mode
-      await this.setupMockHandbook();
+    } else if (mode === 'example') {
+      // Copy ACME Analytics example handbook
+      await this.setupExampleHandbook();
       currentHandbook = 'acme-analytics';
     }
 
@@ -86,7 +86,7 @@ export class SetupWizard {
     }
 
     // Show next steps
-    this.showNextSteps(mode === 'mock');
+    this.showNextSteps(mode);
   }
 
   /**
@@ -142,20 +142,20 @@ export class SetupWizard {
   /**
    * Select starting mode
    */
-  private async selectMode(): Promise<'mock' | 'own'> {
+  private async selectMode(): Promise<'example' | 'own'> {
     console.log();
     console.log(chalk.bold('Step 2 — Choose how to start:'));
     console.log();
 
-    const { mode } = await inquirer.prompt<{ mode: 'mock' | 'own' }>([
+    const { mode } = await inquirer.prompt<{ mode: 'example' | 'own' }>([
       {
         type: 'list',
         name: 'mode',
         message: 'Select mode',
         choices: [
           {
-            name: 'Start with mock Acme Analytics (recommended)',
-            value: 'mock',
+            name: 'Start with sample Acme Analytics handbook (recommended)',
+            value: 'example',
           },
           {
             name: 'Connect your own API service',
@@ -259,9 +259,9 @@ Add your API documentation and guides here.
   }
 
   /**
-   * Setup ACME Analytics handbook for mock mode
+   * Setup ACME Analytics handbook for example mode
    */
-  private async setupMockHandbook(): Promise<void> {
+  private async setupExampleHandbook(): Promise<void> {
     console.log();
     console.log(chalk.bold('Setting up ACME Analytics handbook...'));
     console.log();
@@ -417,22 +417,20 @@ Add your API documentation and guides here.
   /**
    * Show next steps after setup
    */
-  private showNextSteps(mockMode: boolean): void {
+  private showNextSteps(mode: 'example' | 'own'): void {
     console.log();
     console.log(chalk.dim('━'.repeat(60)));
     console.log();
     console.log(chalk.bold.green('✅  Setup Complete!'));
     console.log();
 
-    if (mockMode) {
-      console.log(chalk.bold('Mock Mode'));
-      console.log('The agent will start with the built-in Acme Analytics mock service.');
+    if (mode === 'example') {
+      console.log(chalk.bold('Acme Analytics sample handbook'));
+      console.log('You are ready to explore the bundled Acme Analytics documentation and queries.');
       console.log();
-      console.log(chalk.cyan('Acme Analytics provides four data entities:'));
-      console.log('  • Sales       — transactions and totals');
-      console.log('  • Products    — categories and pricing');
-      console.log('  • Customers   — segments and lifetime value');
-      console.log('  • Regions     — geographic performance');
+    } else {
+      console.log(chalk.bold('Custom handbook'));
+      console.log('Add your API specifications, docs, and tests to your handbook directory to guide the agent.');
       console.log();
     }
 

@@ -92,10 +92,17 @@ This handbook contains the configuration and documentation for your OneMCP.
     }
 
     // Check required directories
-    const requiredDirs = ['apis', 'docs', 'state'];
+    const requiredDirs = ['apis'];
     for (const reqDir of requiredDirs) {
       if (!(await fs.pathExists(`${dir}/${reqDir}`))) {
-        warnings.push(`Missing recommended directory: ${reqDir}/`);
+        errors.push(`Missing required directory: ${reqDir}/`);
+      }
+    }
+
+    const recommendedDirs = ['docs', 'state'];
+    for (const recDir of recommendedDirs) {
+      if (!(await fs.pathExists(`${dir}/${recDir}`))) {
+        warnings.push(`Missing recommended directory: ${recDir}/`);
       }
     }
 
@@ -254,26 +261,19 @@ See the \`docs/\` directory for additional documentation.
     // In development, it might be in src/example-handbook or we need to copy from source
     const __dirname = dirname(fileURLToPath(import.meta.url));
 
-    let resolvedSource = resolve(__dirname, '../example-handbook');
+    const candidates = [
+      resolve(__dirname, '../../../dist/example-handbook'),
+      resolve(__dirname, '../../../src/acme-analytics-server/onemcp-handbook'),
+      resolve(__dirname, '../../../src/onemcp/src/main/resources/acme-handbook'),
+      resolve(__dirname, '../example-handbook'),
+    ];
 
-    // If running in development (src directory), try alternative locations
-    if (__dirname.includes('/src/')) {
-      // Try the built dist directory first
-      const distSource = resolve(__dirname, '../../../dist/example-handbook');
-      if (await fs.pathExists(distSource)) {
-        resolvedSource = distSource;
-      } else {
-        // Fallback: try to copy from the source location
-        const sourceSource = resolve(__dirname, '../../../src/acme-analytics-server/onemcp-handbook');
-        if (await fs.pathExists(sourceSource)) {
-          resolvedSource = sourceSource;
-        }
-      }
-    }
+    const resolvedSource = await this.findFirstExisting(candidates);
 
-
-    if (!(await fs.pathExists(resolvedSource))) {
-      throw new Error(`Example handbook not found at ${resolvedSource}. Checked dist and source locations.`);
+    if (!resolvedSource) {
+      throw new Error(
+        `Example handbook not found in any known location. Checked: ${candidates.join(', ')}.`
+      );
     }
 
     await fs.copy(resolvedSource, targetDir);
@@ -294,7 +294,19 @@ See the \`docs/\` directory for additional documentation.
       await fs.move(openapiPath, apisPath, { overwrite: true });
     }
 
+    // Ensure state directory exists for runtime artifacts
+    await fs.ensureDir(`${targetDir}/state`);
+
     console.log(chalk.green(`✅  Example handbook copied to ${targetDir}`));
+  }
+
+  private async findFirstExisting(pathsToCheck: string[]): Promise<string | null> {
+    for (const candidate of pathsToCheck) {
+      if (await fs.pathExists(candidate)) {
+        return candidate;
+      }
+    }
+    return null;
   }
 
   /**

@@ -31,17 +31,7 @@ Handbook: ecommerce-api
 Provider: openai
 MCP URL: http://localhost:8080/mcp
 Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💡 Mock Server Active - Try These Example Queries:
-
-  > Show me electronics sales in California last quarter.
-  > List top customers by revenue.
-  > Compare revenue trends by region.
-  > What are the top-selling products this month?
-  > Show me sales data for New York vs Texas.
-
-Type "help" anytime for more commands.
+Ask questions about your configured handbook. Type "help" for tips.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ? You: Show me sales data for New York vs Texas.
@@ -199,14 +189,11 @@ onemcp --help        # Show help
 
 ## Architecture
 
-The CLI manages multiple services that run as child processes:
+The CLI manages the lifecycle of the OneMCP Java service:
 
-- **One MCP Server** (port 8080) - Main Spring Boot application
-- **TypeScript Runtime** (port 7070) - Executes TypeScript snippets
-- **Mock Server** (port 8082) - Acme Analytics (optional)
-- **OpenTelemetry Collector** (port 4317) - Telemetry collection (optional)
+- **OneMCP Service** (port 8080) - Main MCP application providing the `/mcp` endpoint.
 
-All services include automatic health checks and log management.
+The CLI handles automatic health checks, process management, and log collection for this service.
 
 ## Configuration
 

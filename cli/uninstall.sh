@@ -77,15 +77,8 @@ stop_services() {
         log_success "Services stopped via CLI"
     fi
     
-    # Kill any remaining Java processes
+    # Kill any remaining OneMCP Java processes
     pkill -f "onemcp.*\.jar" 2>/dev/null || true
-    pkill -f "acme-analytics-server.*\.jar" 2>/dev/null || true
-
-    # Kill TypeScript runtime
-    pkill -f "typescript-runtime/dist/server.js" 2>/dev/null || true
-
-    # Kill OTEL collector (if started by our CLI)
-    pkill -f "otelcol.*onemcp" 2>/dev/null || true
 
     # Remove stale PID files
     rm -f "$CONFIG_DIR/state/"*.pid 2>/dev/null || true
@@ -396,15 +389,6 @@ remove_handbooks() {
             log_info "Handbooks directory does not exist"
         fi
     fi
-}
-
-cleanup_temp() {
-    log_info "Cleaning up temporary files..."
-    
-    # Remove OTEL config if created by our CLI
-    [ -f "/tmp/onemcp-otel-config.yaml" ] && rm -f "/tmp/onemcp-otel-config.yaml"
-    
-    log_success "Temporary files cleaned"
 }
 
 show_summary() {

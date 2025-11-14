@@ -196,11 +196,11 @@ clone_repository() {
     log_success "Repository cloned to $INSTALL_DIR"
 }
 
-build_java_app() {
+build_components() {
     log_info "Building Java application..."
 
     cd "$INSTALL_DIR/src/onemcp"
-    mvn clean package spring-boot:repackage -DskipTests -q
+    mvn clean package -DskipTests -q
 
     if [ $? -eq 0 ]; then
         log_success "Java application built successfully"
@@ -208,35 +208,6 @@ build_java_app() {
     else
         log_error "Failed to build Java application"
         exit 1
-    fi
-}
-
-build_typescript_runtime() {
-    log_info "Building TypeScript Runtime (this may take a while)..."
-    
-    cd "$INSTALL_DIR/src/typescript-runtime"
-    npm install --silent
-    npm run build
-    
-    if [ $? -eq 0 ]; then
-        log_success "TypeScript Runtime built successfully"
-        echo ""
-    else
-        log_error "Failed to build TypeScript Runtime"
-        exit 1
-    fi
-}
-
-build_mock_server() {
-    log_info "Building Mock Server..."
-    
-    cd "$INSTALL_DIR/src/acme-analytics-server/server"
-    mvn clean package -DskipTests -q
-    
-    if [ $? -eq 0 ]; then
-        log_success "Mock Server built successfully"
-    else
-        log_warning "Mock Server build failed (optional component)"
     fi
 }
 
@@ -492,12 +463,10 @@ main() {
     clone_repository
     echo ""
     
-    log_info "Building components (this may take a few minutes)..."
+    log_info "Building components..."
     echo ""
     
-    build_java_app
-    build_typescript_runtime
-    build_mock_server
+    build_components
     echo ""
     
     install_cli

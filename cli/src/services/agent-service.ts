@@ -1,3 +1,21 @@
+  private resolveActiveProfile(provider?: string): string {
+    const normalized = (provider || 'openai').toLowerCase();
+    switch (normalized) {
+      case 'gemini':
+        return 'gemini-flash';
+      case 'anthropic':
+        return 'anthropic-sonnet';
+      default:
+        return 'openai';
+    }
+  }
+
+    const configs = (processManager as unknown as { configs: Map<string, ProcessConfig> }).configs;
+    for (const [name, config] of configs.entries()) {
+      if (config.port) {
+        portsToCheck.push({ name, port: config.port });
+      }
+    }
 /**
  * OneMCP service manager
  */
@@ -14,10 +32,8 @@ import fs from 'fs-extra';
 export interface StartOptions {
   port?: number;
   handbookDir?: string;
-  mockMode?: boolean;
   provider?: string;
   apiKey?: string;
-  disableServices?: string[];
 }
 
 export class AgentService {
@@ -58,10 +74,8 @@ export class AgentService {
     }
 
     for (const root of possibleRoots) {
-      const tsRuntimePath = join(root, 'src/typescript-runtime/dist/server.js');
-      const onemcpPath = join(root, 'src/onemcp/target/onemcp-0.1.0-SNAPSHOT.jar');
-      
-      if (fs.existsSync(tsRuntimePath) && fs.existsSync(onemcpPath)) {
+      const pomPath = join(root, 'src/onemcp/pom.xml');
+      if (fs.existsSync(pomPath)) {
         return root;
       }
     }
@@ -84,38 +98,7 @@ export class AgentService {
     // Find project root
     const projectRoot = this.findProjectRoot();
 
-    // Register OpenTelemetry Collector
-    processManager.register({
-      name: 'otel',
-      command: 'otelcol',
-      args: ['--config', '/tmp/onemcp-otel-config.yaml'],
-      env: {
-        OTEL_SERVICE_NAME: 'onemcp',
-      },
-      port: 4317,
-      healthCheckUrl: undefined, // OTEL doesn't have a simple health endpoint
-    });
-
-    // Register TypeScript Runtime
-    const tsRuntimeServer = join(projectRoot, 'src/typescript-runtime/dist/server.js');
-    const tsRuntimeDir = join(projectRoot, 'src/typescript-runtime');
-    
-    processManager.register({
-      name: 'ts-runtime',
-      command: 'node',
-      args: [tsRuntimeServer],
-      env: {
-        PORT: '7070',
-        NODE_ENV: 'production',
-      },
-      cwd: tsRuntimeDir,
-      port: 7070,
-      healthCheckUrl: 'http://localhost:7070/health',
-      dependsOn: [],
-    });
-
-    // Register OneMCP (Java application)
-    const onemcpJar = join(projectRoot, 'src/onemcp/target/onemcp-0.1.0-SNAPSHOT.jar');
+    const onemcpJar = await this.resolveOnemcpJar(projectRoot);
 
     processManager.register({
       name: 'app',
@@ -123,32 +106,52 @@ export class AgentService {
       args: ['-jar', onemcpJar],
       env: {
         SERVER_PORT: port.toString(),
-        // Foundation dir and API keys will be set based on handbook config in start()
         FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
         OPENAI_API_KEY: config?.apiKeys?.openai || '',
         GEMINI_API_KEY: config?.apiKeys?.gemini || '',
         ANTHROPIC_API_KEY: config?.apiKeys?.anthropic || '',
         INFERENCE_DEFAULT_PROVIDER: config?.provider || 'openai',
-        TS_RUNTIME_URL: 'http://localhost:7070',
-        OTEL_EXPORTER_OTLP_ENDPOINT: 'http://localhost:4317',
+        LLM_ACTIVE_PROFILE: this.resolveActiveProfile(config?.provider),
       },
       port,
       healthCheckUrl: `http://localhost:${port}/mcp`,
-      dependsOn: ['ts-runtime'],
-    });
-
-    // Register Mock Server (ACME Analytics)
-    const mockServerJar = join(projectRoot, 'src/acme-analytics-server/server/target/acme-analytics-server-1.0.0.jar');
-    
-    processManager.register({
-      name: 'mock',
-      command: 'java',
-      args: ['-jar', mockServerJar, '8082'],
-      port: 8082,
-      healthCheckUrl: 'http://localhost:8082/health',
     });
 
     this.initialized = true;
+  }
+
+  /**
+   * Resolve the built OneMCP jar path regardless of version or packaging plugin.
+   */
+  private async resolveOnemcpJar(projectRoot: string): Promise<string> {
+    const targetDir = join(projectRoot, 'src/onemcp/target');
+
+    let artifacts: string[];
+    try {
+      artifacts = await fs.readdir(targetDir);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Could not read ${targetDir}: ${message}. Ensure the Java build step completed successfully.`
+      );
+    }
+
+    const patterns = [
+      /^onemcp-.*-jar-with-dependencies\.jar$/,
+      /^onemcp-.*\.jar$/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = artifacts.find((file) => pattern.test(file));
+      if (match) {
+        return join(targetDir, match);
+      }
+    }
+
+    throw new Error(
+      `Could not find a OneMCP jar in ${targetDir}. Run "mvn clean package -DskipTests" and try again.`
+    );
   }
 
   /**
@@ -158,8 +161,8 @@ export class AgentService {
     await this.initialize();
 
     const config = await configManager.getGlobalConfig();
-    if (!config && !options.mockMode) {
-      throw new Error('No configuration found. Please run setup first or use --mock flag.');
+    if (!config) {
+      throw new Error('No configuration found. Please run setup first.');
     }
 
     // Validate environment before starting
@@ -184,106 +187,51 @@ export class AgentService {
       await this.updateProcessEnvironments(options);
     }
 
-    const disabledServices = options.disableServices || [];
-
     // Validate handbook configuration before starting services
-    if (!disabledServices.includes('app') && !options.mockMode) {
-      await this.validateHandbookConfiguration();
-    }
+    await this.validateHandbookConfiguration();
 
     // Clean up any stale processes that might be using our ports
     await this.cleanupStaleProcesses();
 
-    // Start services in order
-    if (!disabledServices.includes('otel')) {
-      console.log(chalk.dim('  • Starting OpenTelemetry Collector for observability...'));
-      try {
-        await processManager.start('otel');
-        // Wait a bit for the process to either start or fail
-        await new Promise(resolve => setTimeout(resolve, 500));
-        // Check if the service is actually running
-        if (await processManager.isRunning('otel')) {
-          console.log(chalk.dim('    ✓ OTEL Collector ready'));
-        } else {
-          console.log(chalk.dim('    ⚠ OTEL Collector not available (optional) - continuing without'));
-        }
-      } catch (error: unknown) {
-        console.log(chalk.dim('    ⚠ OTEL Collector not available (optional) - continuing without'));
-      }
-    }
+    console.log(chalk.dim('  • Starting OneMCP core service...'));
+    try {
+      await processManager.start('app');
+      console.log(chalk.dim('    ✓ OneMCP started, waiting for health check...'));
 
-    console.log(chalk.dim('  • Starting TypeScript Runtime for tool execution...'));
-    if (!disabledServices.includes('ts-runtime')) {
-      await processManager.start('ts-runtime');
-      console.log(chalk.dim('    ✓ TypeScript Runtime started, waiting for health check...'));
-
-      // Wait for TypeScript runtime to be fully healthy before starting dependent services
-      const tsConfig = processManager.getConfig('ts-runtime');
-      if (tsConfig?.healthCheckUrl) {
+      // Wait for OneMCP to be fully healthy
+      const appConfig = processManager.getConfig('app');
+      if (appConfig?.healthCheckUrl) {
         try {
-          await this.waitForServiceHealthy('ts-runtime', tsConfig, 30000); // 30 second timeout
-          console.log(chalk.dim('    ✓ TypeScript Runtime ready'));
+          await this.waitForServiceHealthy('app', appConfig, 60000);
+          console.log(chalk.dim('    ✓ OneMCP ready'));
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          console.log(chalk.yellow('    ⚠ TypeScript Runtime health check failed, but continuing...'));
+          console.log(chalk.red('    ❌ OneMCP failed to become healthy'));
           console.log(chalk.dim(`      Error: ${errorMessage}`));
+          throw error;
         }
       } else {
-        console.log(chalk.dim('    ✓ TypeScript Runtime ready'));
+        console.log(chalk.dim('    ✓ OneMCP ready'));
       }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      if (errorMessage.includes('Foundation dir not found') ||
+          errorMessage.includes('Agent.md') ||
+          errorMessage.includes('handbook')) {
+        console.log(chalk.red('    ❌ OneMCP failed to start - handbook configuration issue'));
+        console.log(chalk.dim('      This usually happens when the handbook directory or Agent.md file is missing.'));
+        console.log(chalk.dim('      Try running the setup wizard again or check your handbook directory.'));
+        console.log(chalk.dim(`      Handbook directory: ${config?.handbookDir || 'not configured'}`));
+      } else {
+        console.log(chalk.red('    ❌ OneMCP failed to start'));
+        console.log(chalk.dim(`      Error: ${errorMessage}`));
+      }
+
+      throw error;
     }
 
-    console.log(chalk.dim('  • Starting OneMCP core service...'));
-    if (!disabledServices.includes('app')) {
-      try {
-        await processManager.start('app');
-        console.log(chalk.dim('    ✓ OneMCP started, waiting for health check...'));
-
-        // Wait for OneMCP to be fully healthy
-        const appConfig = processManager.getConfig('app');
-        if (appConfig?.healthCheckUrl) {
-          try {
-            await this.waitForServiceHealthy('app', appConfig, 60000); // 60 second timeout for Java app
-            console.log(chalk.dim('    ✓ OneMCP ready'));
-          } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            console.log(chalk.red('    ❌ OneMCP failed to become healthy'));
-            console.log(chalk.dim(`      Error: ${errorMessage}`));
-            throw error;
-          }
-        } else {
-          console.log(chalk.dim('    ✓ OneMCP ready'));
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-
-        // Check if this is a handbook-related error
-        if (errorMessage.includes('Foundation dir not found') ||
-            errorMessage.includes('Agent.md') ||
-            errorMessage.includes('handbook')) {
-          console.log(chalk.red('    ❌ OneMCP failed to start - handbook configuration issue'));
-          console.log(chalk.dim('      This usually happens when the handbook directory or Agent.md file is missing.'));
-          console.log(chalk.dim('      Try running the setup wizard again or check your handbook directory.'));
-          console.log(chalk.dim(`      Handbook directory: ${config?.handbookDir || 'not configured'}`));
-        } else {
-          console.log(chalk.red('    ❌ OneMCP failed to start'));
-          console.log(chalk.dim(`      Error: ${errorMessage}`));
-        }
-
-        // Re-throw the error to fail the entire startup
-        throw error;
-      }
-    }
-
-    if (options.mockMode) {
-      console.log(chalk.dim('  • Starting ACME Analytics mock server for testing...'));
-      if (!disabledServices.includes('mock')) {
-        await processManager.start('mock');
-        console.log(chalk.dim('    ✓ Mock server ready'));
-      }
-    }
-
-    console.log(chalk.dim('  • All services started successfully!'));
+    console.log(chalk.dim('  • OneMCP service started successfully!'));
   }
 
   /**
@@ -430,20 +378,12 @@ export class AgentService {
     const config = await configManager.getGlobalConfig();
     const currentHandbook = config?.currentHandbook;
 
-    if (!currentHandbook && !options.mockMode) {
-      // No current handbook set, use legacy behavior with handbookDir
-      return;
-    }
-
     let handbookConfig;
-    let handbookPath;
+    let handbookPath = config?.handbookDir || paths.handbooksDir;
 
     if (currentHandbook) {
       handbookConfig = await configManager.getEffectiveHandbookConfig(currentHandbook);
       handbookPath = paths.getHandbookPath(currentHandbook);
-    } else {
-      // Fallback to legacy handbookDir
-      handbookPath = config?.handbookDir || paths.handbooksDir;
     }
 
     const appConfig = processManager.getConfig('app');
@@ -457,6 +397,7 @@ export class AgentService {
       // Set API keys and provider from handbook config
       if (handbookConfig) {
         const provider = handbookConfig.provider || config?.provider || 'openai';
+        const activeProfile = this.resolveActiveProfile(provider);
         const apiKeys = handbookConfig.apiKeys || config?.apiKeys || {};
 
         appConfig.env = {
@@ -465,6 +406,7 @@ export class AgentService {
           GEMINI_API_KEY: apiKeys.gemini || '',
           ANTHROPIC_API_KEY: apiKeys.anthropic || '',
           INFERENCE_DEFAULT_PROVIDER: provider,
+          LLM_ACTIVE_PROFILE: activeProfile,
         };
       }
     }
@@ -507,11 +449,13 @@ export class AgentService {
             : options.provider === 'gemini'
             ? 'GEMINI_API_KEY'
             : 'ANTHROPIC_API_KEY';
+        const activeProfile = this.resolveActiveProfile(options.provider);
 
         appConfig.env = {
           ...appConfig.env,
           [keyEnvVar]: options.apiKey,
           INFERENCE_DEFAULT_PROVIDER: options.provider,
+          LLM_ACTIVE_PROFILE: activeProfile,
         };
       }
     }
@@ -577,14 +521,6 @@ export class AgentService {
       }
     }
 
-    // Check for optional otelcol
-    try {
-      const { execa } = await import('execa');
-      await execa('otelcol', ['--version'], { timeout: 5000 });
-    } catch {
-      console.warn('OpenTelemetry Collector not found (optional)');
-    }
-
     return {
       valid: missing.length === 0,
       missing,
@@ -607,62 +543,14 @@ export class AgentService {
       stdio: 'inherit',
     });
 
-    // Build TypeScript runtime
-    console.log('Building TypeScript runtime...');
+    // Build CLI
+    console.log('Building CLI...');
     await execa('npm', ['run', 'build'], {
-      cwd: join(projectRoot, 'src/typescript-runtime'),
-      stdio: 'inherit',
-    });
-
-    // Build Mock server
-    console.log('Building Mock server...');
-    await execa('mvn', ['clean', 'package', '-DskipTests'], {
-      cwd: join(projectRoot, 'src/acme-analytics-server/server'),
+      cwd: join(projectRoot, 'cli'),
       stdio: 'inherit',
     });
 
     console.log('Build completed successfully!');
-  }
-
-  /**
-   * Create default OTEL config if it doesn't exist
-   */
-  async ensureOtelConfig(): Promise<void> {
-    const otelConfigPath = '/tmp/onemcp-otel-config.yaml';
-    
-    if (await fs.pathExists(otelConfigPath)) {
-      return;
-    }
-
-    const defaultConfig = `
-receivers:
-  otlp:
-    protocols:
-      grpc:
-        endpoint: 0.0.0.0:4317
-      http:
-        endpoint: 0.0.0.0:4318
-
-exporters:
-  file:
-    path: ${paths.logDir}/otel-collector.json
-  logging:
-    loglevel: info
-
-service:
-  pipelines:
-    traces:
-      receivers: [otlp]
-      exporters: [file, logging]
-    metrics:
-      receivers: [otlp]
-      exporters: [file, logging]
-    logs:
-      receivers: [otlp]
-      exporters: [file, logging]
-`;
-
-    await fs.writeFile(otelConfigPath, defaultConfig, 'utf-8');
   }
 
   /**
@@ -701,23 +589,9 @@ service:
     const { execa } = await import('execa');
 
     // Build Java app
-    await execa('mvn', ['clean', 'package', 'spring-boot:repackage', '-DskipTests', '-q'], {
+    await execa('mvn', ['clean', 'package', '-DskipTests', '-q'], {
       cwd: join(projectRoot, 'src/onemcp')
     });
-
-    // Build TypeScript runtime
-    await execa('npm', ['run', 'build'], {
-      cwd: join(projectRoot, 'src/typescript-runtime')
-    });
-
-    // Build mock server (optional)
-    try {
-      await execa('mvn', ['clean', 'package', '-DskipTests', '-q'], {
-        cwd: join(projectRoot, 'src/acme-analytics-server/server')
-      });
-    } catch {
-      // Mock server build is optional, ignore errors
-    }
 
     // Build CLI
     await execa('npm', ['run', 'build'], {
