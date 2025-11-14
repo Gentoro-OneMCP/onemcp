@@ -81,11 +81,13 @@ export class AgentService {
     const projectRoot = this.findProjectRoot();
 
     const onemcpJar = await this.resolveOnemcpJar(projectRoot);
+    const activeProfile = this.resolveActiveProfile(config?.provider);
+    const javaArgs = this.buildJavaArgs(onemcpJar, activeProfile);
 
     processManager.register({
       name: 'app',
       command: 'java',
-      args: ['-jar', onemcpJar],
+      args: javaArgs,
       env: {
         SERVER_PORT: port.toString(),
         FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
@@ -93,7 +95,7 @@ export class AgentService {
         GEMINI_API_KEY: config?.apiKeys?.gemini || '',
         ANTHROPIC_API_KEY: config?.apiKeys?.anthropic || '',
         INFERENCE_DEFAULT_PROVIDER: config?.provider || 'openai',
-        LLM_ACTIVE_PROFILE: this.resolveActiveProfile(config?.provider),
+        LLM_ACTIVE_PROFILE: activeProfile,
       },
       port,
       healthCheckUrl: `http://localhost:${port}/mcp`,
@@ -390,6 +392,10 @@ export class AgentService {
           INFERENCE_DEFAULT_PROVIDER: provider,
           LLM_ACTIVE_PROFILE: activeProfile,
         };
+        this.applyActiveProfileArgs(appConfig, activeProfile);
+      } else {
+        const fallbackProfile = this.resolveActiveProfile(config?.provider);
+        this.applyActiveProfileArgs(appConfig, fallbackProfile);
       }
     }
   }
@@ -439,6 +445,7 @@ export class AgentService {
           INFERENCE_DEFAULT_PROVIDER: options.provider,
           LLM_ACTIVE_PROFILE: activeProfile,
         };
+        this.applyActiveProfileArgs(appConfig, activeProfile);
       }
     }
   }
@@ -453,6 +460,30 @@ export class AgentService {
       default:
         return 'openai';
     }
+  }
+
+  private buildJavaArgs(jarPath: string, activeProfile: string): string[] {
+    return [`-Dllm.active-profile=${activeProfile}`, '-jar', jarPath];
+  }
+
+  private applyActiveProfileArgs(appConfig: ProcessConfig, activeProfile: string): void {
+    if (!appConfig.args || appConfig.args.length === 0) {
+      return;
+    }
+
+    let jarPath: string | undefined;
+    const jarFlagIndex = appConfig.args.findIndex((arg) => arg === '-jar');
+    if (jarFlagIndex >= 0 && jarFlagIndex + 1 < appConfig.args.length) {
+      jarPath = appConfig.args[jarFlagIndex + 1];
+    } else {
+      jarPath = appConfig.args[appConfig.args.length - 1];
+    }
+
+    if (!jarPath) {
+      return;
+    }
+
+    appConfig.args = this.buildJavaArgs(jarPath, activeProfile);
   }
 
   /**
