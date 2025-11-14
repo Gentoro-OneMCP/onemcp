@@ -31,7 +31,17 @@ Handbook: ecommerce-api
 Provider: openai
 MCP URL: http://localhost:8080/mcp
 Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
-Ask questions about your configured handbook. Type "help" for tips.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 Mock Server Active - Try These Example Queries:
+
+  > Show me electronics sales in California last quarter.
+  > List top customers by revenue.
+  > Compare revenue trends by region.
+  > What are the top-selling products this month?
+  > Show me sales data for New York vs Texas.
+
+Type "help" anytime for more commands.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ? You: Show me sales data for New York vs Texas.
