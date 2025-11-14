@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
+
+# example: ./build-base.sh latest --push
+ 
 set -euo pipefail
 
 VERSION="${1:-latest}"
 PUSH_FLAG="${2:-}"
 PLATFORM_FLAG="${3:-}"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DOCKERFILE="$ROOT_DIR/Dockerfile.base"
+DOCKERFILE="$ROOT_DIR/scripts/docker/Dockerfile.base"
+
+DEFAULT_PLATFORMS=(
+    linux/amd64
+    linux/arm64
+)
 
 # Default platforms for multi-arch builds
-PLATFORMS="${DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
+PLATFORMS="${DOCKER_PLATFORMS:-$(IFS=,; echo "${DEFAULT_PLATFORMS[*]}")}"
 
 # Handle platform flag
 if [[ "$PLATFORM_FLAG" == "--platform" && -n "${4:-}" ]]; then
@@ -26,7 +34,7 @@ echo "Dockerfile: $DOCKERFILE"
 echo "Platforms: $PLATFORMS"
 
 # Determine build command based on whether we're pushing
-BUILD_CMD="docker buildx build"
+BUILD_CMD="docker buildx build --no-cache"
 BUILD_ARGS=(
   -f "$DOCKERFILE"
   --platform "$PLATFORMS"

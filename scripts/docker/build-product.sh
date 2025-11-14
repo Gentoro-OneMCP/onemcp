@@ -1,19 +1,62 @@
 #!/usr/bin/env bash
+
+# examples:
+#  ./build-product.sh latest --push
+#  ./build-product.sh --push latest
+#  ./build-product.sh latest myapp.jar --push
+#  ./build-product.sh --platform linux/amd64 latest --push
+
 set -euo pipefail
 
-VERSION="${1:-dev}"
-JAR_NAME="${2:-}"
-PUSH_FLAG="${3:-}"
-PLATFORM_FLAG="${4:-}"
+# Initialize variables with defaults
+VERSION="dev"
+JAR_NAME=""
+PUSH_FLAG=""
+PLATFORM_FLAG=""
+PLATFORM_VALUE=""
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --push)
+      PUSH_FLAG="--push"
+      shift
+      ;;
+    --platform)
+      PLATFORM_FLAG="--platform"
+      PLATFORM_VALUE="${2:-}"
+      shift 2
+      ;;
+    -*)
+      echo "Unknown option $1"
+      exit 1
+      ;;
+    *)
+      # First non-option argument is VERSION, second is JAR_NAME
+      if [[ -z "$VERSION" || "$VERSION" == "dev" ]]; then
+        VERSION="$1"
+      elif [[ -z "$JAR_NAME" ]]; then
+        JAR_NAME="$1"
+      fi
+      shift
+      ;;
+  esac
+done
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-POM="$ROOT_DIR/src/onemcp/pom.xml"
+POM="$ROOT_DIR/packages/server/pom.xml"
+
+DEFAULT_PLATFORMS=(
+    linux/amd64
+    linux/arm64
+)
 
 # Default platforms for multi-arch builds
-PLATFORMS="${DOCKER_PLATFORMS:-linux/amd64,linux/arm64}"
+PLATFORMS="${DOCKER_PLATFORMS:-$(IFS=,; echo "${DEFAULT_PLATFORMS[*]}")}"
 
 # Handle platform flag
-if [[ "$PLATFORM_FLAG" == "--platform" && -n "${5:-}" ]]; then
-  PLATFORMS="${5}"
+if [[ -n "$PLATFORM_VALUE" ]]; then
+  PLATFORMS="$PLATFORM_VALUE"
 fi
 
 # Get version from POM if JAR_NAME not provided
@@ -26,11 +69,11 @@ if [[ -z "$JAR_NAME" ]]; then
 
   # Build app JAR if not already built
   echo "Building application JAR..."
-  ( cd "$ROOT_DIR/src/onemcp" && ./mvnw -q -DskipTests package )
+  ( cd "$ROOT_DIR/packages/server" && ./mvnw -q -DskipTests package )
 fi
 
 # Validate JAR exists
-JAR_PATH="$ROOT_DIR/src/onemcp/target/$JAR_NAME"
+JAR_PATH="$ROOT_DIR/packages/server/target/$JAR_NAME"
 if [[ ! -f "$JAR_PATH" ]]; then
   echo "JAR file not found: $JAR_PATH"
   exit 1
@@ -51,24 +94,32 @@ echo "Building product image with version: $VERSION"
 echo "JAR: $JAR_NAME"
 echo "Platforms: $PLATFORMS"
 
+# Use consistent Dockerfile path for local and push 
+DOCKERFILE_PATH="$ROOT_DIR/scripts/docker/Dockerfile"
+if [[ ! -f "$DOCKERFILE_PATH" ]]; then
+  echo "Dockerfile not found at: $DOCKERFILE_PATH"
+  exit 1
+fi
+
 # Determine build command based on whether we're pushing
 if [[ "$PUSH_FLAG" == "--push" ]]; then
   echo "Will push images to registry"
-  BUILD_CMD="docker buildx build"
+  BUILD_CMD="docker buildx build --no-cache"
   BUILD_ARGS=(
-    -f "$ROOT_DIR/Dockerfile"
+    -f "$DOCKERFILE_PATH"
     --platform "$PLATFORMS"
-    --build-arg "APP_JAR=src/onemcp/target/$JAR_NAME"
+    --build-arg "APP_JAR=packages/server/target/$JAR_NAME"
     --build-arg "BASE_IMAGE=admingentoro/gentoro:base-$VERSION"
     -t "admingentoro/gentoro:$VERSION"
     -t "admingentoro/gentoro:latest"
     --push
+    "$ROOT_DIR"
   )
 else
-  echo "Building for local use (docker buildx with --load)"
+  echo "Building for local use"
   # For local builds, use docker buildx with --load to access local images
   # Don't override PLATFORMS if it was set via --platform parameter
-  if [[ "$PLATFORM_FLAG" != "--platform" ]]; then
+  if [[ -z "$PLATFORM_VALUE" ]]; then
     PLATFORMS="linux/amd64"
   fi
 
@@ -89,17 +140,20 @@ else
 
   BUILD_CMD="docker build"
   BUILD_ARGS=(
-    -f "$ROOT_DIR/Dockerfile"
-    --build-arg "APP_JAR=src/onemcp/target/$JAR_NAME"
+    -f "$DOCKERFILE_PATH"
+    --build-arg "APP_JAR=packages/server/target/$JAR_NAME"
     --build-arg "BASE_IMAGE=$BASE_IMAGE_NAME"
     -t "admingentoro/gentoro:$VERSION"
     -t "admingentoro/gentoro:latest"
     --platform "$PLATFORMS"
+    "$ROOT_DIR"
   )
 fi
 
+echo "Running: $BUILD_CMD ${BUILD_ARGS[*]}"
+
 # Build Docker image
-if ! $BUILD_CMD "${BUILD_ARGS[@]}" "$ROOT_DIR"; then
+if ! $BUILD_CMD "${BUILD_ARGS[@]}"; then
   echo "Failed to build product image"
   exit 1
 fi
