@@ -264,7 +264,7 @@ See the \`docs/\` directory for additional documentation.
     const candidates = [
       resolve(__dirname, '../../../dist/example-handbook'),
       resolve(__dirname, '../../../src/acme-analytics-server/onemcp-handbook'),
-      resolve(__dirname, '../../../src/onemcp/src/main/resources/acme-handbook'),
+      resolve(__dirname, '../../../../packages/server/src/main/resources/acme-handbook'),
       resolve(__dirname, '../example-handbook'),
     ];
 
