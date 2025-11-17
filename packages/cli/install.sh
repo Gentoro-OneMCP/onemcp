@@ -217,7 +217,7 @@ install_cli() {
     cd "$INSTALL_DIR/packages/cli"
     # Clean build artifacts for fresh compilation
     rm -rf dist node_modules package-lock.json
-    npm install --silent --no-cache
+    npm install --no-cache
     npm run build
 
     # Verify build succeeded
