@@ -589,7 +589,7 @@ program
       if (!paths.configRoot || !fs.existsSync(paths.configRoot)) {
         spinner.fail('No One MCP installation found');
         console.log(chalk.yellow('Please install One MCP first:'));
-        console.log(chalk.cyan('curl -sSL https://raw.githubusercontent.com/Gentoro-HQ/onemcp/main/cli/install.sh | bash'));
+        console.log(chalk.cyan('curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | bash'));
         return;
       }
 
@@ -627,7 +627,7 @@ program
       console.error(chalk.red('Error:'), error.message);
       console.log();
       console.log(chalk.yellow('Manual update:'));
-      console.log(chalk.cyan('curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash'));
+      console.log(chalk.cyan('curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | bash'));
       process.exit(1);
     }
   });

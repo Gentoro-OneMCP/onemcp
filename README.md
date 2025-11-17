@@ -12,7 +12,7 @@ It removes the need to handcraft MCP tools or connectors while achieving high pe
 First, install the CLI:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | bash
 ```
 
 Then start chatting (auto-setup wizard launches on first run):
@@ -71,7 +71,7 @@ Full documentation is available at [https://onemcp.gentoro.com/docs](https://one
 
 ### ℹ️ CLI Details
 
-For detailed CLI documentation, all commands, and advanced features, see the [CLI README](cli/README.md).
+For detailed CLI documentation, all commands, and advanced features, see the [CLI README](packages/cli/README.md).
 
 
 ## 🤝 Contributing

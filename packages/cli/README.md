@@ -11,7 +11,7 @@ Get started in minutes with:
 First, install the CLI:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | bash
 ```
 
 Then start chatting (auto-setup wizard launches on first run):
@@ -84,7 +84,7 @@ For detailed installation options, see the [Advanced Installation](#advanced-ins
 
 ```bash
 git clone https://github.com/Gentoro-OneMCP/onemcp.git
-cd onemcp/cli
+cd onemcp/packages/cli
 npm install && npm run build && npm link
 ```
 
@@ -298,18 +298,18 @@ The installer supports multiple installation methods:
 
 #### npm Global (Default)
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | bash
 ```
 
 #### System-wide Installation
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | \
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | \
   ONEMCP_INSTALL_METHOD=system-wide bash
 ```
 
 #### Local Installation
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | \
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | \
   ONEMCP_INSTALL_METHOD=local-bin bash
 ```
 
@@ -317,7 +317,7 @@ curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/insta
 
 #### Custom Branch
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | \
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | \
   ONEMCP_REPO_BRANCH=your-branch-name bash
 ```
 
@@ -325,7 +325,7 @@ curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/insta
 
 #### Automatic Uninstall
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/uninstall.sh | bash
+curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/uninstall.sh | bash
 ```
 
 #### Manual Uninstall

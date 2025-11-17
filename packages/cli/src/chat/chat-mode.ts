@@ -9,7 +9,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { configManager } from '../config/manager.js';
 import { agentService } from '../services/agent-service.js';
 import { handbookManager } from '../handbook/manager.js';
-import { ChatMessage, ModelProvider, HandbookConfig } from '../types.js';
+import { ChatMessage, ModelProvider, GlobalConfig, HandbookConfig } from '../types.js';
 
 export class ChatMode {
   private messages: ChatMessage[] = [];
@@ -17,6 +17,7 @@ export class ChatMode {
   private agentStatus: any = null;
   private currentHandbook: string = '';
   private handbookConfig: HandbookConfig | null = null;
+  private globalConfig: GlobalConfig | null = null;
 
   /**
    * Start interactive chat session
@@ -24,7 +25,8 @@ export class ChatMode {
   async start(handbookName?: string): Promise<void> {
     // Select handbook
     await this.selectHandbook(handbookName);
-
+    this.globalConfig = await configManager.getGlobalConfig();
+    
     // Check if agent is running
     this.agentStatus = await agentService.getStatus();
     if (!this.agentStatus.running) {
@@ -34,6 +36,7 @@ export class ChatMode {
     }
 
     this.mcpUrl = this.agentStatus.mcpUrl || 'http://localhost:8080/mcp';
+    const providerName = this.handbookConfig?.provider || this.globalConfig?.provider || 'Not configured';
 
     console.log();
     console.log(chalk.bold.cyan('╔══════════════════════════════════════╗'));
@@ -41,7 +44,7 @@ export class ChatMode {
     console.log(chalk.bold.cyan('╚══════════════════════════════════════╝'));
     console.log();
     console.log(chalk.dim(`Handbook: ${this.currentHandbook}`));
-    console.log(chalk.dim(`Provider: ${this.handbookConfig?.provider || 'Not configured'}`));
+    console.log(chalk.dim(`Provider: ${providerName}`));
     console.log(chalk.dim(`MCP URL: ${this.mcpUrl}`));
     console.log(chalk.dim(`Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook`));
     console.log();
@@ -116,8 +119,8 @@ export class ChatMode {
       }).start();
 
       try {
-        const timeout = this.handbookConfig?.chatTimeout || 240000; // Use handbook timeout or default to 4 minutes
-        const provider = this.handbookConfig?.provider || 'openai'; // Use handbook provider or default
+        const timeout = this.handbookConfig?.chatTimeout || this.globalConfig?.chatTimeout || 240000; // Use handbook timeout or default to 4 minutes
+        const provider = this.handbookConfig?.provider || this.globalConfig?.provider || 'openai'; // Use handbook provider or fallback to global/default
         const response = await this.sendMessage(provider, userMessage, timeout);
         spinner.succeed('Response received');
         

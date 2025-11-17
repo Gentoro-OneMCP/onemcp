@@ -650,7 +650,7 @@ export class AgentService {
    */
   async updateCliSymlink(): Promise<void> {
     const projectRoot = this.findProjectRoot();
-    const cliDistPath = join(projectRoot, 'cli/dist/index.js');
+    const cliDistPath = join(projectRoot, 'packages/cli/dist/index.js');
     const symlinkPath = join(homedir(), '.local/bin/onemcp');
 
     // Ensure directory exists

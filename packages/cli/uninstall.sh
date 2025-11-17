@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Uninstallation script for Gentoro One MCP CLI
-# Usage: bash ~/.onemcp-src/cli/uninstall.sh
-# Or: curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/uninstall.sh | bash
+# Usage: bash ~/.onemcp-src/packages/cli/uninstall.sh
+# Or: curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/uninstall.sh | bash
 #
 # Environment variables:
 #   ONEMCP_UNINSTALL_METHOD - Specify uninstall method (auto-detect if not set)
@@ -275,6 +275,16 @@ unlink_cli() {
         esac
     else
         log_success "CLI command successfully removed"
+    fi
+}
+
+cleanup_temp() {
+    if [ -n "${TEMP_DIR:-}" ] && [ -d "$TEMP_DIR" ]; then
+        log_info "Removing temporary files..."
+        rm -rf "$TEMP_DIR"
+        log_success "Temporary files removed"
+    else
+        log_info "No temporary files to clean up"
     fi
 }
 
