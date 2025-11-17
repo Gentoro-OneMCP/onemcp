@@ -40,11 +40,12 @@ export class AgentService {
 
     // Add installed path derived from this module location (works for install.sh)
     try {
-      const thisFile = fileURLToPath(import.meta.url); // .../cli/dist/services/agent-service.js
-      const servicesDir = dirname(thisFile); // .../cli/dist/services
-      const distDir = dirname(servicesDir);  // .../cli/dist
-      const cliDir = dirname(distDir);       // .../cli
-      const repoRoot = dirname(cliDir);      // ... (project root)
+      const thisFile = fileURLToPath(import.meta.url); // .../packages/cli/dist/services/agent-service.js
+      const servicesDir = dirname(thisFile); // .../packages/cli/dist/services
+      const distDir = dirname(servicesDir);  // .../packages/cli/dist
+      const cliDir = dirname(distDir);       // .../packages/cli
+      const packagesDir = dirname(cliDir);    // .../packages
+      const repoRoot = dirname(packagesDir);  // ... (project root)
       possibleRoots.push(repoRoot);
     } catch {
       // ignore if import.meta.url is unavailable
@@ -56,7 +57,7 @@ export class AgentService {
     }
 
     for (const root of possibleRoots) {
-      const pomPath = join(root, 'src/onemcp/pom.xml');
+      const pomPath = join(root, 'packages/server/pom.xml');
       if (fs.existsSync(pomPath)) {
         return root;
       }
@@ -110,7 +111,7 @@ export class AgentService {
    * Resolve the built OneMCP jar path regardless of version or packaging plugin.
    */
   private async resolveOnemcpJar(projectRoot: string): Promise<string> {
-    const targetDir = join(projectRoot, 'src/onemcp/target');
+    const targetDir = join(projectRoot, 'packages/server/target');
 
     let artifacts: string[];
     try {
@@ -585,14 +586,14 @@ export class AgentService {
     // Build Java application
     console.log('Building Java application...');
     await execa('mvn', ['clean', 'package', '-DskipTests'], {
-      cwd: join(projectRoot, 'src/onemcp'),
+      cwd: join(projectRoot, 'packages/server'),
       stdio: 'inherit',
     });
 
     // Build CLI
     console.log('Building CLI...');
     await execa('npm', ['run', 'build'], {
-      cwd: join(projectRoot, 'cli'),
+      cwd: join(projectRoot, 'packages/cli'),
       stdio: 'inherit',
     });
 
@@ -636,12 +637,12 @@ export class AgentService {
 
     // Build Java app
     await execa('mvn', ['clean', 'package', '-DskipTests', '-q'], {
-      cwd: join(projectRoot, 'src/onemcp')
+      cwd: join(projectRoot, 'packages/server')
     });
 
     // Build CLI
     await execa('npm', ['run', 'build'], {
-      cwd: join(projectRoot, 'cli')
+      cwd: join(projectRoot, 'packages/cli')
     });
   }
 
@@ -650,7 +651,7 @@ export class AgentService {
    */
   async updateCliSymlink(): Promise<void> {
     const projectRoot = this.findProjectRoot();
-    const cliDistPath = join(projectRoot, 'cli/dist/index.js');
+    const cliDistPath = join(projectRoot, 'packages/cli/dist/index.js');
     const symlinkPath = join(homedir(), '.local/bin/onemcp');
 
     // Ensure directory exists

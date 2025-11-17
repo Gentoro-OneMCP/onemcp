@@ -5,13 +5,13 @@ set -euo pipefail
 #
 # Usage:
 #   # Default (main branch from official repo):
-#   curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | bash
 #
 #   # Specific branch or fork:
-#   curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | bash
+#   curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | bash
 #
 # Testing with a specific branch:
-#   curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/cli/install.sh | \
+#   curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | \
 #     ONEMCP_REPO_BRANCH=your-branch-name \
 #     bash
 #
@@ -199,7 +199,7 @@ clone_repository() {
 build_components() {
     log_info "Building Java application..."
 
-    cd "$INSTALL_DIR/src/onemcp"
+    cd "$INSTALL_DIR/packages/server"
     mvn clean package -DskipTests -q
 
     if [ $? -eq 0 ]; then
@@ -214,14 +214,14 @@ build_components() {
 install_cli() {
     log_info "Installing One MCP CLI..."
 
-    cd "$INSTALL_DIR/cli"
+    cd "$INSTALL_DIR/packages/cli"
     # Clean build artifacts for fresh compilation
     rm -rf dist node_modules package-lock.json
-    npm install --silent --no-cache
+    npm install --no-cache
     npm run build
 
     # Verify build succeeded
-    if [ ! -f "$INSTALL_DIR/cli/dist/index.js" ] || [ ! -s "$INSTALL_DIR/cli/dist/index.js" ]; then
+    if [ ! -f "$INSTALL_DIR/packages/cli/dist/index.js" ] || [ ! -s "$INSTALL_DIR/packages/cli/dist/index.js" ]; then
         log_error "Build failed - dist/index.js not found or empty"
         exit 1
     fi
@@ -250,7 +250,7 @@ install_cli() {
 install_via_npm_global() {
     log_info "Installing via npm global (recommended)..."
 
-    cd "$INSTALL_DIR/cli"
+    cd "$INSTALL_DIR/packages/cli"
 
     # Create a tarball and install it globally
     npm pack
@@ -289,7 +289,7 @@ install_system_wide() {
     fi
 
     sudo mkdir -p "/usr/local/bin"
-    sudo cp "$INSTALL_DIR/cli/dist/index.js" "/usr/local/bin/onemcp"
+    sudo cp "$INSTALL_DIR/packages/cli/dist/index.js" "/usr/local/bin/onemcp"
     sudo chmod +x "/usr/local/bin/onemcp"
 
     log_success "CLI installed to /usr/local/bin/onemcp"
@@ -302,7 +302,7 @@ install_local_bin() {
     # Install symlink
     mkdir -p "$HOME/.local/bin"
     rm -f "$HOME/.local/bin/onemcp"
-    ln -sf "$INSTALL_DIR/cli/dist/index.js" "$HOME/.local/bin/onemcp"
+    ln -sf "$INSTALL_DIR/packages/cli/dist/index.js" "$HOME/.local/bin/onemcp"
     chmod +x "$HOME/.local/bin/onemcp"
 
     log_success "CLI installed to $HOME/.local/bin/onemcp"
@@ -333,7 +333,7 @@ install_wrapper_script() {
 # This script calls the actual One MCP binary
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ONEMCP_DIR="$HOME/.onemcp-src/cli"
+ONEMCP_DIR="$HOME/.onemcp-src/packages/cli"
 
 if [ ! -f "$ONEMCP_DIR/dist/index.js" ]; then
     echo "Error: One MCP not found at $ONEMCP_DIR"

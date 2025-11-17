@@ -4,8 +4,8 @@ import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(__dirname, '..', '..');
-const cliDir = join(repoRoot, 'cli');
+const repoRoot = resolve(__dirname, '..', '..', '..');
+const cliDir = join(repoRoot, 'packages', 'cli');
 const distDir = join(cliDir, 'dist');
 const dest = join(distDir, 'example-handbook');
 
@@ -13,7 +13,7 @@ const candidateSources = [
   // Legacy location (pre-refactor)
   join(repoRoot, 'src', 'acme-analytics-server', 'onemcp-handbook'),
   // Current location bundled with the Java resources
-  join(repoRoot, 'src', 'onemcp', 'src', 'main', 'resources', 'acme-handbook'),
+  join(repoRoot, 'packages', 'server', 'src', 'main', 'resources', 'acme-handbook'),
   // Already-built artefact (when running within dist/)
   join(cliDir, 'dist', 'example-handbook'),
 ];
