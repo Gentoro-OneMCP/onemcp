@@ -18,12 +18,8 @@ curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/
 Then start chatting (auto-setup wizard launches on first run):
 
 ```bash
-onemcp chat
-```
+> onemcp chat
 
-You'll see an interactive chat interface like this:
-
-```
 ╔══════════════════════════════════════╗
 ║     Gentoro OneMCP - Chat Mode       ║
 ╚══════════════════════════════════════╝
@@ -86,7 +82,11 @@ To contribute:
    git checkout -b feature/my-improvement
    ```
 3. **Make your changes**  
-4. **Submit a Pull Request** with a clear explanation of the changes
+4. **Test your changes** using the wrapper script:
+   ```bash
+   ./packages/cli/scripts/onemcp chat
+   ```
+5. **Submit a Pull Request** with a clear explanation of the changes
 
 Before opening a PR:
 
@@ -96,7 +96,7 @@ Before opening a PR:
 - Keep commits clean and focused
 
 If you're new, check out issues labeled **good first issue** or **help wanted**.  
-We’re happy to support new contributors!
+We're happy to support new contributors!
 
 
 ## 🌐 Join Our Community

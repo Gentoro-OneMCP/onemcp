@@ -76,6 +76,9 @@ public class PlanExecutor {
         log.info(
             "Generated execution resources for step:\n{}\n---\n",
             StringUtility.formatWithIndent(impl.toString(), 4));
+        
+        // Log code generation (production-safe: only logs metadata, not code)
+        oneMcp.inferenceLogger().logCodeGeneration(impl.snippet());
       } catch (Exception e) {
         log.error("Error executing step {}, retrying.", step.title(), e);
         continue;

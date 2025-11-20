@@ -79,7 +79,16 @@ public abstract class SnippetBase {
   }
 
   public OkHttpClient getServiceClient(String serviceSlug) {
-    return OkHttpFactory.create(getBaseUrl(getService(serviceSlug)));
+    // InferenceLogger is always initialized in OneMcp, so if oneMcp exists, inferenceLogger exists
+    com.gentoro.onemcp.logging.InferenceLogger inferenceLogger = null;
+    if (context != null && context.oneMcp() != null) {
+      inferenceLogger = context.oneMcp().inferenceLogger();
+    }
+    // If no inferenceLogger available, we cannot create the client (should not happen in normal operation)
+    if (inferenceLogger == null) {
+      throw new IllegalStateException("InferenceLogger is required but not available. OneMcp may not be initialized.");
+    }
+    return OkHttpFactory.create(getBaseUrl(getService(serviceSlug)), inferenceLogger);
   }
 
   public Request.Builder initRequest(String serviceSlug, String operation) {

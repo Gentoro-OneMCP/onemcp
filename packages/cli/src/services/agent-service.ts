@@ -85,9 +85,14 @@ export class AgentService {
     const activeProfile = this.resolveActiveProfile(config?.provider);
     const javaArgs = this.buildJavaArgs(onemcpJar, activeProfile, port);
 
+    // Determine initial handbook path for logging directory
+    const initialHandbookPath = config?.handbookDir || paths.handbooksDir;
+    const initialLogsDir = join(initialHandbookPath, 'logs');
+
     const initialEnv = {
       SERVER_PORT: port.toString(),
-      FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
+      FOUNDATION_DIR: initialHandbookPath,
+      ONEMCP_LOG_DIR: initialLogsDir,
       OPENAI_API_KEY: config?.apiKeys?.openai || '',
       GEMINI_API_KEY: config?.apiKeys?.gemini || '',
       ANTHROPIC_API_KEY: config?.apiKeys?.anthropic || '',
@@ -376,9 +381,12 @@ export class AgentService {
     const appConfig = processManager.getConfig('app');
     if (appConfig) {
       // Set foundation directory
-        appConfig.env = {
+      // Also set logging directory to handbook/logs to ensure reports go to the right place
+      const logsDir = join(handbookPath, 'logs');
+      appConfig.env = {
         ...appConfig.env,
         FOUNDATION_DIR: handbookPath,
+        ONEMCP_LOG_DIR: logsDir,
       };
 
       // Set API keys and provider from handbook config

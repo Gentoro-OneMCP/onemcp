@@ -163,7 +163,11 @@ public class GeminiLlmClient extends AbstractLlmClient {
           listener.on(EventType.ON_TOOL_CALL, tool);
           try {
             Map<String, Object> values = functionCall.args().get();
-            String result = tool.execute(values);
+          // Log tool call with arguments for execution reports
+          oneMcp.inferenceLogger().logToolCall(tool.name(), values);
+          String result = tool.execute(values);
+          // Log tool output (truncated) for execution reports
+          oneMcp.inferenceLogger().logToolOutput(tool.name(), result);
 
             com.google.genai.types.FunctionResponse.Builder functionResponse =
                 com.google.genai.types.FunctionResponse.builder().name(functionCall.name().get());

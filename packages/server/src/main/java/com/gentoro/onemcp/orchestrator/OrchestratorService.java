@@ -74,6 +74,12 @@ public class OrchestratorService {
   public String handlePrompt(String prompt, boolean interactive) {
     log.trace("Processing prompt: {}", prompt);
 
+    // Generate unique execution ID and start tracking
+    String executionId = java.util.UUID.randomUUID().toString();
+    // Use inference logger (handles both report mode and normal logging)
+    // Get report path pre-operation (determined at execution start)
+    String reportPath = oneMcp.inferenceLogger().startExecution(executionId, prompt);
+
     OrchestratorContext ctx = new OrchestratorContext(oneMcp, new ValueStore());
     PlanningService planning = new PlanningService(ctx);
     ImplementationService implementation = new ImplementationService(ctx);
@@ -87,6 +93,7 @@ public class OrchestratorService {
     while (currentPhase != Phase.COMPLETED) {
       switch (currentPhase) {
         case PLAN:
+          oneMcp.inferenceLogger().logPhaseChange("plan");
           StdoutUtility.printNewLine(oneMcp, "Generating execution plan.");
           executionPlan = planning.plan(prompt.trim());
           currentPhase = Phase.EXECUTE;
@@ -100,10 +107,12 @@ public class OrchestratorService {
                       StringUtility.formatWithIndent(executionPlan.toString(), 4)));
           break;
         case EXECUTE:
+          oneMcp.inferenceLogger().logPhaseChange("execute");
           executor.execute(executionPlan);
           currentPhase = Phase.SUMMARY;
           break;
         case SUMMARY:
+          oneMcp.inferenceLogger().logPhaseChange("summary");
           StdoutUtility.printNewLine(oneMcp, "Compiling answer.");
           summary = summaryService.summarize(prompt.trim()).answer();
           log.trace("Generated answer:\n{}", StringUtility.formatWithIndent(summary, 4));
@@ -118,6 +127,31 @@ public class OrchestratorService {
       }
     }
 
+    // Log final response
+    if (summary != null) {
+      oneMcp.inferenceLogger().logFinalResponse(summary);
+    }
+    
+    // Complete execution tracking
+    long durationMs = System.currentTimeMillis() - start;
+    boolean success = summary != null && !summary.isEmpty();
+    String finalReportPath = oneMcp.inferenceLogger().completeExecution(executionId, durationMs, success);
+    
+    // Return JSON with content and reportPath if report is available
+    if (finalReportPath != null && !finalReportPath.isEmpty()) {
+      try {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = 
+            com.gentoro.onemcp.utility.JacksonUtility.getJsonMapper();
+        java.util.Map<String, String> response = new java.util.HashMap<>();
+        response.put("content", summary != null ? summary : "");
+        response.put("reportPath", finalReportPath);
+        return mapper.writeValueAsString(response);
+      } catch (Exception e) {
+        log.warn("Failed to serialize response with report path, returning summary only", e);
+        return summary;
+      }
+    }
+    
     return summary;
   }
 }

@@ -17,12 +17,8 @@ curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/
 Then start chatting (auto-setup wizard launches on first run):
 
 ```bash
-onemcp chat
-```
+> onemcp chat
 
-You'll see an interactive chat interface like this:
-
-```
 ╔══════════════════════════════════════╗
 ║     Gentoro OneMCP - Chat Mode       ║
 ╚══════════════════════════════════════╝
@@ -82,11 +78,23 @@ For detailed installation options, see the [Advanced Installation](#advanced-ins
 
 ### For Local Development
 
+When working on the repository, use the wrapper script:
+
+#### Use the Wrapper Script
+
+The repository includes a wrapper script that automatically handles building and running the CLI:
+
 ```bash
 git clone https://github.com/Gentoro-OneMCP/onemcp.git
-cd onemcp/packages/cli
-npm install && npm run build && npm link
+cd onemcp
+# From anywhere
+./packages/cli/scripts/onemcp chat
 ```
+
+The wrapper script automatically:
+- Ensures Node.js dependencies are installed
+- Builds the CLI and server if needed
+- Runs the CLI with your latest changes
 
 ## Usage
 

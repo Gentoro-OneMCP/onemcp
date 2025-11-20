@@ -151,7 +151,12 @@ public class OllamaLlmClient extends AbstractLlmClient {
         .toolFunction(
             arguments -> {
               listener.on(EventType.ON_TOOL_CALL, tool);
-              return tool.execute(arguments);
+              // Log tool call with arguments for execution reports
+              oneMcp.inferenceLogger().logToolCall(tool.name(), arguments);
+              String result = tool.execute(arguments);
+              // Log tool output (truncated) for execution reports
+              oneMcp.inferenceLogger().logToolOutput(tool.name(), result);
+              return result;
             })
         .build();
   }

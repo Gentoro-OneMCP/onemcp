@@ -107,7 +107,11 @@ public class OpenAiLlmClient extends AbstractLlmClient {
                         Objects.requireNonNullElse(
                             toolCall.function().get().function().arguments(), "{}"),
                         typeRef);
+            // Log tool call with arguments for execution reports
+            oneMcp.inferenceLogger().logToolCall(tool.name(), values);
             String content = tool.execute(values);
+            // Log tool output (truncated) for execution reports
+            oneMcp.inferenceLogger().logToolOutput(tool.name(), content);
             builder.addMessage(
                 ChatCompletionToolMessageParam.builder()
                     .toolCallId(toolCall.function().get().id())

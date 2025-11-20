@@ -112,7 +112,11 @@ public class AnthropicLlmClient extends AbstractLlmClient {
           Map<String, Object> values = new HashMap<>();
           Objects.requireNonNull(toolCall._input().convert(toolCallTypeRef))
               .forEach((key, value) -> values.put(key, value.toString()));
+          // Log tool call with arguments for execution reports
+          oneMcp.inferenceLogger().logToolCall(tool.name(), values);
           String result = tool.execute(values);
+          // Log tool output (truncated) for execution reports
+          oneMcp.inferenceLogger().logToolOutput(tool.name(), result);
 
           localMessages.add(
               MessageParam.builder()

@@ -26,7 +26,7 @@ public abstract class AbstractLlmClient implements LlmClient {
   private static final org.slf4j.Logger log =
       com.gentoro.onemcp.logging.LoggingService.getLogger(AbstractLlmClient.class);
   protected final Configuration configuration;
-  private final OneMcp oneMcp;
+  protected final OneMcp oneMcp;
 
   public AbstractLlmClient(OneMcp oneMcp, Configuration configuration) {
     this.oneMcp = oneMcp;
@@ -48,10 +48,18 @@ public abstract class AbstractLlmClient implements LlmClient {
             .map(Tool::name)
             .collect(Collectors.joining(", ")),
         cacheable);
+    
+    // Log LLM inference start
+    int toolCount = tools != null ? tools.size() : 0;
+    oneMcp.inferenceLogger().logLlmInferenceStart(messages.size(), toolCount);
+    
     long start = System.currentTimeMillis();
+    final java.util.concurrent.atomic.AtomicReference<Integer> tokensUsedRef = 
+        new java.util.concurrent.atomic.AtomicReference<Integer>(null);
+    String result = null;
     try {
       // TODO: Implement the proper caching logic when possible.
-      return runInference(
+      result = runInference(
           messages,
           tools,
           new InferenceEventListener() {
@@ -60,8 +68,17 @@ public abstract class AbstractLlmClient implements LlmClient {
               if (_listener != null) {
                 _listener.on(type, data);
               }
+              // Capture token usage from completion events
+              if (type == EventType.ON_COMPLETION && data != null) {
+                Integer tokens = extractTokenCount(data);
+                if (tokens != null) {
+                  tokensUsedRef.set(tokens);
+                }
+              }
+              // Note: Tool calls are logged in concrete implementations where arguments are available
             }
           });
+      return result;
     } catch (Exception e) {
       throw ExceptionUtil.rethrowIfUnchecked(
           e,
@@ -69,11 +86,68 @@ public abstract class AbstractLlmClient implements LlmClient {
               new LlmException(
                   "There was a problem while running the inference with the chosen model.", ex));
     } finally {
-      log.trace("chat() took {} ms", System.currentTimeMillis() - start);
-      StdoutUtility.printNewLine(
+      long duration = System.currentTimeMillis() - start;
+      log.trace("chat() took {} ms", duration);
+      StdoutUtility.printRollingLine(
           oneMcp,
-          "(Inference): completed in (%d)ms".formatted((System.currentTimeMillis() - start)));
+          "(Inference): completed in (%d)ms".formatted(duration));
+      
+      // Log LLM inference completion
+      oneMcp.inferenceLogger().logLlmInferenceComplete(
+          duration, tokensUsedRef.get(), result);
     }
+  }
+
+  /**
+   * Extract token count from provider-specific completion response objects.
+   * Subclasses can override this to extract tokens from their specific response types.
+   *
+   * @param completionData The completion event data (provider-specific)
+   * @return Token count if extractable, null otherwise
+   */
+  protected Integer extractTokenCount(Object completionData) {
+    // Default implementation: try to extract via reflection for common patterns
+    if (completionData == null) {
+      return null;
+    }
+    
+    try {
+      // Try OpenAI pattern: usage().get().totalTokens()
+      java.lang.reflect.Method getUsage = completionData.getClass().getMethod("usage");
+      Object usage = getUsage.invoke(completionData);
+      if (usage != null) {
+        java.lang.reflect.Method getTotalTokens = usage.getClass().getMethod("totalTokens");
+        Object totalTokens = getTotalTokens.invoke(usage);
+        if (totalTokens instanceof Integer) {
+          return (Integer) totalTokens;
+        } else if (totalTokens instanceof Long) {
+          return ((Long) totalTokens).intValue();
+        }
+      }
+    } catch (Exception e) {
+      // Try Gemini pattern: usageMetadata().get().totalTokenCount().get()
+      try {
+        java.lang.reflect.Method getUsageMetadata = completionData.getClass().getMethod("usageMetadata");
+        Object usageMetadata = getUsageMetadata.invoke(completionData);
+        if (usageMetadata != null) {
+          java.lang.reflect.Method getTotalTokenCount = usageMetadata.getClass().getMethod("totalTokenCount");
+          Object totalTokenCount = getTotalTokenCount.invoke(usageMetadata);
+          if (totalTokenCount != null) {
+            java.lang.reflect.Method getValue = totalTokenCount.getClass().getMethod("get");
+            Object value = getValue.invoke(totalTokenCount);
+            if (value instanceof Integer) {
+              return (Integer) value;
+            } else if (value instanceof Long) {
+              return ((Long) value).intValue();
+            }
+          }
+        }
+      } catch (Exception e2) {
+        // Not extractable via reflection, subclasses should override
+      }
+    }
+    
+    return null;
   }
 
   public abstract String runInference(

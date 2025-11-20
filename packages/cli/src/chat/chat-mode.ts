@@ -4,11 +4,14 @@
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 import ora from 'ora';
+import fs from 'fs-extra';
+import { join } from 'path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { configManager } from '../config/manager.js';
 import { agentService } from '../services/agent-service.js';
 import { handbookManager } from '../handbook/manager.js';
+import { paths } from '../config/paths.js';
 import { ChatMessage, ModelProvider, GlobalConfig, HandbookConfig } from '../types.js';
 
 export class ChatMode {
@@ -18,6 +21,7 @@ export class ChatMode {
   private currentHandbook: string = '';
   private handbookConfig: HandbookConfig | null = null;
   private globalConfig: GlobalConfig | null = null;
+  private lastReportPath: string | null = null;
 
   /**
    * Start interactive chat session
@@ -134,6 +138,9 @@ export class ChatMode {
         console.log(chalk.green('Agent:'));
         console.log(response);
         console.log();
+        
+        // Check for and display execution report
+        await this.showReportLocation();
       } catch (error: any) {
         spinner.fail(`Error: ${error.message}`);
         console.log();
@@ -143,8 +150,9 @@ export class ChatMode {
 
   /**
    * Send message to OneMCP via MCP protocol
+   * @internal For testing purposes - can be accessed via type assertion
    */
-  private async sendMessage(provider: ModelProvider, userMessage: string, timeout: number): Promise<string> {
+  async sendMessage(provider: ModelProvider, userMessage: string, timeout: number): Promise<string> {
     try {
       // Create MCP transport and client with configured timeout
       const transport = new StreamableHTTPClientTransport(new URL(this.mcpUrl), {
@@ -192,8 +200,17 @@ export class ChatMode {
             // Try to parse the JSON response from the tool
             try {
               const parsed = JSON.parse(content.text);
-              return parsed.content || content.text;
+              // Store report path if present in response
+              if (parsed && typeof parsed === 'object' && 'reportPath' in parsed) {
+                this.lastReportPath = parsed.reportPath;
+              }
+              // Return content if it's a JSON response, otherwise return the text as-is
+              if (parsed && typeof parsed === 'object' && 'content' in parsed) {
+                return parsed.content;
+              }
+              return content.text;
             } catch {
+              // Not JSON, return as-is
               return content.text;
             }
           }
@@ -230,6 +247,24 @@ export class ChatMode {
   }
 
   /**
+   * Check for and display execution report location
+   * @internal For testing purposes
+   */
+  async showReportLocation(): Promise<void> {
+    // Use report path from server response if available (determined pre-operation)
+    if (this.lastReportPath) {
+      console.log(chalk.dim('Report: ') + chalk.cyan(this.lastReportPath));
+      this.lastReportPath = null; // Clear after displaying
+    } else {
+      // Fallback: show reports directory if no path was provided
+      const handbookPath = paths.getHandbookPath(this.currentHandbook);
+      const reportsDir = join(handbookPath, 'logs', 'reports');
+      await fs.ensureDir(reportsDir);
+      console.log(chalk.dim('Reports: ') + chalk.cyan(reportsDir));
+    }
+  }
+
+  /**
    * Show example queries tailored for the bundled Acme Analytics handbook
    */
   private showAcmeExamples(): void {
@@ -260,8 +295,9 @@ export class ChatMode {
 
   /**
    * Select a handbook for chatting
+   * @internal For testing purposes - can be accessed via type assertion
    */
-  private async selectHandbook(handbookName?: string): Promise<void> {
+  async selectHandbook(handbookName?: string): Promise<void> {
     const handbooks = await handbookManager.list();
 
     if (handbooks.length === 0) {

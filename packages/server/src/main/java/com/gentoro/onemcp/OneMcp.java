@@ -13,6 +13,7 @@ import com.gentoro.onemcp.context.KnowledgeBase;
 import com.gentoro.onemcp.exception.ExecutionException;
 import com.gentoro.onemcp.exception.KnowledgeBaseException;
 import com.gentoro.onemcp.exception.StateException;
+import com.gentoro.onemcp.logging.InferenceLogger;
 import com.gentoro.onemcp.http.EmbeddedJettyServer;
 import com.gentoro.onemcp.indexing.GraphIndexingService;
 import com.gentoro.onemcp.mcp.McpServer;
@@ -41,6 +42,7 @@ public class OneMcp {
   private KnowledgeBase knowledgeBase;
   private LlmClient llmClient;
   private OrchestratorService orchestrator;
+  private InferenceLogger inferenceLogger;
 
   private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
   private final CountDownLatch shutdownLatch = new CountDownLatch(1);
@@ -72,6 +74,9 @@ public class OneMcp {
     }
 
     this.llmClient = LlmClientFactory.createProvider(this);
+
+    // Initialize inference logger (handles both report mode and normal logging)
+    this.inferenceLogger = new com.gentoro.onemcp.logging.InferenceLogger(this);
 
     if (configuration().getBoolean("graph.indexing.enabled", false)) {
       try {
@@ -205,6 +210,10 @@ public class OneMcp {
 
   public OrchestratorService orchestrator() {
     return orchestrator;
+  }
+
+  public InferenceLogger inferenceLogger() {
+    return inferenceLogger;
   }
 
   /**
