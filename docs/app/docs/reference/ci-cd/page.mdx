@@ -134,7 +134,7 @@ test(integration): add MCP endpoint integration tests
 #### Unit Test Failures
 ```bash
 # Run tests locally with verbose output
-cd src/onemcp && mvn test -X
+cd packages/server && mvn test -X
 
 # Run specific test
 mvn test -Dtest=MyTestClass#myTestMethod
@@ -146,7 +146,7 @@ mvn test -Dtest=MyTestClass#myTestMethod
 onemcp logs app -f
 
 # Run service validation with debug logging
-cd src/onemcp && mvn test -Dtest="*IntegrationTest" -X
+cd packages/server && mvn test -Dtest="*IntegrationTest" -X
 ```
 
 #### Docker Build Failures

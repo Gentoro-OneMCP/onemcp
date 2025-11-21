@@ -3,8 +3,8 @@ name: CI Checks
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  # pull_request:
+  #   branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -51,6 +51,19 @@ jobs:
           packages/server/target/surefire-reports/
           cli/coverage/
         retention-days: 7
+
+    - name: Test Server
+      run: |
+        cd packages/server
+        mvn test
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: java-test-results
+        path: packages/server/target/surefire-reports/
+        retention-days: 7 
 
   # Stage 2: Integration Tests - Test component interactions (optional)
   integration-tests:

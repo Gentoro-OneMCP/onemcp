@@ -28,5 +28,5 @@ echo "Starting InferenceService CLI..."
 echo ""
 
 # Navigate to the onemcp project directory
-cd "$(dirname "$0")/../../src/onemcp"
+cd "$(dirname "$0")/../../packages/server"
 mvn exec:java -Dexec.mainClass="com.gentorox.services.inference.InferenceServiceCLI" -Dexec.classpathScope=test
