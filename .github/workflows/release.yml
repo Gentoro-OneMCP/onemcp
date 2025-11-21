@@ -138,7 +138,7 @@ jobs:
       if: github.event_name == 'workflow_dispatch'
       id: calculate_version
       run: |
-        POM_FILE="src/onemcp/pom.xml"
+        POM_FILE="packages/server/pom.xml"
         CURRENT_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" "$POM_FILE")
         echo "Current POM version: $CURRENT_VERSION"
         
@@ -210,14 +210,14 @@ jobs:
     - name: Build product JAR
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       run: |
-        cd src/onemcp
+        cd packages/server 
         ./mvnw -q -DskipTests package
 
     - name: Build and push product image
       if: github.event_name == 'push' || github.event.inputs.dry_run != true
       run: |
         VERSION="${{ steps.extract_version.outputs.version || steps.calculate_version.outputs.version }}"
-        POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" src/onemcp/pom.xml)
+        POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" packages/server/pom.xml)
         JAR_NAME="onemcp-$POM_VERSION.jar"
         ./scripts/docker/build-product.sh "$VERSION" "$JAR_NAME" --push
 
