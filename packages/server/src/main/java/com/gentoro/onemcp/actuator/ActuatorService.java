@@ -13,8 +13,7 @@ import org.eclipse.jetty.ee10.servlet.ServletHolder;
  *
  * <p>Registers a servlet at path: /actuator/health
  *
- * <p>Response body:
- * {"status":"UP"}
+ * <p>Response body: {"status":"UP"}
  */
 public class ActuatorService {
   private static final org.slf4j.Logger log =

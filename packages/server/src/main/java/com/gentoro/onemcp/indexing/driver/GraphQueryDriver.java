@@ -14,7 +14,9 @@ public interface GraphQueryDriver extends AutoCloseable {
   /** Initialize the driver and underlying connections/resources. */
   void initialize();
 
-  /** @return true when the driver is ready to accept query operations. */
+  /**
+   * @return true when the driver is ready to accept query operations.
+   */
   boolean isInitialized();
 
   /**
@@ -27,10 +29,14 @@ public interface GraphQueryDriver extends AutoCloseable {
    */
   Map<String, Object> queryContext(String entityName, List<String> requestedCategories);
 
-  /** @return logical driver identifier (e.g., {@code arangodb}). */
+  /**
+   * @return logical driver identifier (e.g., {@code arangodb}).
+   */
   String getDriverName();
 
-  /** @return handbook name associated with this driver instance (when applicable). */
+  /**
+   * @return handbook name associated with this driver instance (when applicable).
+   */
   String getHandbookName();
 
   /** Shut down the driver and release resources. */
@@ -41,5 +47,3 @@ public interface GraphQueryDriver extends AutoCloseable {
     shutdown();
   }
 }
-
-

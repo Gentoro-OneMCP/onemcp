@@ -34,6 +34,47 @@ public abstract class AbstractLlmClient implements LlmClient {
   }
 
   @Override
+  public String generate(
+      String message, List<Tool> tools, boolean cacheable, InferenceEventListener _listener) {
+    StdoutUtility.printRollingLine(oneMcp, "(Inference): sending generate request to LLM...");
+    log.trace(
+        "generate() called with: message = [{}], tools = [{}], cacheable = [{}]",
+        message,
+        Objects.requireNonNullElse(tools, Collections.<Tool>emptyList()).stream()
+            .map(Tool::name)
+            .collect(Collectors.joining(", ")),
+        cacheable);
+    long start = System.currentTimeMillis();
+    try {
+      return runContentGeneration(
+          message,
+          tools,
+          new InferenceEventListener() {
+            @Override
+            public void on(EventType type, Object data) {
+              if (_listener != null) {
+                _listener.on(type, data);
+              }
+            }
+          });
+    } catch (Exception e) {
+      throw ExceptionUtil.rethrowIfUnchecked(
+          e,
+          (ex) ->
+              new LlmException(
+                  "There was a problem while running the inference with the chosen model.", ex));
+    } finally {
+      log.trace("generate() took {} ms", System.currentTimeMillis() - start);
+      StdoutUtility.printRollingLine(
+          oneMcp,
+          "(Inference): completed in (%d)ms".formatted((System.currentTimeMillis() - start)));
+    }
+  }
+
+  public abstract String runContentGeneration(
+      String message, List<Tool> tools, InferenceEventListener listener);
+
+  @Override
   public String chat(
       List<Message> messages,
       List<Tool> tools,
@@ -70,7 +111,7 @@ public abstract class AbstractLlmClient implements LlmClient {
                   "There was a problem while running the inference with the chosen model.", ex));
     } finally {
       log.trace("chat() took {} ms", System.currentTimeMillis() - start);
-      StdoutUtility.printNewLine(
+      StdoutUtility.printRollingLine(
           oneMcp,
           "(Inference): completed in (%d)ms".formatted((System.currentTimeMillis() - start)));
     }

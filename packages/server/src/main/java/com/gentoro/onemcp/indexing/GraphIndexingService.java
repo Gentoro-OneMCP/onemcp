@@ -6,19 +6,17 @@ import com.gentoro.onemcp.context.KnowledgeDocument;
 import com.gentoro.onemcp.context.Operation;
 import com.gentoro.onemcp.context.Service;
 import com.gentoro.onemcp.indexing.driver.GraphIndexingDriver;
-import com.gentoro.onemcp.indexing.GraphIndexingTypes;
-import com.gentoro.onemcp.indexing.logging.GraphIndexingLogger;
 import com.gentoro.onemcp.indexing.driver.arangodb.ArangoIndexingDriver;
 import com.gentoro.onemcp.indexing.graph.*;
+import com.gentoro.onemcp.indexing.graph.nodes.DocumentationNode;
 import com.gentoro.onemcp.indexing.graph.nodes.EntityNode;
-import com.gentoro.onemcp.indexing.graph.nodes.OperationNode;
 import com.gentoro.onemcp.indexing.graph.nodes.ExampleNode;
 import com.gentoro.onemcp.indexing.graph.nodes.FieldNode;
-import com.gentoro.onemcp.indexing.graph.nodes.DocumentationNode;
+import com.gentoro.onemcp.indexing.graph.nodes.OperationNode;
+import com.gentoro.onemcp.indexing.logging.GraphIndexingLogger;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.prompt.PromptTemplate;
 import com.gentoro.onemcp.utility.JacksonUtility;
-
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.tags.Tag;
 import java.nio.file.Files;
@@ -93,8 +91,7 @@ public class GraphIndexingService {
     log.info("Starting knowledge base graph indexing (driver: {})", driverName);
 
     if (graphDriver == null) {
-      log.info(
-          "Graph indexing driver '{}' not implemented; skipping graph indexing", driverName);
+      log.info("Graph indexing driver '{}' not implemented; skipping graph indexing", driverName);
       return;
     }
 
@@ -167,7 +164,9 @@ public class GraphIndexingService {
       // Check if LLM client is available
       LlmClient llmClient = oneMcp.llmClient();
       if (llmClient == null) {
-        log.warn("LLM client not available, falling back to rule-based extraction for service: {}", service.getSlug());
+        log.warn(
+            "LLM client not available, falling back to rule-based extraction for service: {}",
+            service.getSlug());
         indexService(service);
         return;
       }
@@ -178,33 +177,38 @@ public class GraphIndexingService {
 
       // Prepare context variables for the prompt
       Map<String, Object> context = preparePromptContext(service);
-      
+
       // Enable the activation section with context
       // All sections in the template use the same activation ID "api-extraction"
       // Enabling it once will enable all sections with that ID
       session.enable("api-extraction", context);
-      
+
       // Render messages and verify we have content to send
       List<LlmClient.Message> messages = session.renderMessages();
       if (messages.isEmpty()) {
-        log.warn("No messages rendered from prompt template, falling back to rule-based extraction");
+        log.warn(
+            "No messages rendered from prompt template, falling back to rule-based extraction");
         indexService(service);
         return;
       }
-      
-      log.debug("Rendered {} messages from prompt template, calling LLM for service: {}", messages.size(), service.getSlug());
-      
+
+      log.debug(
+          "Rendered {} messages from prompt template, calling LLM for service: {}",
+          messages.size(),
+          service.getSlug());
+
       // Log prompt to file
       indexingLogger.logLLMPrompt(service.getSlug(), messages);
-      
+
       String llmResponse = llmClient.chat(messages, Collections.emptyList(), false, null);
-      
+
       // Log response to file
       indexingLogger.logLLMResponse(service.getSlug(), llmResponse);
 
       // Parse LLM response and extract entities/operations
-      GraphIndexingTypes.GraphExtractionResult result = parseLLMResponse(llmResponse, service.getSlug());
-      
+      GraphIndexingTypes.GraphExtractionResult result =
+          parseLLMResponse(llmResponse, service.getSlug());
+
       // Index extracted entities
       for (EntityNode entity : result.entities()) {
         graphDriver.storeNode(entity);
@@ -229,27 +233,31 @@ public class GraphIndexingService {
       // Index extracted examples
       for (ExampleNode example : result.examples()) {
         graphDriver.storeNode(example);
-        
+
         // Create edge from operation to example if operationKey is provided
         // Only create if it doesn't already exist in the relationships list
         if (example.getOperationKey() != null && !example.getOperationKey().isEmpty()) {
-          // Check if this edge already exists in relationships (check for common example edge types)
-          boolean edgeExists = result.relationships().stream()
-              .anyMatch(edge -> 
-                  edge.getFromKey().equals(example.getOperationKey()) &&
-                  edge.getToKey().equals(example.getKey()) &&
-                  (edge.getEdgeType().equals("HAS_EXAMPLE") || 
-                   edge.getEdgeType().equals("DEMONSTRATES") ||
-                   edge.getEdgeType().equals("ILLUSTRATES")));
-          
+          // Check if this edge already exists in relationships (check for common example edge
+          // types)
+          boolean edgeExists =
+              result.relationships().stream()
+                  .anyMatch(
+                      edge ->
+                          edge.getFromKey().equals(example.getOperationKey())
+                              && edge.getToKey().equals(example.getKey())
+                              && (edge.getEdgeType().equals("HAS_EXAMPLE")
+                                  || edge.getEdgeType().equals("DEMONSTRATES")
+                                  || edge.getEdgeType().equals("ILLUSTRATES")));
+
           if (!edgeExists) {
-            GraphEdge exampleEdge = new GraphEdge(
-                example.getOperationKey(),
-                example.getKey(),
-                "HAS_EXAMPLE",
-                new HashMap<>(),
-                "Operation has this example",
-                "strong");
+            GraphEdge exampleEdge =
+                new GraphEdge(
+                    example.getOperationKey(),
+                    example.getKey(),
+                    "HAS_EXAMPLE",
+                    new HashMap<>(),
+                    "Operation has this example",
+                    "strong");
             graphDriver.storeEdge(exampleEdge);
           }
         }
@@ -272,41 +280,52 @@ public class GraphIndexingService {
       int validRelationships = 0;
       int skippedRelationships = 0;
       Set<String> seenEdges = new HashSet<>();
-      
+
       for (GraphEdge edge : result.relationships()) {
         // Create a unique identifier for this edge
         String edgeId = edge.getFromKey() + "|" + edge.getEdgeType() + "|" + edge.getToKey();
-        
+
         // Skip duplicate edges
         if (seenEdges.contains(edgeId)) {
-          log.debug("Skipping duplicate edge: {} -> {} (type: {})", 
-              edge.getFromKey(), edge.getToKey(), edge.getEdgeType());
+          log.debug(
+              "Skipping duplicate edge: {} -> {} (type: {})",
+              edge.getFromKey(),
+              edge.getToKey(),
+              edge.getEdgeType());
           skippedRelationships++;
           continue;
         }
-        
+
         // Validate that both source and target nodes exist
         if (!validNodeKeys.contains(edge.getFromKey())) {
-          log.debug("Skipping edge from non-existent node: {} -> {} (type: {})", 
-              edge.getFromKey(), edge.getToKey(), edge.getEdgeType());
+          log.debug(
+              "Skipping edge from non-existent node: {} -> {} (type: {})",
+              edge.getFromKey(),
+              edge.getToKey(),
+              edge.getEdgeType());
           skippedRelationships++;
           continue;
         }
         if (!validNodeKeys.contains(edge.getToKey())) {
-          log.debug("Skipping edge to non-existent node: {} -> {} (type: {})", 
-              edge.getFromKey(), edge.getToKey(), edge.getEdgeType());
+          log.debug(
+              "Skipping edge to non-existent node: {} -> {} (type: {})",
+              edge.getFromKey(),
+              edge.getToKey(),
+              edge.getEdgeType());
           skippedRelationships++;
           continue;
         }
-        
+
         graphDriver.storeEdge(edge);
         seenEdges.add(edgeId);
         validRelationships++;
       }
 
       if (skippedRelationships > 0) {
-        log.warn("Skipped {} invalid/duplicate relationships for service: {}", 
-            skippedRelationships, service.getSlug());
+        log.warn(
+            "Skipped {} invalid/duplicate relationships for service: {}",
+            skippedRelationships,
+            service.getSlug());
       }
 
       // Log complete graph structure
@@ -323,7 +342,10 @@ public class GraphIndexingService {
           validRelationships,
           skippedRelationships);
     } catch (Exception e) {
-      log.error("Failed to index service with LLM: {}, falling back to rule-based extraction", service.getSlug(), e);
+      log.error(
+          "Failed to index service with LLM: {}, falling back to rule-based extraction",
+          service.getSlug(),
+          e);
       // Fallback to rule-based extraction
       indexService(service);
     }
@@ -337,12 +359,13 @@ public class GraphIndexingService {
    */
   private Map<String, Object> preparePromptContext(Service service) {
     Map<String, Object> context = new HashMap<>();
-    
+
     try {
       // Load instructions.md content - ensure it's never null
       String instructionsContent = "";
       try {
-      List<KnowledgeDocument> instructions = oneMcp.knowledgeBase().findByUriPrefix("kb:///instructions.md");
+        List<KnowledgeDocument> instructions =
+            oneMcp.knowledgeBase().findByUriPrefix("kb:///instructions.md");
         if (!instructions.isEmpty()) {
           String content = instructions.get(0).content();
           instructionsContent = (content != null) ? content : "";
@@ -358,19 +381,20 @@ public class GraphIndexingService {
       Path openapiPath = handbookPath.resolve("openapi");
       if (Files.exists(openapiPath)) {
         try {
-        Files.walk(openapiPath)
-            .filter(Files::isRegularFile)
-            .filter(p -> p.toString().endsWith(".yaml") || p.toString().endsWith(".yml"))
-            .forEach(file -> {
-              try {
-                Map<String, String> fileInfo = new HashMap<>();
-                fileInfo.put("name", file.getFileName().toString());
-                fileInfo.put("content", Files.readString(file));
-                openapiFiles.add(fileInfo);
-              } catch (Exception e) {
-                log.warn("Failed to read OpenAPI file: {}", file, e);
-              }
-            });
+          Files.walk(openapiPath)
+              .filter(Files::isRegularFile)
+              .filter(p -> p.toString().endsWith(".yaml") || p.toString().endsWith(".yml"))
+              .forEach(
+                  file -> {
+                    try {
+                      Map<String, String> fileInfo = new HashMap<>();
+                      fileInfo.put("name", file.getFileName().toString());
+                      fileInfo.put("content", Files.readString(file));
+                      openapiFiles.add(fileInfo);
+                    } catch (Exception e) {
+                      log.warn("Failed to read OpenAPI file: {}", file, e);
+                    }
+                  });
         } catch (Exception e) {
           log.warn("Failed to walk OpenAPI directory", e);
         }
@@ -384,21 +408,25 @@ public class GraphIndexingService {
         try {
           Files.walk(docsPath)
               .filter(Files::isRegularFile)
-              .filter(p -> {
-                String fileName = p.getFileName().toString().toLowerCase();
-                return fileName.endsWith(".md") || fileName.endsWith(".markdown") || 
-                       fileName.endsWith(".txt") || fileName.endsWith(".mdx");
-              })
-              .forEach(file -> {
-                try {
-                  Map<String, String> fileInfo = new HashMap<>();
-                  fileInfo.put("name", file.getFileName().toString());
-                  fileInfo.put("content", Files.readString(file));
-                  docsFiles.add(fileInfo);
-      } catch (Exception e) {
-                  log.warn("Failed to read documentation file: {}", file, e);
-                }
-              });
+              .filter(
+                  p -> {
+                    String fileName = p.getFileName().toString().toLowerCase();
+                    return fileName.endsWith(".md")
+                        || fileName.endsWith(".markdown")
+                        || fileName.endsWith(".txt")
+                        || fileName.endsWith(".mdx");
+                  })
+              .forEach(
+                  file -> {
+                    try {
+                      Map<String, String> fileInfo = new HashMap<>();
+                      fileInfo.put("name", file.getFileName().toString());
+                      fileInfo.put("content", Files.readString(file));
+                      docsFiles.add(fileInfo);
+                    } catch (Exception e) {
+                      log.warn("Failed to read documentation file: {}", file, e);
+                    }
+                  });
         } catch (Exception e) {
           log.warn("Failed to walk docs directory", e);
         }
@@ -419,7 +447,8 @@ public class GraphIndexingService {
    * @param serviceSlug the service slug
    * @return extraction result with entities, operations, and relationships
    */
-  private GraphIndexingTypes.GraphExtractionResult parseLLMResponse(String llmResponse, String serviceSlug) {
+  private GraphIndexingTypes.GraphExtractionResult parseLLMResponse(
+      String llmResponse, String serviceSlug) {
     List<EntityNode> entities = new ArrayList<>();
     List<FieldNode> fields = new ArrayList<>();
     List<OperationNode> operations = new ArrayList<>();
@@ -430,11 +459,13 @@ public class GraphIndexingService {
     try {
       // Extract JSON from response (may be wrapped in markdown code blocks)
       String jsonStr = extractJsonFromResponse(llmResponse);
-      
+
       if (jsonStr == null || jsonStr.trim().isEmpty()) {
         log.warn("No JSON content found in LLM response for service: {}", serviceSlug);
-        indexingLogger.logLLMParseError(serviceSlug, llmResponse, new IllegalArgumentException("No JSON content found"));
-        return new GraphIndexingTypes.GraphExtractionResult(entities, fields, operations, examples, documentations, relationships);
+        indexingLogger.logLLMParseError(
+            serviceSlug, llmResponse, new IllegalArgumentException("No JSON content found"));
+        return new GraphIndexingTypes.GraphExtractionResult(
+            entities, fields, operations, examples, documentations, relationships);
       }
 
       // Try to fix common JSON issues (truncated strings, unclosed structures)
@@ -454,21 +485,23 @@ public class GraphIndexingService {
           String name = (String) entityData.get("name");
           String description = (String) entityData.getOrDefault("description", "");
           @SuppressWarnings("unchecked")
-          List<String> associatedOps = (List<String>) entityData.getOrDefault("associatedOperations", new ArrayList<>());
+          List<String> associatedOps =
+              (List<String>) entityData.getOrDefault("associatedOperations", new ArrayList<>());
           String source = (String) entityData.getOrDefault("source", null);
           @SuppressWarnings("unchecked")
           List<String> attributes = (List<String>) entityData.getOrDefault("attributes", null);
           String domain = (String) entityData.getOrDefault("domain", null);
-          
-          EntityNode entity = new EntityNode(
-              key != null ? key : "entity|" + sanitizeKey(name),
-              name,
-              description,
-              serviceSlug,
-              associatedOps,
-              source,
-              attributes,
-              domain);
+
+          EntityNode entity =
+              new EntityNode(
+                  key != null ? key : "entity|" + sanitizeKey(name),
+                  name,
+                  description,
+                  serviceSlug,
+                  associatedOps,
+                  source,
+                  attributes,
+                  domain);
           entities.add(entity);
         }
       }
@@ -484,7 +517,7 @@ public class GraphIndexingService {
           String fieldType = (String) fieldData.getOrDefault("fieldType", "string");
           String entityKey = (String) fieldData.get("entityKey");
           String source = (String) fieldData.getOrDefault("source", null);
-          
+
           // Generate key if not provided
           if (key == null && entityKey != null && name != null) {
             String entityName = entityKey.replace("entity|", "");
@@ -493,22 +526,17 @@ public class GraphIndexingService {
             log.warn("Field missing key, name, or entityKey, skipping");
             continue;
           }
-          
-          FieldNode field = new FieldNode(
-              key,
-              name,
-              description,
-              fieldType,
-              entityKey,
-              serviceSlug,
-              source);
+
+          FieldNode field =
+              new FieldNode(key, name, description, fieldType, entityKey, serviceSlug, source);
           fields.add(field);
         }
       }
 
       // Extract operations
       @SuppressWarnings("unchecked")
-      List<Map<String, Object>> operationsList = (List<Map<String, Object>>) result.get("operations");
+      List<Map<String, Object>> operationsList =
+          (List<Map<String, Object>>) result.get("operations");
       if (operationsList != null) {
         for (Map<String, Object> opData : operationsList) {
           String key = (String) opData.get("key");
@@ -519,32 +547,36 @@ public class GraphIndexingService {
           String description = (String) opData.getOrDefault("description", summary);
           @SuppressWarnings("unchecked")
           List<String> tags = (List<String>) opData.getOrDefault("tags", new ArrayList<>());
-          String signature = (String) opData.getOrDefault("signature", method + " " + path + " - " + summary);
+          String signature =
+              (String) opData.getOrDefault("signature", method + " " + path + " - " + summary);
           @SuppressWarnings("unchecked")
-          List<String> exampleKeys = (List<String>) opData.getOrDefault("exampleKeys", new ArrayList<>());
+          List<String> exampleKeys =
+              (List<String>) opData.getOrDefault("exampleKeys", new ArrayList<>());
           String documentationUri = (String) opData.getOrDefault("documentationUri", "");
           Object requestSchemaObj = opData.getOrDefault("requestSchema", null);
-          String requestSchema = requestSchemaObj != null ? convertToString(requestSchemaObj) : null;
+          String requestSchema =
+              requestSchemaObj != null ? convertToString(requestSchemaObj) : null;
           Object responseSchemaObj = opData.getOrDefault("responseSchema", null);
-          String responseSchema = responseSchemaObj != null ? convertToString(responseSchemaObj) : null;
+          String responseSchema =
+              responseSchemaObj != null ? convertToString(responseSchemaObj) : null;
           @SuppressWarnings("unchecked")
           List<String> operationExamples = (List<String>) opData.getOrDefault("examples", null);
           String category = (String) opData.getOrDefault("category", null);
           String primaryEntity = (String) opData.getOrDefault("primaryEntity", null);
-          
+
           // Validate required fields
           if (operationId == null || operationId.trim().isEmpty()) {
             log.warn("Operation missing operationId, skipping");
             continue;
           }
-          
+
           // Log category extraction for debugging
           if (category != null) {
             log.trace("Extracted category '{}' for operation: {}", category, operationId);
           } else {
             log.debug("No category found for operation: {}", operationId);
           }
-          
+
           // Log primaryEntity extraction for debugging
           if (primaryEntity != null) {
             log.trace("Extracted primaryEntity '{}' for operation: {}", primaryEntity, operationId);
@@ -552,23 +584,24 @@ public class GraphIndexingService {
             log.debug("No primaryEntity found for operation: {}", operationId);
           }
 
-          OperationNode operation = new OperationNode(
-              key != null ? key : "op|" + sanitizeKey(operationId),
-              operationId,
-              method,
-              path,
-              summary,
-              description,
-              serviceSlug,
-              tags,
-              signature,
-              exampleKeys,
-              documentationUri,
-              requestSchema,
-              responseSchema,
-              operationExamples,
-              category,
-              primaryEntity);
+          OperationNode operation =
+              new OperationNode(
+                  key != null ? key : "op|" + sanitizeKey(operationId),
+                  operationId,
+                  method,
+                  path,
+                  summary,
+                  description,
+                  serviceSlug,
+                  tags,
+                  signature,
+                  exampleKeys,
+                  documentationUri,
+                  requestSchema,
+                  responseSchema,
+                  operationExamples,
+                  category,
+                  primaryEntity);
           operations.add(operation);
         }
       }
@@ -582,20 +615,20 @@ public class GraphIndexingService {
           String name = (String) exData.get("name");
           String summary = (String) exData.getOrDefault("summary", "");
           String description = (String) exData.getOrDefault("description", summary);
-          
+
           // Handle requestBody and responseBody which might be objects or strings
           Object requestBodyObj = exData.getOrDefault("requestBody", "");
           String requestBody = convertToString(requestBodyObj);
-          
+
           Object responseBodyObj = exData.getOrDefault("responseBody", "");
           String responseBody = convertToString(responseBodyObj);
-          
+
           // Handle responseStatus which might be a number or string
           Object responseStatusObj = exData.getOrDefault("responseStatus", "200");
           String responseStatus = responseStatusObj != null ? responseStatusObj.toString() : "200";
-          
+
           String operationKey = (String) exData.get("operationKey");
-          
+
           // Generate key if not provided
           if (key == null && operationKey != null && name != null) {
             key = "example|" + sanitizeKey(operationKey.replace("op|", "") + "_" + name);
@@ -603,24 +636,26 @@ public class GraphIndexingService {
             log.warn("Example missing key, name, or operationKey, skipping");
             continue;
           }
-          
-          ExampleNode example = new ExampleNode(
-              key,
-              name != null ? name : "",
-              summary,
-              description,
-              requestBody,
-              responseBody,
-              responseStatus,
-              operationKey,
-              serviceSlug);
+
+          ExampleNode example =
+              new ExampleNode(
+                  key,
+                  name != null ? name : "",
+                  summary,
+                  description,
+                  requestBody,
+                  responseBody,
+                  responseStatus,
+                  operationKey,
+                  serviceSlug);
           examples.add(example);
         }
       }
 
       // Extract documentations
       @SuppressWarnings("unchecked")
-      List<Map<String, Object>> documentationsList = (List<Map<String, Object>>) result.get("documentations");
+      List<Map<String, Object>> documentationsList =
+          (List<Map<String, Object>>) result.get("documentations");
       if (documentationsList != null) {
         for (Map<String, Object> docData : documentationsList) {
           String key = (String) docData.get("key");
@@ -629,10 +664,12 @@ public class GraphIndexingService {
           String docType = (String) docData.getOrDefault("docType", "concept");
           String sourceFile = (String) docData.getOrDefault("sourceFile", null);
           @SuppressWarnings("unchecked")
-          List<String> relatedKeys = (List<String>) docData.getOrDefault("relatedKeys", new ArrayList<>());
+          List<String> relatedKeys =
+              (List<String>) docData.getOrDefault("relatedKeys", new ArrayList<>());
           @SuppressWarnings("unchecked")
-          Map<String, String> metadata = (Map<String, String>) docData.getOrDefault("metadata", new HashMap<>());
-          
+          Map<String, String> metadata =
+              (Map<String, String>) docData.getOrDefault("metadata", new HashMap<>());
+
           // Generate key if not provided
           if (key == null && title != null) {
             key = "doc|" + sanitizeKey(title);
@@ -640,29 +677,24 @@ public class GraphIndexingService {
             log.warn("Documentation missing key and title, skipping");
             continue;
           }
-          
+
           // Validate required fields
           if (content == null || content.trim().isEmpty()) {
             log.debug("Documentation {} has empty content, skipping", key);
             continue;
           }
-          
-          DocumentationNode documentation = new DocumentationNode(
-              key,
-              title,
-              content,
-              docType,
-              sourceFile,
-              relatedKeys,
-              serviceSlug,
-              metadata);
+
+          DocumentationNode documentation =
+              new DocumentationNode(
+                  key, title, content, docType, sourceFile, relatedKeys, serviceSlug, metadata);
           documentations.add(documentation);
         }
       }
 
       // Extract relationships
       @SuppressWarnings("unchecked")
-      List<Map<String, Object>> relationshipsList = (List<Map<String, Object>>) result.get("relationships");
+      List<Map<String, Object>> relationshipsList =
+          (List<Map<String, Object>>) result.get("relationships");
       if (relationshipsList != null) {
         for (Map<String, Object> relData : relationshipsList) {
           String fromKey = (String) relData.get("fromKey");
@@ -670,14 +702,15 @@ public class GraphIndexingService {
           String edgeTypeStr = (String) relData.get("edgeType");
           String description = (String) relData.getOrDefault("description", null);
           String strength = (String) relData.getOrDefault("strength", null);
-          
+
           // Validate that edgeType is provided
           if (edgeTypeStr == null || edgeTypeStr.trim().isEmpty()) {
             log.warn("Missing edge type for relationship {} -> {}, skipping", fromKey, toKey);
             continue;
           }
 
-          GraphEdge edge = new GraphEdge(fromKey, toKey, edgeTypeStr, new HashMap<>(), description, strength);
+          GraphEdge edge =
+              new GraphEdge(fromKey, toKey, edgeTypeStr, new HashMap<>(), description, strength);
           relationships.add(edge);
         }
       }
@@ -687,7 +720,8 @@ public class GraphIndexingService {
       indexingLogger.logLLMParseError(serviceSlug, llmResponse, e);
     }
 
-    return new GraphIndexingTypes.GraphExtractionResult(entities, fields, operations, examples, documentations, relationships);
+    return new GraphIndexingTypes.GraphExtractionResult(
+        entities, fields, operations, examples, documentations, relationships);
   }
 
   /**
@@ -702,29 +736,29 @@ public class GraphIndexingService {
     }
 
     String jsonStr = response.trim();
-    
+
     // Remove markdown code block markers
     if (jsonStr.startsWith("```json")) {
       jsonStr = jsonStr.substring(7).trim();
     } else if (jsonStr.startsWith("```")) {
       jsonStr = jsonStr.substring(3).trim();
     }
-    
+
     if (jsonStr.endsWith("```")) {
       jsonStr = jsonStr.substring(0, jsonStr.length() - 3).trim();
     }
-    
+
     // Try to find JSON object boundaries if response contains extra text
     int firstBrace = jsonStr.indexOf('{');
     int lastBrace = jsonStr.lastIndexOf('}');
-    
+
     if (firstBrace >= 0 && lastBrace > firstBrace) {
       jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
     } else if (firstBrace >= 0) {
       // JSON starts but doesn't end properly - might be truncated
       jsonStr = jsonStr.substring(firstBrace);
     }
-    
+
     return jsonStr.trim();
   }
 
@@ -745,22 +779,22 @@ public class GraphIndexingService {
     int braceDepth = 0;
     int bracketDepth = 0;
     int lastValidPos = -1;
-    
+
     for (int i = 0; i < jsonStr.length(); i++) {
       char c = jsonStr.charAt(i);
-      
+
       if (escaped) {
         fixed.append(c);
         escaped = false;
         continue;
       }
-      
+
       if (c == '\\') {
         escaped = true;
         fixed.append(c);
         continue;
       }
-      
+
       if (c == '"') {
         inString = !inString;
         fixed.append(c);
@@ -769,7 +803,7 @@ public class GraphIndexingService {
         }
         continue;
       }
-      
+
       if (!inString) {
         if (c == '{') {
           braceDepth++;
@@ -798,34 +832,34 @@ public class GraphIndexingService {
         fixed.append(c);
       }
     }
-    
+
     // If we're still in a string, close it
     if (inString) {
       fixed.append('"');
       log.warn("Fixed unclosed string in JSON by adding closing quote");
     }
-    
+
     // Close any unclosed brackets/braces
     while (bracketDepth > 0) {
       fixed.append(']');
       bracketDepth--;
       log.warn("Fixed unclosed array bracket in JSON");
     }
-    
+
     while (braceDepth > 0) {
       fixed.append('}');
       braceDepth--;
       log.warn("Fixed unclosed object brace in JSON");
     }
-    
+
     // If JSON appears to be truncated mid-value, try to close the last incomplete object/array
     String result = fixed.toString();
-    
+
     // If the last character before our fixes was a comma, remove it
     if (lastValidPos > 0 && lastValidPos < result.length()) {
       String beforeFix = result.substring(0, lastValidPos);
       String afterFix = result.substring(lastValidPos);
-      
+
       // If we added closing braces and there's a trailing comma before them, clean it up
       if (afterFix.startsWith("}") || afterFix.startsWith("]")) {
         // Remove trailing comma if present
@@ -833,14 +867,13 @@ public class GraphIndexingService {
         result = beforeFix + afterFix;
       }
     }
-    
+
     return result;
   }
 
-
   /**
-   * Convert an object to a string, handling both String and complex objects (like Map).
-   * If the object is a Map or other complex type, serialize it to JSON string.
+   * Convert an object to a string, handling both String and complex objects (like Map). If the
+   * object is a Map or other complex type, serialize it to JSON string.
    *
    * @param obj the object to convert
    * @return string representation
@@ -861,7 +894,6 @@ public class GraphIndexingService {
       return obj.toString();
     }
   }
-
 
   /**
    * Index a single service using rule-based extraction (fallback method).
@@ -889,8 +921,7 @@ public class GraphIndexingService {
         // Create edges from entities to operations
         for (String tag : opNode.getTags()) {
           String entityKey = "entity|" + sanitizeKey(tag);
-          graphDriver.storeEdge(
-              new GraphEdge(entityKey, opNode.getKey(), "HAS_OPERATION"));
+          graphDriver.storeEdge(new GraphEdge(entityKey, opNode.getKey(), "HAS_OPERATION"));
         }
       }
 
@@ -956,8 +987,7 @@ public class GraphIndexingService {
       List<String> tags = new ArrayList<>();
       // Note: tags would need to be extracted from OpenAPI paths, simplified for now
       if (openAPI.getTags() != null) {
-        tags =
-            openAPI.getTags().stream().map(Tag::getName).collect(Collectors.toList());
+        tags = openAPI.getTags().stream().map(Tag::getName).collect(Collectors.toList());
       }
 
       // Find example keys for this operation
@@ -996,10 +1026,6 @@ public class GraphIndexingService {
         operation.getMethod().toUpperCase(), operation.getPath(), operation.getSummary());
   }
 
-
-
-
-
   /**
    * Sanitize a string to be used as a key in ArangoDB.
    *
@@ -1011,13 +1037,10 @@ public class GraphIndexingService {
     return input.replaceAll("[^a-zA-Z0-9_\\-|]", "_").toLowerCase();
   }
 
-  /**
-   * Shutdown the indexing service and release resources.
-   */
+  /** Shutdown the indexing service and release resources. */
   public void shutdown() {
     if (graphDriver != null) {
       graphDriver.shutdown();
     }
   }
-
 }

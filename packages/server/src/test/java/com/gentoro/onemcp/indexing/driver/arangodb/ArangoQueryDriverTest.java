@@ -21,7 +21,10 @@ class ArangoQueryDriverTest {
   void setUp() {
     // Use lenient mocking to avoid issues with OneMcp class
     lenient().when(oneMcp.configuration()).thenReturn(configuration);
-    lenient().when(configuration.getString("graph.query.arangodb.entityContextQueryPath", "/aql/entity-context-query.aql"))
+    lenient()
+        .when(
+            configuration.getString(
+                "graph.query.arangodb.entityContextQueryPath", "/aql/entity-context-query.aql"))
         .thenReturn("/aql/entity-context-query.aql");
   }
 
@@ -72,15 +75,16 @@ class ArangoQueryDriverTest {
   @Test
   void testInitializeReadsConfiguration() {
     // Arrange - verify configuration is read with correct defaults
-    when(configuration.getString("graph.query.arangodb.entityContextQueryPath", "/aql/entity-context-query.aql"))
+    when(configuration.getString(
+            "graph.query.arangodb.entityContextQueryPath", "/aql/entity-context-query.aql"))
         .thenReturn("/aql/entity-context-query.aql");
 
     // Act - create driver which should read configuration during construction
     ArangoQueryDriver driver = new ArangoQueryDriver(oneMcp, arangoIndexingDriver);
 
     // Assert - verify configuration was read during construction
-    verify(configuration).getString("graph.query.arangodb.entityContextQueryPath", "/aql/entity-context-query.aql");
+    verify(configuration)
+        .getString("graph.query.arangodb.entityContextQueryPath", "/aql/entity-context-query.aql");
     assertNotNull(driver);
   }
-
 }

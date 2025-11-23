@@ -7,17 +7,19 @@ import java.util.Map;
 /**
  * Graph node representing documentation.
  *
- * <p>Documentation nodes are extracted sections of documentation that provide detailed
- * information about entities, operations, or fields. They are linked to their corresponding
- * graph elements to enable rich contextual retrieval.
+ * <p>Documentation nodes are extracted sections of documentation that provide detailed information
+ * about entities, operations, or fields. They are linked to their corresponding graph elements to
+ * enable rich contextual retrieval.
  */
 public class DocumentationNode implements GraphNode {
   private final String key;
   private final String title;
   private final String content;
-  private final String docType; // entity_description, operation_guide, field_reference, concept, example_explanation
+  private final String
+      docType; // entity_description, operation_guide, field_reference, concept, example_explanation
   private final String sourceFile;
-  private final List<String> relatedKeys; // Keys of entities/operations/fields this documentation relates to
+  private final List<String>
+      relatedKeys; // Keys of entities/operations/fields this documentation relates to
   private final String serviceSlug;
   private final Map<String, String> metadata; // Additional context (section, category, etc.)
 

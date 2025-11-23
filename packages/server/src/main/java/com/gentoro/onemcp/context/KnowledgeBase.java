@@ -371,8 +371,7 @@ public class KnowledgeBase {
     return documents.stream()
         .filter(e -> e.uri().equals(uri))
         .findFirst()
-        .orElseThrow(
-            () -> new NotFoundException("Document not found: " + uri));
+        .orElseThrow(() -> new NotFoundException("Document not found: " + uri));
   }
 
   /**

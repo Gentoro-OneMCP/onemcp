@@ -25,14 +25,17 @@ public class AnthropicLlmClient extends AbstractLlmClient {
     this.anthropicClient = anthropicClient;
   }
 
-  @Override
-  public String runInference(
-      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+  private record InitializationContext(
+      MessageCreateParams.Builder configBuilder,
+      List<MessageParam> localMessages,
+      String modelName) {}
+
+  private InitializationContext initialize(List<Message> messages, List<Tool> tools) {
     String modelName = configuration.getString("model", Model.CLAUDE_4_SONNET_20250514.asString());
     MessageCreateParams.Builder configBuilder =
         MessageCreateParams.builder()
             .model(modelName)
-            .maxTokens(50000)
+            .maxTokens(configuration.getInt("max-tokens", 50000))
             .toolChoice(
                 ToolChoice.ofAny(ToolChoiceAny.builder().disableParallelToolUse(true).build()))
             .system(Message.findFirst(messages, Role.SYSTEM).content());
@@ -57,14 +60,64 @@ public class AnthropicLlmClient extends AbstractLlmClient {
                         .content(message.content())
                         .build()));
 
+    return new InitializationContext(configBuilder, localMessages, modelName);
+  }
+
+  @Override
+  public String runContentGeneration(
+      String message, List<Tool> tools, InferenceEventListener listener) {
+    InitializationContext ctx = initialize(Collections.emptyList(), tools);
+
+    long start = System.currentTimeMillis();
+    ctx.configBuilder().messages(ctx.localMessages());
+    com.anthropic.models.messages.Message chatCompletion =
+        anthropicClient.messages().create(ctx.configBuilder().build());
+    listener.on(EventType.ON_COMPLETION, chatCompletion);
+
+    long end = System.currentTimeMillis();
+    long totalTokens = chatCompletion.usage().inputTokens() + chatCompletion.usage().outputTokens();
+    log.info(
+        "[Inference] - Anthropic({}):\nLLM inference took {} ms.\nTotal tokens {}.\n---\n",
+        ctx.modelName(),
+        (end - start),
+        totalTokens);
+
+    if (chatCompletion.content().isEmpty()) {
+      throw new com.gentoro.onemcp.exception.LlmException(
+          "No candidates returned from Anthropic inference.");
+    }
+
+    TextBlock textBlock =
+        chatCompletion.content().stream()
+            .filter(c -> c.isText() && c.text().isPresent())
+            .map(c -> c.text().get())
+            .findFirst()
+            .orElseThrow(
+                () ->
+                    new com.gentoro.onemcp.exception.LlmException(
+                        "No content returned from Anthropic inference."));
+
+    if (textBlock.text().isEmpty()) {
+      throw new com.gentoro.onemcp.exception.LlmException(
+          "No content returned from Anthropic inference.");
+    }
+
+    return textBlock.text();
+  }
+
+  @Override
+  public String runInference(
+      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+    InitializationContext ctx = initialize(Collections.emptyList(), tools);
+
     final List<ToolUseBlock> toolCalls = new ArrayList<>();
     com.anthropic.models.messages.Message chatCompletions;
     do {
       toolCalls.clear();
 
       long start = System.currentTimeMillis();
-      configBuilder.messages(localMessages);
-      chatCompletions = anthropicClient.messages().create(configBuilder.build());
+      ctx.configBuilder().messages(ctx.localMessages());
+      chatCompletions = anthropicClient.messages().create(ctx.configBuilder().build());
       listener.on(EventType.ON_COMPLETION, chatCompletions);
 
       long end = System.currentTimeMillis();
@@ -72,15 +125,9 @@ public class AnthropicLlmClient extends AbstractLlmClient {
           chatCompletions.usage().inputTokens() + chatCompletions.usage().outputTokens();
       log.info(
           "[Inference] - Anthropic({}):\nLLM inference took {} ms.\nTotal tokens {}.\n---\n",
-          modelName,
+          ctx.modelName(),
           (end - start),
           totalTokens);
-
-      // TODO: Report usage stats
-      /**
-       * Statistics.getInstance().increment( (int) chatCompletions.usage().inputTokens(), (int)
-       * chatCompletions.usage().outputTokens());
-       */
 
       // Iterate through the content blocks
       chatCompletions
@@ -114,17 +161,18 @@ public class AnthropicLlmClient extends AbstractLlmClient {
               .forEach((key, value) -> values.put(key, value.toString()));
           String result = tool.execute(values);
 
-          localMessages.add(
-              MessageParam.builder()
-                  .role(MessageParam.Role.USER)
-                  .contentOfBlockParams(
-                      List.of(
-                          ContentBlockParam.ofToolResult(
-                              ToolResultBlockParam.builder()
-                                  .toolUseId(toolCall.id())
-                                  .content(result)
-                                  .build())))
-                  .build());
+          ctx.localMessages()
+              .add(
+                  MessageParam.builder()
+                      .role(MessageParam.Role.USER)
+                      .contentOfBlockParams(
+                          List.of(
+                              ContentBlockParam.ofToolResult(
+                                  ToolResultBlockParam.builder()
+                                      .toolUseId(toolCall.id())
+                                      .content(result)
+                                      .build())))
+                      .build());
         } catch (Exception toolExecError) {
           String errorDetails;
           try {
@@ -147,22 +195,23 @@ public class AnthropicLlmClient extends AbstractLlmClient {
                     + ", understand the error and report back with the most appropriate context.";
           }
 
-          localMessages.add(
-              MessageParam.builder()
-                  .role(MessageParam.Role.USER)
-                  .contentOfBlockParams(
-                      List.of(
-                          ContentBlockParam.ofToolResult(
-                              ToolResultBlockParam.builder()
-                                  .toolUseId(toolCall.id())
-                                  .content(errorDetails)
-                                  .build())))
-                  .build());
+          ctx.localMessages()
+              .add(
+                  MessageParam.builder()
+                      .role(MessageParam.Role.USER)
+                      .contentOfBlockParams(
+                          List.of(
+                              ContentBlockParam.ofToolResult(
+                                  ToolResultBlockParam.builder()
+                                      .toolUseId(toolCall.id())
+                                      .content(errorDetails)
+                                      .build())))
+                      .build());
         }
       }
     } while (chatCompletions.stopReason().isPresent() && toolCalls.isEmpty());
-    listener.on(EventType.ON_END, localMessages);
-    return localMessages.stream()
+    listener.on(EventType.ON_END, ctx.localMessages());
+    return ctx.localMessages().stream()
         .filter(m -> m.content().isString())
         .toList()
         .getLast()
@@ -197,7 +246,8 @@ public class AnthropicLlmClient extends AbstractLlmClient {
     com.anthropic.models.messages.Tool.InputSchema.Builder builder =
         com.anthropic.models.messages.Tool.InputSchema.builder()
             .type(asAnthropicType(property.getType()));
-    convertProperty(property).forEach((key, value) -> builder.putAdditionalProperty(key, JsonValue.from(value)));
+    convertProperty(property)
+        .forEach((key, value) -> builder.putAdditionalProperty(key, JsonValue.from(value)));
     return builder.build();
   }
 

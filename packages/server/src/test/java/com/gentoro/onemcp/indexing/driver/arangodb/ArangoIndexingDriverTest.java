@@ -85,5 +85,3 @@ class ArangoIndexingDriverTest {
     assertNull(result);
   }
 }
-
-

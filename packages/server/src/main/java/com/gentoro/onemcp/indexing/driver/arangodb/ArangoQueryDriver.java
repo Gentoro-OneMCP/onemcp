@@ -5,7 +5,6 @@ import com.arangodb.ArangoDatabase;
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.exception.IoException;
 import com.gentoro.onemcp.indexing.driver.GraphQueryDriver;
-import com.gentoro.onemcp.indexing.driver.arangodb.ArangoIndexingDriver;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -38,8 +37,10 @@ public class ArangoQueryDriver implements GraphQueryDriver {
    */
   public ArangoQueryDriver(OneMcp oneMcp, ArangoIndexingDriver arangoIndexingDriver) {
     this.arangoIndexingDriver = arangoIndexingDriver;
-    this.entityContextQueryPath = oneMcp.configuration()
-        .getString(CONFIG_PREFIX + "entityContextQueryPath", "/aql/entity-context-query.aql");
+    this.entityContextQueryPath =
+        oneMcp
+            .configuration()
+            .getString(CONFIG_PREFIX + "entityContextQueryPath", "/aql/entity-context-query.aql");
   }
 
   /**
@@ -128,8 +129,8 @@ public class ArangoQueryDriver implements GraphQueryDriver {
   /**
    * Load AQL query templates from classpath resources.
    *
-   * <p>Lazily loads the entity context query template from the configured path.
-   * The template is cached after first load for performance.
+   * <p>Lazily loads the entity context query template from the configured path. The template is
+   * cached after first load for performance.
    *
    * @throws IoException if the template cannot be loaded
    */
@@ -149,9 +150,9 @@ public class ArangoQueryDriver implements GraphQueryDriver {
 
   /**
    * Build the entity key in the same format as stored in ArangoDB.
-   * 
-   * <p>Entities are stored with keys like "entity|Sale" which get sanitized to "entity_Sale".
-   * This method replicates the same sanitization logic used by ArangoIndexingDriver.
+   *
+   * <p>Entities are stored with keys like "entity|Sale" which get sanitized to "entity_Sale". This
+   * method replicates the same sanitization logic used by ArangoIndexingDriver.
    *
    * @param entityName the entity name (e.g., "Sale")
    * @return sanitized entity key (e.g., "entity_Sale")
@@ -167,5 +168,3 @@ public class ArangoQueryDriver implements GraphQueryDriver {
     return originalKey.replace("|", "_");
   }
 }
-
-

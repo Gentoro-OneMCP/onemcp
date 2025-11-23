@@ -15,7 +15,9 @@ public interface GraphIndexingDriver extends AutoCloseable {
   /** Initialize the driver and any underlying connections/resources. */
   void initialize();
 
-  /** @return true when the driver is ready to accept operations. */
+  /**
+   * @return true when the driver is ready to accept operations.
+   */
   boolean isInitialized();
 
   /** Remove existing data, if supported, to allow clean re-indexing. */
@@ -45,10 +47,13 @@ public interface GraphIndexingDriver extends AutoCloseable {
   /** Shut down the driver and release resources. */
   void shutdown();
 
-  /** @return logical database name used by this driver. */
+  /**
+   * @return logical database name used by this driver.
+   */
   String getDatabaseName();
 
-  /** @return handbook name associated with this driver instance. */
+  /**
+   * @return handbook name associated with this driver instance.
+   */
   String getHandbookName();
 }
-

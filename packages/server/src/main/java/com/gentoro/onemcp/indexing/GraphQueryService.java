@@ -66,9 +66,7 @@ public class GraphQueryService implements AutoCloseable {
     this.driverInitialized = queryDriver != null && queryDriver.isInitialized();
   }
 
-  /**
-   * Query context item representing an entity with operations to retrieve.
-   */
+  /** Query context item representing an entity with operations to retrieve. */
   public static class ContextItem {
     private String entity;
     private List<String> operations;
@@ -77,26 +75,48 @@ public class GraphQueryService implements AutoCloseable {
 
     public ContextItem() {}
 
-    public ContextItem(String entity, List<String> operations, Integer confidence, String referral) {
+    public ContextItem(
+        String entity, List<String> operations, Integer confidence, String referral) {
       this.entity = entity;
       this.operations = operations;
       this.confidence = confidence;
       this.referral = referral;
     }
 
-    public String getEntity() { return entity; }
-    public void setEntity(String entity) { this.entity = entity; }
-    public List<String> getOperations() { return operations; }
-    public void setOperations(List<String> operations) { this.operations = operations; }
-    public Integer getConfidence() { return confidence; }
-    public void setConfidence(Integer confidence) { this.confidence = confidence; }
-    public String getReferral() { return referral; }
-    public void setReferral(String referral) { this.referral = referral; }
+    public String getEntity() {
+      return entity;
+    }
+
+    public void setEntity(String entity) {
+      this.entity = entity;
+    }
+
+    public List<String> getOperations() {
+      return operations;
+    }
+
+    public void setOperations(List<String> operations) {
+      this.operations = operations;
+    }
+
+    public Integer getConfidence() {
+      return confidence;
+    }
+
+    public void setConfidence(Integer confidence) {
+      this.confidence = confidence;
+    }
+
+    public String getReferral() {
+      return referral;
+    }
+
+    public void setReferral(String referral) {
+      this.referral = referral;
+    }
   }
 
-  /**
-   * Query request containing context items.
-   */
+  /** Query request containing context items. */
   public static class QueryRequest {
     private List<ContextItem> context;
 
@@ -106,13 +126,16 @@ public class GraphQueryService implements AutoCloseable {
       this.context = context;
     }
 
-    public List<ContextItem> getContext() { return context; }
-    public void setContext(List<ContextItem> context) { this.context = context; }
+    public List<ContextItem> getContext() {
+      return context;
+    }
+
+    public void setContext(List<ContextItem> context) {
+      this.context = context;
+    }
   }
 
-  /**
-   * Query result containing all retrieved information for each context item.
-   */
+  /** Query result containing all retrieved information for each context item. */
   public static class QueryResult {
     private String entity;
     private List<String> requestedOperations;
@@ -124,27 +147,64 @@ public class GraphQueryService implements AutoCloseable {
 
     public QueryResult() {}
 
-    public String getEntity() { return entity; }
-    public void setEntity(String entity) { this.entity = entity; }
-    public List<String> getRequestedOperations() { return requestedOperations; }
-    public void setRequestedOperations(List<String> requestedOperations) { 
-      this.requestedOperations = requestedOperations; 
+    public String getEntity() {
+      return entity;
     }
-    public Integer getConfidence() { return confidence; }
-    public void setConfidence(Integer confidence) { this.confidence = confidence; }
-    public String getReferral() { return referral; }
-    public void setReferral(String referral) { this.referral = referral; }
-    public Map<String, Object> getEntityInfo() { return entityInfo; }
-    public void setEntityInfo(Map<String, Object> entityInfo) { this.entityInfo = entityInfo; }
-    public List<Map<String, Object>> getFields() { return fields; }
-    public void setFields(List<Map<String, Object>> fields) { this.fields = fields; }
-    public List<OperationResult> getOperations() { return operations; }
-    public void setOperations(List<OperationResult> operations) { this.operations = operations; }
+
+    public void setEntity(String entity) {
+      this.entity = entity;
+    }
+
+    public List<String> getRequestedOperations() {
+      return requestedOperations;
+    }
+
+    public void setRequestedOperations(List<String> requestedOperations) {
+      this.requestedOperations = requestedOperations;
+    }
+
+    public Integer getConfidence() {
+      return confidence;
+    }
+
+    public void setConfidence(Integer confidence) {
+      this.confidence = confidence;
+    }
+
+    public String getReferral() {
+      return referral;
+    }
+
+    public void setReferral(String referral) {
+      this.referral = referral;
+    }
+
+    public Map<String, Object> getEntityInfo() {
+      return entityInfo;
+    }
+
+    public void setEntityInfo(Map<String, Object> entityInfo) {
+      this.entityInfo = entityInfo;
+    }
+
+    public List<Map<String, Object>> getFields() {
+      return fields;
+    }
+
+    public void setFields(List<Map<String, Object>> fields) {
+      this.fields = fields;
+    }
+
+    public List<OperationResult> getOperations() {
+      return operations;
+    }
+
+    public void setOperations(List<OperationResult> operations) {
+      this.operations = operations;
+    }
   }
 
-  /**
-   * Operation result containing complete operation information.
-   */
+  /** Operation result containing complete operation information. */
   public static class OperationResult {
     private String operationId;
     private String method;
@@ -161,31 +221,100 @@ public class GraphQueryService implements AutoCloseable {
 
     public OperationResult() {}
 
-    public String getOperationId() { return operationId; }
-    public void setOperationId(String operationId) { this.operationId = operationId; }
-    public String getMethod() { return method; }
-    public void setMethod(String method) { this.method = method; }
-    public String getPath() { return path; }
-    public void setPath(String path) { this.path = path; }
-    public String getSummary() { return summary; }
-    public void setSummary(String summary) { this.summary = summary; }
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
-    public String getCategory() { return category; }
-    public void setCategory(String category) { this.category = category; }
-    public String getSignature() { return signature; }
-    public void setSignature(String signature) { this.signature = signature; }
-    public String getRequestSchema() { return requestSchema; }
-    public void setRequestSchema(String requestSchema) { this.requestSchema = requestSchema; }
-    public String getResponseSchema() { return responseSchema; }
-    public void setResponseSchema(String responseSchema) { this.responseSchema = responseSchema; }
-    public List<String> getTags() { return tags; }
-    public void setTags(List<String> tags) { this.tags = tags; }
-    public List<Map<String, Object>> getExamples() { return examples; }
-    public void setExamples(List<Map<String, Object>> examples) { this.examples = examples; }
-    public List<Map<String, Object>> getDocumentation() { return documentation; }
-    public void setDocumentation(List<Map<String, Object>> documentation) { 
-      this.documentation = documentation; 
+    public String getOperationId() {
+      return operationId;
+    }
+
+    public void setOperationId(String operationId) {
+      this.operationId = operationId;
+    }
+
+    public String getMethod() {
+      return method;
+    }
+
+    public void setMethod(String method) {
+      this.method = method;
+    }
+
+    public String getPath() {
+      return path;
+    }
+
+    public void setPath(String path) {
+      this.path = path;
+    }
+
+    public String getSummary() {
+      return summary;
+    }
+
+    public void setSummary(String summary) {
+      this.summary = summary;
+    }
+
+    public String getDescription() {
+      return description;
+    }
+
+    public void setDescription(String description) {
+      this.description = description;
+    }
+
+    public String getCategory() {
+      return category;
+    }
+
+    public void setCategory(String category) {
+      this.category = category;
+    }
+
+    public String getSignature() {
+      return signature;
+    }
+
+    public void setSignature(String signature) {
+      this.signature = signature;
+    }
+
+    public String getRequestSchema() {
+      return requestSchema;
+    }
+
+    public void setRequestSchema(String requestSchema) {
+      this.requestSchema = requestSchema;
+    }
+
+    public String getResponseSchema() {
+      return responseSchema;
+    }
+
+    public void setResponseSchema(String responseSchema) {
+      this.responseSchema = responseSchema;
+    }
+
+    public List<String> getTags() {
+      return tags;
+    }
+
+    public void setTags(List<String> tags) {
+      this.tags = tags;
+    }
+
+    public List<Map<String, Object>> getExamples() {
+      return examples;
+    }
+
+    public void setExamples(List<Map<String, Object>> examples) {
+      this.examples = examples;
+    }
+
+    public List<Map<String, Object>> getDocumentation() {
+      return documentation;
+    }
+
+    public void setDocumentation(List<Map<String, Object>> documentation) {
+      this.documentation = documentation;
     }
   }
 
@@ -193,12 +322,13 @@ public class GraphQueryService implements AutoCloseable {
    * Execute an optimized graph query to retrieve all relevant information for the given context.
    *
    * <p>This method uses a single optimized AQL query to traverse the graph and retrieve:
+   *
    * <ul>
-   *   <li>Entity information</li>
-   *   <li>Entity fields</li>
-   *   <li>Operations matching the requested categories</li>
-   *   <li>Examples for each operation</li>
-   *   <li>Documentation for operations and entities</li>
+   *   <li>Entity information
+   *   <li>Entity fields
+   *   <li>Operations matching the requested categories
+   *   <li>Examples for each operation
+   *   <li>Documentation for operations and entities
    * </ul>
    *
    * @param request the query request containing context items
@@ -274,7 +404,7 @@ public class GraphQueryService implements AutoCloseable {
   @SuppressWarnings("unchecked")
   private QueryResult parseQueryResult(Map<String, Object> rawResult, ContextItem contextItem) {
     QueryResult result = new QueryResult();
-    
+
     result.setEntity(contextItem.getEntity());
     result.setRequestedOperations(contextItem.getOperations());
     result.setConfidence(contextItem.getConfidence());
@@ -322,7 +452,7 @@ public class GraphQueryService implements AutoCloseable {
   @SuppressWarnings("unchecked")
   private OperationResult parseOperation(Map<String, Object> opMap) {
     OperationResult op = new OperationResult();
-    
+
     op.setOperationId((String) opMap.get("operationId"));
     op.setMethod((String) opMap.get("method"));
     op.setPath((String) opMap.get("path"));
@@ -386,9 +516,7 @@ public class GraphQueryService implements AutoCloseable {
     return result;
   }
 
-  /**
-   * Shutdown the underlying driver and release resources.
-   */
+  /** Shutdown the underlying driver and release resources. */
   public void shutdown() {
     if (queryDriver != null) {
       queryDriver.shutdown();
@@ -401,7 +529,9 @@ public class GraphQueryService implements AutoCloseable {
     shutdown();
   }
 
-  /** @return configured driver name (lowercase). */
+  /**
+   * @return configured driver name (lowercase).
+   */
   public String getDriverName() {
     return driverName;
   }
