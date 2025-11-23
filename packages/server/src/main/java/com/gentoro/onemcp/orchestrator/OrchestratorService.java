@@ -1,23 +1,25 @@
 package com.gentoro.onemcp.orchestrator;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.gentoro.onemcp.OneMcp;
-import com.gentoro.onemcp.exception.ExceptionUtil;
+import com.gentoro.onemcp.context.Service;
+import com.gentoro.onemcp.engine.ExecutionPlanEngine;
+import com.gentoro.onemcp.engine.ExecutionPlanException;
+import com.gentoro.onemcp.engine.OperationRegistry;
 import com.gentoro.onemcp.memory.ValueStore;
-import com.gentoro.onemcp.messages.ExecutionPlan;
+import com.gentoro.onemcp.messages.AssignmentContext;
+import com.gentoro.onemcp.openapi.EndpointInvoker;
+import com.gentoro.onemcp.openapi.OpenApiLoader;
+import com.gentoro.onemcp.utility.JacksonUtility;
 import com.gentoro.onemcp.utility.StdoutUtility;
 import com.gentoro.onemcp.utility.StringUtility;
+import io.swagger.v3.oas.models.OpenAPI;
+import java.util.Map;
 import java.util.Scanner;
 
 public class OrchestratorService {
   private static final org.slf4j.Logger log =
       com.gentoro.onemcp.logging.LoggingService.getLogger(OrchestratorService.class);
-
-  private enum Phase {
-    PLAN,
-    EXECUTE,
-    SUMMARY,
-    COMPLETED
-  }
 
   private final OneMcp oneMcp;
 
@@ -52,7 +54,7 @@ public class OrchestratorService {
         // Handle normal input
         if (input.trim().length() > 10) {
           try {
-            handlePrompt(input, true);
+            handlePrompt(input);
           } catch (Exception e) {
             log.error("Error handling prompt", e);
             StdoutUtility.printError(oneMcp, "Could not handle assignment properly", e);
@@ -68,56 +70,70 @@ public class OrchestratorService {
   }
 
   public String handlePrompt(String prompt) {
-    return handlePrompt(prompt, false);
-  }
-
-  public String handlePrompt(String prompt, boolean interactive) {
     log.trace("Processing prompt: {}", prompt);
 
-    OrchestratorContext ctx = new OrchestratorContext(oneMcp, new ValueStore());
-    PlanningService planning = new PlanningService(ctx);
-    ImplementationService implementation = new ImplementationService(ctx);
-    CodeSnippetService code = new CodeSnippetService(ctx);
-    PlanExecutor executor = new PlanExecutor(oneMcp, implementation, code);
-    SummaryService summaryService = new SummaryService(ctx);
-    Phase currentPhase = Phase.PLAN;
-    ExecutionPlan executionPlan = null;
-    String summary = null;
     long start = System.currentTimeMillis();
-    while (currentPhase != Phase.COMPLETED) {
-      switch (currentPhase) {
-        case PLAN:
-          StdoutUtility.printNewLine(oneMcp, "Generating execution plan.");
-          executionPlan = planning.plan(prompt.trim());
-          currentPhase = Phase.EXECUTE;
-          log.trace(
-              "Execution plan:\n{}", StringUtility.formatWithIndent(executionPlan.toString(), 4));
-          StdoutUtility.printSuccessLine(
-              oneMcp,
-              "Executing plan completed in (%d ms).\n%s"
-                  .formatted(
-                      (System.currentTimeMillis() - start),
-                      StringUtility.formatWithIndent(executionPlan.toString(), 4)));
-          break;
-        case EXECUTE:
-          executor.execute(executionPlan);
-          currentPhase = Phase.SUMMARY;
-          break;
-        case SUMMARY:
-          StdoutUtility.printNewLine(oneMcp, "Compiling answer.");
-          summary = summaryService.summarize(prompt.trim()).answer();
-          log.trace("Generated answer:\n{}", StringUtility.formatWithIndent(summary, 4));
-          currentPhase = Phase.COMPLETED;
-          StdoutUtility.printSuccessLine(
-              oneMcp,
-              "Assignment handled in (%s ms)\nAnswer: \n%s"
-                  .formatted(
-                      (System.currentTimeMillis() - start),
-                      StringUtility.formatWithIndent(summary, 4)));
-          break;
-      }
-    }
+    try {
+      OrchestratorContext ctx = new OrchestratorContext(oneMcp, new ValueStore());
+      StdoutUtility.printNewLine(oneMcp, "Extracting entities.");
+      AssignmentContext assignmentContext =
+          new EntityExtractionService(ctx).extractContext(prompt.trim());
 
-    return summary;
+      StdoutUtility.printNewLine(oneMcp, "Generating execution plan.");
+      JsonNode plan = new PlanGenerationService(ctx).generatePlan(assignmentContext);
+      StdoutUtility.printSuccessLine(
+          oneMcp,
+          "Generated plan:\n%s"
+              .formatted(StringUtility.formatWithIndent(JacksonUtility.toJson(plan), 4)));
+      log.trace(
+          "Generated plan:\n{}", StringUtility.formatWithIndent(JacksonUtility.toJson(plan), 4));
+
+      OperationRegistry operationRegistry = new OperationRegistry();
+      for (Service service : ctx.knowledgeBase().services()) {
+        OpenAPI openApiDef = service.definition(ctx.knowledgeBase().handbookPath());
+        Map<String, EndpointInvoker> invokerMap =
+            OpenApiLoader.buildInvokers(openApiDef, openApiDef.getServers().getFirst().getUrl());
+        invokerMap.forEach(
+            (key, value) -> {
+              operationRegistry.register(
+                  key,
+                  (data) -> {
+                    try {
+                      log.trace(
+                          "Invoking operation {} with data {}", key, JacksonUtility.toJson(data));
+                      StdoutUtility.printRollingLine(
+                          oneMcp, "Invoking operation %s".formatted(key));
+                      return value.invoke(data.has("data") ? data.get("data") : data);
+                    } catch (Exception e) {
+                      log.error(
+                          "Error invoking service {} with data {}",
+                          key,
+                          JacksonUtility.toJson(data),
+                          e);
+                      throw new ExecutionPlanException(
+                          "Error invoking service %s".formatted(key), e);
+                    }
+                  });
+            });
+      }
+
+      StdoutUtility.printNewLine(oneMcp, "Executing plan.");
+      ExecutionPlanEngine engine =
+          new ExecutionPlanEngine(JacksonUtility.getJsonMapper(), operationRegistry);
+      JsonNode output = engine.execute(plan, null);
+      String outputStr = JacksonUtility.toJson(output);
+
+      log.trace("Generated answer:\n{}", StringUtility.formatWithIndent(outputStr, 4));
+      StdoutUtility.printSuccessLine(
+          oneMcp,
+          "Assignment handled in (%s ms)\nAnswer: \n%s"
+              .formatted(
+                  (System.currentTimeMillis() - start),
+                  StringUtility.formatWithIndent(outputStr, 4)));
+      return outputStr;
+    } catch (Exception e) {
+      StdoutUtility.printError(oneMcp, "Could not handle assignment properly", e);
+      throw e;
+    }
   }
 }

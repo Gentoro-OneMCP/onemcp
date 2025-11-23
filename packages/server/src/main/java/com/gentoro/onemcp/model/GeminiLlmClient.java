@@ -2,22 +2,15 @@ package com.gentoro.onemcp.model;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.gentoro.onemcp.OneMcp;
-import com.gentoro.onemcp.messages.ExecutionPlan;
-import com.gentoro.onemcp.messages.StepImplementation;
-import com.gentoro.onemcp.messages.Summary;
 import com.google.genai.Client;
-import com.google.genai.types.FinishReason;
-import com.google.genai.types.FunctionCallingConfigMode;
-import com.google.genai.types.GenerateContentConfig;
-import com.google.genai.types.Type;
-import java.util.*;
+import com.google.genai.types.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.apache.commons.configuration2.Configuration;
 
-/**
- * Minimal Gemini implementation placeholder. For now it does not support tool-calling. It can be
- * extended to integrate with Google's Generative AI Java SDK.
- */
 public class GeminiLlmClient extends AbstractLlmClient {
   private static final org.slf4j.Logger log =
       com.gentoro.onemcp.logging.LoggingService.getLogger(GeminiLlmClient.class);
@@ -28,17 +21,14 @@ public class GeminiLlmClient extends AbstractLlmClient {
     this.geminiClient = geminiClient;
   }
 
-  @Override
-  public String runInference(
-      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
-
+  private GenerateContentConfig.Builder initializeConfigBuilder(List<Tool> tools) {
     GenerateContentConfig.Builder configBuilder =
         GenerateContentConfig.builder()
             .temperature(configuration.getFloat("options.temperature", 0.7f))
             .candidateCount(configuration.getInt("options.candidate-count", 1));
 
     if (!tools.isEmpty()) {
-      List<com.google.genai.types.FunctionDeclaration> functionDeclarations = new ArrayList<>();
+      List<FunctionDeclaration> functionDeclarations = new ArrayList<>();
       tools.stream().map(tool -> convertTool(tool.definition())).forEach(functionDeclarations::add);
       configBuilder
           .tools(
@@ -46,34 +36,78 @@ public class GeminiLlmClient extends AbstractLlmClient {
                   .functionDeclarations(functionDeclarations)
                   .build())
           .toolConfig(
-              com.google.genai.types.ToolConfig.builder()
+              ToolConfig.builder()
                   .functionCallingConfig(
-                      com.google.genai.types.FunctionCallingConfig.builder()
+                      FunctionCallingConfig.builder()
                           .mode(FunctionCallingConfigMode.Known.ANY)
                           .build())
                   .build());
     }
+    return configBuilder;
+  }
+
+  @Override
+  public String runContentGeneration(
+      String message, List<Tool> tools, InferenceEventListener listener) {
+    GenerateContentConfig.Builder configBuilder = initializeConfigBuilder(tools);
+
+    String modelName = configuration.getString("model", "gemini-2.5-flash");
+    GenerateContentResponse chatCompletion =
+        geminiClient.models.generateContent(modelName, message, configBuilder.build());
+    List<Candidate> candidates =
+        chatCompletion
+            .candidates()
+            .orElseThrow(
+                () ->
+                    new com.gentoro.onemcp.exception.LlmException(
+                        "No candidates returned from Gemini inference."));
+    if (candidates.isEmpty()) {
+      throw new com.gentoro.onemcp.exception.LlmException(
+          "No candidates returned from Gemini inference.");
+    }
+
+    Content content =
+        candidates.stream()
+            .filter(c -> c.content().isPresent())
+            .map(c -> c.content().get())
+            .findFirst()
+            .orElseThrow(
+                () ->
+                    new com.gentoro.onemcp.exception.LlmException(
+                        "No content returned from Gemini inference."));
+
+    return content.text();
+  }
+
+  @Override
+  public String runInference(
+      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+
+    GenerateContentConfig.Builder configBuilder = initializeConfigBuilder(tools);
+    String modelName = configuration.getString("model", "gemini-2.5-flash");
+
+    if (messages.isEmpty() || Message.allExcept(messages, Role.SYSTEM).isEmpty()) {
+      throw new com.gentoro.onemcp.exception.LlmException("No messages provided to run inference.");
+    }
 
     if (Message.contains(messages, Role.SYSTEM)) {
       configBuilder.systemInstruction(
-          com.google.genai.types.Content.builder()
+          Content.builder()
               .role("user")
-              .parts(
-                  com.google.genai.types.Part.fromText(
-                      Message.findFirst(messages, Role.SYSTEM).content()))
+              .parts(Part.fromText(Message.findFirst(messages, Role.SYSTEM).content()))
               .build());
     }
 
-    List<com.google.genai.types.Content> localMessages = new ArrayList<>();
+    List<Content> localMessages = new ArrayList<>();
     Message.allExcept(messages, Role.SYSTEM)
         .forEach(message -> localMessages.add(asGeminiMessage(message)));
 
     int attempts = 0;
-    com.google.genai.types.GenerateContentResponse chatCompletions;
+    GenerateContentResponse chatCompletions;
     main_loop:
     while (true) {
       long start = System.currentTimeMillis();
-      String modelName = configuration.getString("model", "gemini-2.5-flash");
+
       log.trace("Running inference with model: {}", modelName);
       chatCompletions =
           geminiClient.models.generateContent(modelName, localMessages, configBuilder.build());
@@ -113,24 +147,24 @@ public class GeminiLlmClient extends AbstractLlmClient {
         break;
       }
       TypeReference<HashMap<String, Object>> typeRef = new TypeReference<>() {};
-      for (com.google.genai.types.Candidate candidate : chatCompletions.candidates().get()) {
+      for (Candidate candidate : chatCompletions.candidates().get()) {
         if (candidate.content().isEmpty()) {
           continue;
         }
 
-        com.google.genai.types.Content content = candidate.content().get();
+        Content content = candidate.content().get();
         if (content.parts().isEmpty()) {
           continue;
         }
 
         localMessages.add(content);
 
-        for (com.google.genai.types.Part part : content.parts().get()) {
+        for (Part part : content.parts().get()) {
           if (part.functionCall().isEmpty() || part.functionCall().get().name().isEmpty()) {
             continue;
           }
 
-          com.google.genai.types.FunctionCall functionCall = part.functionCall().get();
+          FunctionCall functionCall = part.functionCall().get();
           Tool tool =
               tools.stream()
                   .filter(t -> t.name().equals(functionCall.name().get()))
@@ -138,8 +172,8 @@ public class GeminiLlmClient extends AbstractLlmClient {
                   .orElse(null);
 
           if (tool == null) {
-            com.google.genai.types.FunctionResponse.Builder functionResponse =
-                com.google.genai.types.FunctionResponse.builder().name(functionCall.name().get());
+            FunctionResponse.Builder functionResponse =
+                FunctionResponse.builder().name(functionCall.name().get());
             functionCall.id().ifPresent(functionResponse::id);
             functionResponse.response(
                 Map.of(
@@ -150,12 +184,9 @@ public class GeminiLlmClient extends AbstractLlmClient {
                         + tools.stream().map(Tool::name).collect(Collectors.joining(", "))));
 
             localMessages.add(
-                com.google.genai.types.Content.builder()
+                Content.builder()
                     .role("user")
-                    .parts(
-                        com.google.genai.types.Part.builder()
-                            .functionResponse(functionResponse.build())
-                            .build())
+                    .parts(Part.builder().functionResponse(functionResponse.build()).build())
                     .build());
             continue;
           }
@@ -165,29 +196,19 @@ public class GeminiLlmClient extends AbstractLlmClient {
             Map<String, Object> values = functionCall.args().get();
             String result = tool.execute(values);
 
-            com.google.genai.types.FunctionResponse.Builder functionResponse =
-                com.google.genai.types.FunctionResponse.builder().name(functionCall.name().get());
+            FunctionResponse.Builder functionResponse =
+                FunctionResponse.builder().name(functionCall.name().get());
             functionCall.id().ifPresent(functionResponse::id);
             functionResponse.response(Map.of("result", result));
 
             localMessages.add(
-                com.google.genai.types.Content.builder()
+                Content.builder()
                     .role("user")
-                    .parts(
-                        com.google.genai.types.Part.builder()
-                            .functionResponse(functionResponse.build())
-                            .build())
+                    .parts(Part.builder().functionResponse(functionResponse.build()).build())
                     .build());
-
-            if (tool.name().equals(ExecutionPlan.class.getSimpleName())
-                || tool.name().equals(StepImplementation.class.getSimpleName())
-                || tool.name().equals(Summary.class.getSimpleName())) {
-              break main_loop;
-            }
-
           } catch (Exception toolExecError) {
-            com.google.genai.types.FunctionResponse.Builder functionResponse =
-                com.google.genai.types.FunctionResponse.builder().name(functionCall.name().get());
+            FunctionResponse.Builder functionResponse =
+                FunctionResponse.builder().name(functionCall.name().get());
             functionCall.id().ifPresent(functionResponse::id);
             functionResponse.response(
                 Map.of(
@@ -200,12 +221,9 @@ public class GeminiLlmClient extends AbstractLlmClient {
                     "errorDetails",
                     toolExecError.getMessage()));
             localMessages.add(
-                com.google.genai.types.Content.builder()
+                Content.builder()
                     .role("user")
-                    .parts(
-                        com.google.genai.types.Part.builder()
-                            .functionResponse(functionResponse.build())
-                            .build())
+                    .parts(Part.builder().functionResponse(functionResponse.build()).build())
                     .build());
           }
         }
@@ -224,8 +242,8 @@ public class GeminiLlmClient extends AbstractLlmClient {
     return localMessages.getLast().text();
   }
 
-  private com.google.genai.types.Content asGeminiMessage(Message message) {
-    return com.google.genai.types.Content.builder()
+  private Content asGeminiMessage(Message message) {
+    return Content.builder()
         .role(
             switch (message.role()) {
               case USER -> "user";
@@ -233,21 +251,21 @@ public class GeminiLlmClient extends AbstractLlmClient {
               default -> throw new com.gentoro.onemcp.exception.StateException(
                   "Unknown message role: " + message.role());
             })
-        .parts(com.google.genai.types.Part.fromText(message.content()))
+        .parts(Part.fromText(message.content()))
         .build();
   }
 
-  private com.google.genai.types.FunctionDeclaration convertTool(ToolDefinition def) {
-    return com.google.genai.types.FunctionDeclaration.builder()
+  private FunctionDeclaration convertTool(ToolDefinition def) {
+    return FunctionDeclaration.builder()
         .name(def.name())
         .description(def.description())
         .parameters(def.schema() != null ? propSchema(def.schema()) : null)
         .build();
   }
 
-  private com.google.genai.types.Schema propSchema(ToolProperty property) {
-    com.google.genai.types.Schema.Builder propSchemaBuilder =
-        com.google.genai.types.Schema.builder()
+  private Schema propSchema(ToolProperty property) {
+    Schema.Builder propSchemaBuilder =
+        Schema.builder()
             .type(asGeminiType(property.getType()))
             .description(property.getDescription());
     if (property.getName() != null) {

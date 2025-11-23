@@ -6,10 +6,10 @@ import java.util.Map;
 /**
  * Represents a directed edge (relationship) between two nodes in the knowledge graph.
  *
- * <p>Edges connect nodes and define semantic relationships. Edge types are flexible strings
- * that can represent domain-specific relationships such as "HAS_OPERATION", "CONTAINS",
- * "PRECEDES", "DEPENDS_ON", etc. The system allows any descriptive edge type name to
- * support generic services with domain-specific relationship semantics.
+ * <p>Edges connect nodes and define semantic relationships. Edge types are flexible strings that
+ * can represent domain-specific relationships such as "HAS_OPERATION", "CONTAINS", "PRECEDES",
+ * "DEPENDS_ON", etc. The system allows any descriptive edge type name to support generic services
+ * with domain-specific relationship semantics.
  */
 public class GraphEdge {
   private final String fromKey;
@@ -23,13 +23,17 @@ public class GraphEdge {
     this(fromKey, toKey, edgeType, new HashMap<>(), null, null);
   }
 
-  public GraphEdge(
-      String fromKey, String toKey, String edgeType, Map<String, Object> properties) {
+  public GraphEdge(String fromKey, String toKey, String edgeType, Map<String, Object> properties) {
     this(fromKey, toKey, edgeType, properties, null, null);
   }
 
   public GraphEdge(
-      String fromKey, String toKey, String edgeType, Map<String, Object> properties, String description, String strength) {
+      String fromKey,
+      String toKey,
+      String edgeType,
+      Map<String, Object> properties,
+      String description,
+      String strength) {
     if (edgeType == null || edgeType.trim().isEmpty()) {
       throw new IllegalArgumentException("Edge type cannot be null or empty");
     }

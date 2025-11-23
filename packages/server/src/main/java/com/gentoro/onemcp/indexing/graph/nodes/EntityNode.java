@@ -91,8 +91,8 @@ public class EntityNode implements GraphNode {
     Map<String, Object> map = new HashMap<>();
     map.put("_key", key);
     map.put("nodeType", getNodeType());
-    map.put("name", name);  // Used for node label in ArangoDB UI
-    map.put("label", name);  // Alternative label field
+    map.put("name", name); // Used for node label in ArangoDB UI
+    map.put("label", name); // Alternative label field
     map.put("description", description);
     map.put("serviceSlug", serviceSlug);
     map.put("associatedOperations", associatedOperations);

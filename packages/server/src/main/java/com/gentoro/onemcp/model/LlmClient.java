@@ -10,9 +10,8 @@ import java.util.List;
  * {@link #chat(List, List, boolean, InferenceEventListener)}.
  *
  * <p>This interface is implementation-agnostic and intended for use in open source projects.
- * Concrete providers should live behind this interface and be selected via {@link
- * LlmClientFactory} or the {@link java.util.ServiceLoader} managed SPI
- * {@link LlmClientProvider}.
+ * Concrete providers should live behind this interface and be selected via {@link LlmClientFactory}
+ * or the {@link java.util.ServiceLoader} managed SPI {@link LlmClientProvider}.
  */
 public interface LlmClient {
   /**
@@ -24,6 +23,9 @@ public interface LlmClient {
    */
   String chat(
       List<Message> messages, List<Tool> tools, boolean cacheable, InferenceEventListener listener);
+
+  String generate(
+      String message, List<Tool> tools, boolean cacheable, InferenceEventListener listener);
 
   enum Role {
     SYSTEM,

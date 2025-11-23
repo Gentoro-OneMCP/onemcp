@@ -40,7 +40,23 @@ public class OperationNode implements GraphNode {
       String signature,
       List<String> exampleKeys,
       String documentationUri) {
-    this(key, operationId, method, path, summary, description, serviceSlug, tags, signature, exampleKeys, documentationUri, null, null, null, null, null);
+    this(
+        key,
+        operationId,
+        method,
+        path,
+        summary,
+        description,
+        serviceSlug,
+        tags,
+        signature,
+        exampleKeys,
+        documentationUri,
+        null,
+        null,
+        null,
+        null,
+        null);
   }
 
   public OperationNode(
@@ -58,7 +74,23 @@ public class OperationNode implements GraphNode {
       String requestSchema,
       String responseSchema,
       List<String> examples) {
-    this(key, operationId, method, path, summary, description, serviceSlug, tags, signature, exampleKeys, documentationUri, requestSchema, responseSchema, examples, null, null);
+    this(
+        key,
+        operationId,
+        method,
+        path,
+        summary,
+        description,
+        serviceSlug,
+        tags,
+        signature,
+        exampleKeys,
+        documentationUri,
+        requestSchema,
+        responseSchema,
+        examples,
+        null,
+        null);
   }
 
   public OperationNode(
@@ -174,8 +206,8 @@ public class OperationNode implements GraphNode {
     map.put("operationId", operationId);
     // Create display name for node label
     String displayName = method != null ? method.toUpperCase() + " " + path : operationId;
-    map.put("name", displayName);  // Used for node label in ArangoDB UI
-    map.put("label", displayName);  // Alternative label field
+    map.put("name", displayName); // Used for node label in ArangoDB UI
+    map.put("label", displayName); // Alternative label field
     map.put("method", method);
     map.put("path", path);
     map.put("summary", summary);

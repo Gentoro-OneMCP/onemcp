@@ -5,8 +5,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.utility.JacksonUtility;
-import jakarta.servlet.http.*;
-import java.io.*;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -186,8 +189,8 @@ public class AcmeServer {
             (ObjectNode) JacksonUtility.getJsonMapper().readTree(req.getInputStream());
         log.info("Received query request: {}", request);
 
-        if (!request.has("filter") || !request.has("fields")) {
-          sendError(resp, 400, "Missing required fields: filter and fields");
+        if (!request.has("aggregates") && !request.has("fields")) {
+          sendError(resp, 400, "Missing required fields: aggregates and fields");
           return;
         }
 
@@ -261,8 +264,7 @@ public class AcmeServer {
   }
 
   /** Apply filters to the data */
-  private List<Map<String, Object>> applyFilters(
-      List<Map<String, Object>> data, JsonNode filters) {
+  private List<Map<String, Object>> applyFilters(List<Map<String, Object>> data, JsonNode filters) {
     if (filters == null || !filters.isArray()) {
       return data;
     }
@@ -285,14 +287,17 @@ public class AcmeServer {
 
   /** Evaluate a single filter condition */
   private boolean evaluateFilter(
-      Map<String, Object> record,
-      String field,
-      String operator,
-      JsonNode value) {
+      Map<String, Object> record, String field, String operator, JsonNode value) {
     Object fieldValue = getNestedValue(record, field);
 
     if (fieldValue == null) {
       return "is_null".equals(operator);
+    }
+
+    if (!operator.equals("between") && !operator.equals("in")) {
+      if (value.isArray()) {
+        value = ((ArrayNode) value).get(0);
+      }
     }
 
     switch (operator) {
@@ -377,8 +382,7 @@ public class AcmeServer {
   }
 
   /** Compare two values as numbers */
-  private int compareNumbers(
-      String field, Object fieldValue, JsonNode value) {
+  private int compareNumbers(String field, Object fieldValue, JsonNode value) {
     double fieldNum = toNumber(field, fieldValue);
     double valueNum = toNumber(field, getJsonNodeValue(value));
     return Double.compare(fieldNum, valueNum);
@@ -517,9 +521,7 @@ public class AcmeServer {
 
   /** Process aggregation functions */
   private ArrayNode processAggregates(
-      List<Map<String, Object>> data,
-      List<String> requestedFields,
-      JsonNode aggregates) {
+      List<Map<String, Object>> data, List<String> requestedFields, JsonNode aggregates) {
     ArrayNode result = JacksonUtility.getJsonMapper().createArrayNode();
 
     Set<String> aggregateFieldsSet = new HashSet<>();

@@ -60,8 +60,7 @@ public final class GraphQueryScript {
       oneMcp.initialize();
 
       try (GraphQueryService graphQueryService = new GraphQueryService(oneMcp)) {
-        log.info(
-            "Running graph query for {} context items", request.getContext().size());
+        log.info("Running graph query for {} context items", request.getContext().size());
         List<GraphQueryService.QueryResult> results = graphQueryService.query(request);
         printResults(results);
       }
@@ -74,8 +73,7 @@ public final class GraphQueryScript {
     }
   }
 
-  private static GraphQueryService.QueryRequest loadRequest(String contextFile)
-      throws IOException {
+  private static GraphQueryService.QueryRequest loadRequest(String contextFile) throws IOException {
     if (contextFile == null || contextFile.isBlank()) {
       return defaultRequest();
     }
@@ -93,14 +91,11 @@ public final class GraphQueryScript {
     List<GraphQueryService.ContextItem> contextItems = new ArrayList<>();
 
     contextItems.add(
-        new GraphQueryService.ContextItem(
-            "Sale", List.of("Retrieve", "Compute"), 100, "direct"));
+        new GraphQueryService.ContextItem("Sale", List.of("Retrieve", "Compute"), 100, "direct"));
     contextItems.add(
-        new GraphQueryService.ContextItem(
-            "Customer", List.of("Retrieve"), 100, "direct"));
+        new GraphQueryService.ContextItem("Customer", List.of("Retrieve"), 100, "direct"));
     contextItems.add(
-        new GraphQueryService.ContextItem(
-            "Product", List.of("Retrieve"), 100, "indirect"));
+        new GraphQueryService.ContextItem("Product", List.of("Retrieve"), 100, "indirect"));
 
     return new GraphQueryService.QueryRequest(contextItems);
   }
@@ -142,8 +137,7 @@ public final class GraphQueryScript {
         values.put(key, value);
       }
 
-      String config =
-          values.getOrDefault("config-file", "classpath:application.yaml");
+      String config = values.getOrDefault("config-file", "classpath:application.yaml");
       String context = values.get("context-file");
       String mode = values.getOrDefault("mode", "server");
 
@@ -156,4 +150,3 @@ public final class GraphQueryScript {
     }
   }
 }
-

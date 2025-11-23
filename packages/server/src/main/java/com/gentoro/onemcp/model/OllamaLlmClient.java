@@ -7,11 +7,17 @@ import io.github.ollama4j.models.chat.OllamaChatMessageRole;
 import io.github.ollama4j.models.chat.OllamaChatRequest;
 import io.github.ollama4j.models.chat.OllamaChatResult;
 import io.github.ollama4j.models.chat.OllamaChatStreamObserver;
+import io.github.ollama4j.models.generate.OllamaGenerateRequest;
+import io.github.ollama4j.models.generate.OllamaGenerateStreamObserver;
 import io.github.ollama4j.models.generate.OllamaGenerateTokenHandler;
+import io.github.ollama4j.models.response.OllamaResult;
 import io.github.ollama4j.tools.Tools;
 import io.github.ollama4j.utils.Options;
 import io.github.ollama4j.utils.OptionsBuilder;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.configuration2.Configuration;
 
@@ -21,50 +27,10 @@ public class OllamaLlmClient extends AbstractLlmClient {
     super(oneMcp, configuration);
   }
 
-  @Override
-  public String runInference(
-      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
-    final Ollama ollama = new Ollama(configuration.getString("baseUrl", "http://localhost:11434"));
-    ollama.setRequestTimeoutSeconds(TimeUnit.MINUTES.toMillis(5));
-    if (tools != null && !tools.isEmpty()) {
-      tools.forEach(t -> ollama.registerTool(convertTool(t, listener)));
-    }
-
-    Options options = new OptionsBuilder().setTemperature(0.3f).setRepeatPenalty(1.5f).build();
-
-    OllamaChatRequest builder =
-        OllamaChatRequest.builder()
-            .withModel(configuration.getString("model"))
-            .withUseTools(true)
-            .withOptions(options)
-            .withTools(new ArrayList<>());
-    // .withTools(tools == null ? Collections.emptyList() : tools.stream().map(t -> convertTool(t,
-    // listener)).toList());
-    List<Message> localMessages = new ArrayList<>();
-    localMessages.addAll(messages);
-
-    localMessages.forEach(
-        m ->
-            builder.withMessage(
-                switch (m.role()) {
-                  case USER -> OllamaChatMessageRole.USER;
-                  case ASSISTANT -> OllamaChatMessageRole.ASSISTANT;
-                  case SYSTEM -> OllamaChatMessageRole.SYSTEM;
-                  default -> throw new com.gentoro.onemcp.exception.StateException(
-                      "Unknown message role: " + m.role());
-                },
-                m.content()));
-
-    try {
-      OllamaChatResult chatCompletion;
-      do {
-        long start = System.currentTimeMillis();
-
-        // Define a stream observer.
-        OllamaChatStreamObserver streamObserver = new OllamaChatStreamObserver();
-        System.out.println("Starting LLM inference...");
-        // If thinking tokens are found, print them in lowercase :)
-        streamObserver.setThinkingStreamHandler(
+  private OllamaGenerateStreamObserver initializeGenerateObserver() {
+    // Define a stream observer.
+    OllamaGenerateStreamObserver streamObserver =
+        new OllamaGenerateStreamObserver(
             new OllamaGenerateTokenHandler() {
               @Override
               public void accept(String message) {
@@ -75,9 +41,7 @@ public class OllamaLlmClient extends AbstractLlmClient {
                   System.out.print(message);
                 }
               }
-            });
-        // Response tokens to be printed in lowercase
-        streamObserver.setResponseStreamHandler(
+            },
             new OllamaGenerateTokenHandler() {
               @Override
               public void accept(String message) {
@@ -91,8 +55,108 @@ public class OllamaLlmClient extends AbstractLlmClient {
                 }
               }
             });
+    return streamObserver;
+  }
 
-        chatCompletion = ollama.chat(builder.build(), streamObserver);
+  @Override
+  public String runContentGeneration(
+      String message, List<Tool> tools, InferenceEventListener listener) {
+    final Ollama ollama = new Ollama(configuration.getString("baseUrl", "http://localhost:11434"));
+    final Options options =
+        new OptionsBuilder().setTemperature(0.3f).setRepeatPenalty(1.5f).build();
+    OllamaGenerateRequest request =
+        OllamaGenerateRequest.builder()
+            .withModel(configuration.getString("model"))
+            .withUseTools(false)
+            .withPrompt(message)
+            .withOptions(options)
+            .build();
+
+    try {
+      OllamaResult result = ollama.generate(request, initializeGenerateObserver());
+      return result.getResponse();
+    } catch (OllamaException e) {
+      throw new com.gentoro.onemcp.exception.LlmException("Failed to run LLM inference", e);
+    }
+  }
+
+  private OllamaChatRequest initializeChat(
+      Ollama ollama, List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+    ollama.setRequestTimeoutSeconds(TimeUnit.MINUTES.toMillis(5));
+    if (tools != null && !tools.isEmpty()) {
+      tools.forEach(t -> ollama.registerTool(convertTool(t, listener)));
+    }
+
+    Options options = new OptionsBuilder().setTemperature(0.3f).setRepeatPenalty(1.5f).build();
+
+    OllamaChatRequest builder =
+        OllamaChatRequest.builder()
+            .withModel(configuration.getString("model"))
+            .withUseTools(true)
+            .withOptions(options)
+            .withTools(new ArrayList<>());
+    List<Message> localMessages = new ArrayList<>(messages);
+    localMessages.forEach(
+        m ->
+            builder.withMessage(
+                switch (m.role()) {
+                  case USER -> OllamaChatMessageRole.USER;
+                  case ASSISTANT -> OllamaChatMessageRole.ASSISTANT;
+                  case SYSTEM -> OllamaChatMessageRole.SYSTEM;
+                  default -> throw new com.gentoro.onemcp.exception.StateException(
+                      "Unknown message role: " + m.role());
+                },
+                m.content()));
+
+    return builder.build();
+  }
+
+  private OllamaChatStreamObserver initializeChatObserver() {
+    // Define a stream observer.
+    OllamaChatStreamObserver streamObserver = new OllamaChatStreamObserver();
+    System.out.println("Starting LLM inference...");
+    // If thinking tokens are found, print them in lowercase :)
+    streamObserver.setThinkingStreamHandler(
+        new OllamaGenerateTokenHandler() {
+          @Override
+          public void accept(String message) {
+            if (message.contains("\n") || message.contains("\r")) {
+              System.out.print("\rThinking: " + message.replaceAll("\\r?\\n", " "));
+              System.out.flush();
+            } else {
+              System.out.print(message);
+            }
+          }
+        });
+    // Response tokens to be printed in lowercase
+    streamObserver.setResponseStreamHandler(
+        new OllamaGenerateTokenHandler() {
+          @Override
+          public void accept(String message) {
+            if (message.contains("\n") || message.contains("\r")) {
+              System.out.printf(
+                  "\rGenerating (OrchestratorApp: %s): %s",
+                  configuration.getString("model"), message.replaceAll("\\r?\\n", " "));
+              System.out.flush();
+            } else {
+              System.out.print(message);
+            }
+          }
+        });
+    return streamObserver;
+  }
+
+  @Override
+  public String runInference(
+      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+
+    final Ollama ollama = new Ollama(configuration.getString("baseUrl", "http://localhost:11434"));
+    final OllamaChatRequest builder = initializeChat(ollama, messages, tools, listener);
+    try {
+      OllamaChatResult chatCompletion;
+      do {
+        long start = System.currentTimeMillis();
+        chatCompletion = ollama.chat(builder.build(), initializeChatObserver());
         listener.on(EventType.ON_COMPLETION, chatCompletion);
         long end = System.currentTimeMillis();
         System.out.flush();

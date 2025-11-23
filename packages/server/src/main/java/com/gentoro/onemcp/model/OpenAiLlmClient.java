@@ -2,9 +2,6 @@ package com.gentoro.onemcp.model;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.gentoro.onemcp.OneMcp;
-import com.gentoro.onemcp.messages.ExecutionPlan;
-import com.gentoro.onemcp.messages.StepImplementation;
-import com.gentoro.onemcp.messages.Summary;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import com.openai.client.OpenAIClient;
 import com.openai.core.JsonValue;
@@ -27,9 +24,7 @@ public class OpenAiLlmClient extends AbstractLlmClient {
     this.openAIClient = openAIClient;
   }
 
-  @Override
-  public String runInference(
-      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+  private ChatCompletionCreateParams.Builder initialize(List<Message> messages, List<Tool> tools) {
     String modelId = configuration.getString("model", ChatModel.GPT_4_1.toString());
     ChatModel model;
     try {
@@ -39,12 +34,10 @@ public class OpenAiLlmClient extends AbstractLlmClient {
       model = ChatModel.GPT_4_1;
     }
 
-    ChatCompletionCreateParams.Builder builder =
-        ChatCompletionCreateParams.builder()
-            .model(model);
+    ChatCompletionCreateParams.Builder builder = ChatCompletionCreateParams.builder().model(model);
 
-    if( Message.contains( messages, Role.SYSTEM) ) {
-        builder.addSystemMessage(Message.findFirst(messages, Role.SYSTEM).content());
+    if (Message.contains(messages, Role.SYSTEM)) {
+      builder.addSystemMessage(Message.findFirst(messages, Role.SYSTEM).content());
     }
 
     if (tools != null && !tools.isEmpty()) {
@@ -63,7 +56,37 @@ public class OpenAiLlmClient extends AbstractLlmClient {
                     "Unknown message role: " + message.role());
               }
             });
+    return builder;
+  }
 
+  @Override
+  public String runContentGeneration(
+      String message, List<Tool> tools, InferenceEventListener listener) {
+    ChatCompletionCreateParams.Builder builder = initialize(Collections.emptyList(), tools);
+
+    long start = System.currentTimeMillis();
+    ChatCompletion chatCompletion = openAIClient.chat().completions().create(builder.build());
+    listener.on(EventType.ON_COMPLETION, chatCompletion);
+
+    if (chatCompletion.choices().isEmpty()) {
+      throw new com.gentoro.onemcp.exception.LlmException(
+          "No candidates returned from OpenAI inference.");
+    }
+
+    return chatCompletion.choices().stream()
+        .filter(c -> c.message().content().isPresent())
+        .map(c -> c.message().content().get())
+        .findFirst()
+        .orElseThrow(
+            () ->
+                new com.gentoro.onemcp.exception.LlmException(
+                    "No content returned from Gemini inference."));
+  }
+
+  @Override
+  public String runInference(
+      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+    ChatCompletionCreateParams.Builder builder = initialize(messages, tools);
     final TypeReference<HashMap<String, Object>> typeRef =
         new TypeReference<HashMap<String, Object>>() {};
 
@@ -113,12 +136,6 @@ public class OpenAiLlmClient extends AbstractLlmClient {
                     .toolCallId(toolCall.function().get().id())
                     .content(content)
                     .build());
-
-            if (tool.name().equals(ExecutionPlan.class.getSimpleName())
-                || tool.name().equals(StepImplementation.class.getSimpleName())
-                || tool.name().equals(Summary.class.getSimpleName())) {
-              break main_loop;
-            }
           } catch (Exception e) {
             throw new com.gentoro.onemcp.exception.LlmException(
                 "Failed to execute tool: " + toolCall.function().get().function().name(), e);
@@ -156,7 +173,8 @@ public class OpenAiLlmClient extends AbstractLlmClient {
 
   private FunctionParameters convertSchema(ToolProperty property) {
     FunctionParameters.Builder paramsBuilder = FunctionParameters.builder();
-    convertProperty(property).forEach((key, value) -> paramsBuilder.putAdditionalProperty(key, JsonValue.from(value)));
+    convertProperty(property)
+        .forEach((key, value) -> paramsBuilder.putAdditionalProperty(key, JsonValue.from(value)));
     return paramsBuilder.build();
   }
 
