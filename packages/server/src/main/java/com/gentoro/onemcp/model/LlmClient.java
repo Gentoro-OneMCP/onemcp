@@ -27,6 +27,38 @@ public interface LlmClient {
   String generate(
       String message, List<Tool> tools, boolean cacheable, InferenceEventListener listener);
 
+  /**
+   * Provider-agnostic telemetry sink that model implementations can use to record tracing
+   * information and token usage without depending on orchestrator types.
+   */
+  interface TelemetrySink {
+    void startChild(String name);
+
+    void endCurrentOk(java.util.Map<String, Object> attrs);
+
+    void endCurrentError(java.util.Map<String, Object> attrs);
+
+    void addUsage(Long promptTokens, Long completionTokens, Long totalTokens);
+
+    /** Attributes map of the current span (if any). Implementations may return a live map. */
+    java.util.Map<String, Object> currentAttributes();
+  }
+
+  /**
+   * Binds a telemetry sink to the current thread for the duration of the returned scope.
+   * Implementations should read this sink (if present) and record their own spans/attributes.
+   */
+  interface TelemetryScope extends AutoCloseable {
+    @Override
+    void close();
+  }
+
+  /**
+   * Attach a telemetry sink for the duration of a block. Typical usage: try (var ignored =
+   * llm.withTelemetry(sink)) { llm.chat(...); }
+   */
+  TelemetryScope withTelemetry(TelemetrySink sink);
+
   enum Role {
     SYSTEM,
     ASSISTANT,

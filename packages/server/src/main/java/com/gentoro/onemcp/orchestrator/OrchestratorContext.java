@@ -19,6 +19,7 @@ public class OrchestratorContext {
   private final KnowledgeBase knowledgeBase;
   private final ValueStore valueStore;
   private final OneMcp oneMcp;
+  private final TelemetryTracer telemetryTracer;
 
   public OrchestratorContext(OneMcp oneMcp, ValueStore valueStore) {
     this.oneMcp = oneMcp;
@@ -26,6 +27,7 @@ public class OrchestratorContext {
     this.promptTemplateManager = oneMcp().promptRepository();
     this.knowledgeBase = oneMcp.knowledgeBase();
     this.valueStore = valueStore;
+    this.telemetryTracer = new TelemetryTracer();
   }
 
   /** LLM client used for chatting with the provider. */
@@ -50,5 +52,10 @@ public class OrchestratorContext {
 
   public OneMcp oneMcp() {
     return oneMcp;
+  }
+
+  /** Tracer used to record nested spans and aggregate token usage. */
+  public TelemetryTracer tracer() {
+    return telemetryTracer;
   }
 }

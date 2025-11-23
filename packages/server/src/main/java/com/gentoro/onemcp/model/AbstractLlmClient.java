@@ -27,10 +27,29 @@ public abstract class AbstractLlmClient implements LlmClient {
       com.gentoro.onemcp.logging.LoggingService.getLogger(AbstractLlmClient.class);
   protected final Configuration configuration;
   private final OneMcp oneMcp;
+  private static final ThreadLocal<TelemetrySink> TELEMETRY_SINK = new ThreadLocal<>();
 
   public AbstractLlmClient(OneMcp oneMcp, Configuration configuration) {
     this.oneMcp = oneMcp;
     this.configuration = configuration;
+  }
+
+  @Override
+  public TelemetryScope withTelemetry(TelemetrySink sink) {
+    final TelemetrySink previous = TELEMETRY_SINK.get();
+    TELEMETRY_SINK.set(sink);
+    return () -> {
+      // restore previous to support nesting
+      if (previous == null) {
+        TELEMETRY_SINK.remove();
+      } else {
+        TELEMETRY_SINK.set(previous);
+      }
+    };
+  }
+
+  protected TelemetrySink telemetry() {
+    return TELEMETRY_SINK.get();
   }
 
   @Override
