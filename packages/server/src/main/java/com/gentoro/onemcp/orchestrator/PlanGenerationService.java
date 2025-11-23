@@ -87,7 +87,7 @@ public class PlanGenerationService {
         JsonNode executionPlan = JacksonUtility.getJsonMapper().readTree(jsonContent);
         ExecutionPlanValidator.validate(executionPlan, listOfAllowedOperations);
         // Success: close the parent span only once and return
-        context.tracer().endCurrentOk(Map.of("attempts", attempts));
+        context.tracer().endCurrentOk(Map.of("attempts", attempts, "execution_plan", jsonContent));
         return executionPlan;
       } catch (Exception e) {
         promptSession.enableOnly(

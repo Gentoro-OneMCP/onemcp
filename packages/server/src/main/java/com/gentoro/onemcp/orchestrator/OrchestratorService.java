@@ -12,6 +12,8 @@ import com.gentoro.onemcp.messages.AssigmentResult;
 import com.gentoro.onemcp.messages.AssignmentContext;
 import com.gentoro.onemcp.openapi.EndpointInvoker;
 import com.gentoro.onemcp.openapi.OpenApiLoader;
+import com.gentoro.onemcp.orchestrator.progress.NoOpProgressSink;
+import com.gentoro.onemcp.orchestrator.progress.ProgressSink;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import com.gentoro.onemcp.utility.StdoutUtility;
 import com.gentoro.onemcp.utility.StringUtility;
@@ -74,6 +76,14 @@ public class OrchestratorService {
   }
 
   public AssigmentResult handlePrompt(String prompt) {
+    return handlePrompt(prompt, new NoOpProgressSink());
+  }
+
+  /**
+   * Handle a natural language prompt request and return a structured result, emitting optional
+   * progress updates through the provided {@link ProgressSink}.
+   */
+  public AssigmentResult handlePrompt(String prompt, ProgressSink progress) {
     log.trace("Processing prompt: {}", prompt);
 
     final List<String> calledOperations = new ArrayList<>();
@@ -88,9 +98,17 @@ public class OrchestratorService {
         String promptPreview = prompt.length() > 500 ? prompt.substring(0, 500) + "…" : prompt;
         tracer.current().attributes.put("prompt.preview", promptPreview);
       }
+
+      // Extract entities stage
+      progress.beginStage("extract", "Extracting entities", 1);
       StdoutUtility.printNewLine(oneMcp, "Extracting entities.");
       assignmentContext = new EntityExtractionService(ctx).extractContext(prompt.trim());
+      int entityCount =
+          assignmentContext.getContext() == null ? 0 : assignmentContext.getContext().size();
+      progress.endStageOk("extract", Map.of("entities", entityCount));
 
+      // Plan generation stage
+      progress.beginStage("plan", "Generating execution plan", 1);
       StdoutUtility.printNewLine(oneMcp, "Generating execution plan.");
       JsonNode plan = new PlanGenerationService(ctx).generatePlan(assignmentContext);
       StdoutUtility.printSuccessLine(
@@ -99,7 +117,10 @@ public class OrchestratorService {
               .formatted(StringUtility.formatWithIndent(JacksonUtility.toJson(plan), 4)));
       log.trace(
           "Generated plan:\n{}", StringUtility.formatWithIndent(JacksonUtility.toJson(plan), 4));
+      int steps = plan.has("steps") && plan.get("steps").isArray() ? plan.get("steps").size() : 0;
+      progress.endStageOk("plan", Map.of("steps", steps));
 
+      // Prepare operations stage (we can’t know execution count precisely here)
       OperationRegistry operationRegistry = new OperationRegistry();
       for (Service service : ctx.knowledgeBase().services()) {
         OpenAPI openApiDef = service.definition(ctx.knowledgeBase().handbookPath());
@@ -112,9 +133,7 @@ public class OrchestratorService {
                   (data) -> {
                     try {
                       long opStart = System.currentTimeMillis();
-                      TelemetryTracer.Span span =
-                          ctx.tracer()
-                              .startChild("operation: %s.%s".formatted(service.getSlug(), key));
+                      ctx.tracer().startChild("operation: %s.%s".formatted(service.getSlug(), key));
                       calledOperations.add("%s.%s".formatted(service.getSlug(), key));
                       log.trace(
                           "Invoking operation {} with data {}", key, JacksonUtility.toJson(data));
@@ -154,18 +173,23 @@ public class OrchestratorService {
             });
       }
 
+      // Execute plan stage
+      progress.beginStage("exec", "Executing plan", calledOperations.size());
       StdoutUtility.printNewLine(oneMcp, "Executing plan.");
       ExecutionPlanEngine engine =
           new ExecutionPlanEngine(JacksonUtility.getJsonMapper(), operationRegistry);
-      TelemetryTracer.Span execSpan = ctx.tracer().startChild("execution_plan");
+      ctx.tracer().startChild("execution_plan");
       JsonNode output;
       try {
         output = engine.execute(plan, null);
         ctx.tracer().endCurrentOk(Map.of("engine", "ExecutionPlanEngine"));
+        progress.endStageOk("exec", Map.of("engine", "ExecutionPlanEngine"));
       } catch (Exception ex) {
         ctx.tracer()
             .endCurrentError(
                 Map.of("engine", "ExecutionPlanEngine", "error", ex.getClass().getSimpleName()));
+        progress.endStageError(
+            "exec", ex.getClass().getSimpleName(), Map.of("engine", "ExecutionPlanEngine"));
         throw ex;
       }
       String outputStr = JacksonUtility.toJson(output);
@@ -204,6 +228,18 @@ public class OrchestratorService {
             totalTimeMs,
             calledOperations,
             ctx.tracer().toTrace());
+    progress.beginStage("finalize", "Finalizing response", 1);
+    progress.endStageOk(
+        "finalize",
+        Map.of(
+            "totalTimeMs",
+            totalTimeMs,
+            "promptTokens",
+            ctx.tracer().promptTokens(),
+            "completionTokens",
+            ctx.tracer().completionTokens(),
+            "totalTokens",
+            ctx.tracer().totalTokens()));
     return new AssigmentResult(assignmentParts, stats, assignmentContext);
   }
 }

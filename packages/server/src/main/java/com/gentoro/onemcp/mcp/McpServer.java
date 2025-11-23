@@ -3,6 +3,9 @@ package com.gentoro.onemcp.mcp;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.exception.ExceptionUtil;
+import com.gentoro.onemcp.orchestrator.progress.McpProgressSink;
+import com.gentoro.onemcp.orchestrator.progress.NoOpProgressSink;
+import com.gentoro.onemcp.orchestrator.progress.ProgressSink;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -129,10 +132,40 @@ public class McpServer implements AutoCloseable {
                     .callHandler(
                         (srv, request) -> {
                           try {
+                            Object progressToken =
+                                Objects.requireNonNullElse(
+                                        request.meta(), Collections.<String, Object>emptyMap())
+                                    .get("progressToken");
+                            boolean progressRequested = progressToken != null;
+
+                            // Progress configuration (optional)
+                            boolean progressEnabled =
+                                oneMcp
+                                    .configuration()
+                                    .getBoolean("http.mcp.progress.enabled", true);
+                            long minIntervalMs =
+                                oneMcp
+                                    .configuration()
+                                    .getLong("http.mcp.progress.min-interval-ms", 300L);
+                            long minDelta =
+                                oneMcp.configuration().getLong("http.mcp.progress.min-delta", 1L);
+                            ProgressSink sink;
+                            if (progressEnabled && progressRequested) {
+                              sink =
+                                  new McpProgressSink(
+                                      log, // mirror to the same category for diagnostics
+                                      minIntervalMs,
+                                      minDelta,
+                                      srv,
+                                      progressToken);
+                            } else {
+                              sink = new NoOpProgressSink();
+                            }
                             var result =
                                 oneMcp
                                     .orchestrator()
-                                    .handlePrompt(request.arguments().get("prompt").toString());
+                                    .handlePrompt(
+                                        request.arguments().get("prompt").toString(), sink);
                             return new McpSchema.CallToolResult(
                                 JacksonUtility.toJson(result), false);
                           } catch (Exception e) {

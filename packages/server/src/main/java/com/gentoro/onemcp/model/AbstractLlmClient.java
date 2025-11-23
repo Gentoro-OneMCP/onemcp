@@ -6,6 +6,7 @@ import com.gentoro.onemcp.exception.LlmException;
 import com.gentoro.onemcp.utility.StdoutUtility;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import org.apache.commons.configuration2.Configuration;
@@ -64,19 +65,40 @@ public abstract class AbstractLlmClient implements LlmClient {
             .collect(Collectors.joining(", ")),
         cacheable);
     long start = System.currentTimeMillis();
+    TelemetrySink t = telemetry();
+
+    t.startChild("abstractLLM.generate");
+    t.currentAttributes().put("message", message);
+    t.currentAttributes()
+        .put(
+            "tools",
+            Objects.requireNonNullElse(tools, Collections.<Tool>emptyList()).stream()
+                .map(Tool::name)
+                .collect(Collectors.joining(", ")));
+
     try {
-      return runContentGeneration(
-          message,
-          tools,
-          new InferenceEventListener() {
-            @Override
-            public void on(EventType type, Object data) {
-              if (_listener != null) {
-                _listener.on(type, data);
-              }
-            }
-          });
+      String content =
+          runContentGeneration(
+              message,
+              tools,
+              new InferenceEventListener() {
+                @Override
+                public void on(EventType type, Object data) {
+                  if (_listener != null) {
+                    _listener.on(type, data);
+                  }
+                }
+              });
+      t.endCurrentOk(
+          Map.of("latencyMs", (System.currentTimeMillis() - start), "completion", content));
+      return content;
     } catch (Exception e) {
+      t.endCurrentError(
+          Map.of(
+              "latencyMs",
+              (System.currentTimeMillis() - start),
+              "error",
+              ExceptionUtil.formatCompactStackTrace(e)));
       throw ExceptionUtil.rethrowIfUnchecked(
           e,
           (ex) ->

@@ -104,7 +104,7 @@ public class EntityExtractionService {
         }
 
         // Successfully produced a valid assignment context; close the parent span once and return
-        context.tracer().endCurrentOk(Map.of("attempts", attempts));
+        context.tracer().endCurrentOk(Map.of("attempts", attempts, "context", jsonContent));
         return assignmentContext;
       } catch (Exception e) {
         promptSession.enableOnly(
