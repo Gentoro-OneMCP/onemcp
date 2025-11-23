@@ -69,10 +69,19 @@ public class AnthropicLlmClient extends AbstractLlmClient {
     InitializationContext ctx = initialize(Collections.emptyList(), tools);
 
     long start = System.currentTimeMillis();
+    TelemetrySink t = telemetry();
+    if (t != null) {
+      t.startChild("llm.anthropic");
+      t.currentAttributes().put("provider", "anthropic");
+      t.currentAttributes().put("model", ctx.modelName());
+      t.currentAttributes().put("tools.count", tools == null ? 0 : tools.size());
+      t.currentAttributes().put("messages.count", ctx.localMessages().size());
+      t.currentAttributes().put("mode", "generate");
+    }
     ctx.configBuilder().messages(ctx.localMessages());
     com.anthropic.models.messages.Message chatCompletion =
         anthropicClient.messages().create(ctx.configBuilder().build());
-    listener.on(EventType.ON_COMPLETION, chatCompletion);
+    if (listener != null) listener.on(EventType.ON_COMPLETION, chatCompletion);
 
     long end = System.currentTimeMillis();
     long totalTokens = chatCompletion.usage().inputTokens() + chatCompletion.usage().outputTokens();
@@ -81,6 +90,13 @@ public class AnthropicLlmClient extends AbstractLlmClient {
         ctx.modelName(),
         (end - start),
         totalTokens);
+    if (t != null) {
+      t.addUsage(
+          Long.valueOf(chatCompletion.usage().inputTokens()),
+          Long.valueOf(chatCompletion.usage().outputTokens()),
+          Long.valueOf(totalTokens));
+      t.endCurrentOk(java.util.Map.of("latencyMs", (end - start), "usage.total", totalTokens));
+    }
 
     if (chatCompletion.content().isEmpty()) {
       throw new com.gentoro.onemcp.exception.LlmException(

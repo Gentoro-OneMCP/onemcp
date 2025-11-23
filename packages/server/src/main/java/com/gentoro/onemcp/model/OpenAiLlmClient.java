@@ -65,22 +65,54 @@ public class OpenAiLlmClient extends AbstractLlmClient {
     ChatCompletionCreateParams.Builder builder = initialize(Collections.emptyList(), tools);
 
     long start = System.currentTimeMillis();
+    TelemetrySink t = telemetry();
+    if (t != null) {
+      t.startChild("llm.openai");
+      t.currentAttributes().put("provider", "openai");
+      String modelId = configuration.getString("model", ChatModel.GPT_4_1.toString());
+      t.currentAttributes().put("model", modelId);
+      t.currentAttributes().put("tools.count", tools == null ? 0 : tools.size());
+      t.currentAttributes().put("messages.count", 0);
+      t.currentAttributes().put("mode", "generate");
+    }
     ChatCompletion chatCompletion = openAIClient.chat().completions().create(builder.build());
-    listener.on(EventType.ON_COMPLETION, chatCompletion);
+    if (listener != null) listener.on(EventType.ON_COMPLETION, chatCompletion);
 
     if (chatCompletion.choices().isEmpty()) {
+      if (t != null) {
+        long end = System.currentTimeMillis();
+        t.endCurrentError(java.util.Map.of("latencyMs", (end - start), "error", "No choices"));
+      }
       throw new com.gentoro.onemcp.exception.LlmException(
           "No candidates returned from OpenAI inference.");
     }
 
-    return chatCompletion.choices().stream()
-        .filter(c -> c.message().content().isPresent())
-        .map(c -> c.message().content().get())
-        .findFirst()
-        .orElseThrow(
-            () ->
-                new com.gentoro.onemcp.exception.LlmException(
-                    "No content returned from Gemini inference."));
+    String content =
+        chatCompletion.choices().stream()
+            .filter(c -> c.message().content().isPresent())
+            .map(c -> c.message().content().get())
+            .findFirst()
+            .orElseThrow(
+                () ->
+                    new com.gentoro.onemcp.exception.LlmException(
+                        "No content returned from Gemini inference."));
+    long end = System.currentTimeMillis();
+    if (t != null) {
+      chatCompletion
+          .usage()
+          .ifPresent(
+              u ->
+                  t.addUsage(
+                      Long.valueOf(u.promptTokens()),
+                      Long.valueOf(u.completionTokens()),
+                      Long.valueOf(u.totalTokens())));
+      Long total =
+          chatCompletion.usage().isPresent()
+              ? Long.valueOf(chatCompletion.usage().get().totalTokens())
+              : null;
+      t.endCurrentOk(java.util.Map.of("latencyMs", (end - start), "usage.total", total));
+    }
+    return content;
   }
 
   @Override
@@ -94,8 +126,18 @@ public class OpenAiLlmClient extends AbstractLlmClient {
     main_loop:
     while (true) {
       long start = System.currentTimeMillis();
+      TelemetrySink t2 = telemetry();
+      if (t2 != null) {
+        t2.startChild("llm.openai");
+        t2.currentAttributes().put("provider", "openai");
+        String modelId = configuration.getString("model", ChatModel.GPT_4_1.toString());
+        t2.currentAttributes().put("model", modelId);
+        t2.currentAttributes().put("tools.count", tools == null ? 0 : tools.size());
+        t2.currentAttributes().put("messages.count", messages == null ? 0 : messages.size());
+        t2.currentAttributes().put("mode", "chat");
+      }
       ChatCompletion chatCompletion = openAIClient.chat().completions().create(builder.build());
-      listener.on(EventType.ON_COMPLETION, chatCompletion);
+      if (listener != null) listener.on(EventType.ON_COMPLETION, chatCompletion);
 
       final List<ChatCompletionMessageToolCall> llmToolCalls = new ArrayList<>();
       ChatCompletion.Choice choice = chatCompletion.choices().getFirst();
@@ -105,6 +147,21 @@ public class OpenAiLlmClient extends AbstractLlmClient {
           "[Inference] - OpenAI:\nLLM inference took {} ms.\nTotal tokens {}.\n---\n",
           (end - start),
           chatCompletion.usage().get().totalTokens());
+      if (t2 != null) {
+        chatCompletion
+            .usage()
+            .ifPresent(
+                u ->
+                    t2.addUsage(
+                        Long.valueOf(u.promptTokens()),
+                        Long.valueOf(u.completionTokens()),
+                        Long.valueOf(u.totalTokens())));
+        Long total =
+            chatCompletion.usage().isPresent()
+                ? Long.valueOf(chatCompletion.usage().get().totalTokens())
+                : null;
+        t2.endCurrentOk(java.util.Map.of("latencyMs", (end - start), "usage.total", total));
+      }
 
       builder.addMessage(choice.message());
       if (choice.message().toolCalls().isPresent()) {

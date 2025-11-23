@@ -81,8 +81,8 @@ activations:
         
         ```json
         {
-          "refined_assignment": "{The rephrased, API-aligned version of the assignment (Step 1).}",
-          "unhandled_parts": "{Any part of the assignment that cannot be handled by the API (Step 3). State 'None' if fully supported.}",
+          "refinedAssignment": "{The rephrased, API-aligned version of the assignment (Step 1).}",
+          "unhandledParts": "{Any part of the assignment that cannot be handled by the API (Step 3). State 'None' if fully supported.}",
           "context": [
             {
               // can only contains entities referred in this document

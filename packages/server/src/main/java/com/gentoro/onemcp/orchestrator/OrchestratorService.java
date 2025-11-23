@@ -6,7 +6,9 @@ import com.gentoro.onemcp.context.Service;
 import com.gentoro.onemcp.engine.ExecutionPlanEngine;
 import com.gentoro.onemcp.engine.ExecutionPlanException;
 import com.gentoro.onemcp.engine.OperationRegistry;
+import com.gentoro.onemcp.exception.ExceptionUtil;
 import com.gentoro.onemcp.memory.ValueStore;
+import com.gentoro.onemcp.messages.AssigmentResult;
 import com.gentoro.onemcp.messages.AssignmentContext;
 import com.gentoro.onemcp.openapi.EndpointInvoker;
 import com.gentoro.onemcp.openapi.OpenApiLoader;
@@ -14,6 +16,8 @@ import com.gentoro.onemcp.utility.JacksonUtility;
 import com.gentoro.onemcp.utility.StdoutUtility;
 import com.gentoro.onemcp.utility.StringUtility;
 import io.swagger.v3.oas.models.OpenAPI;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 
@@ -69,15 +73,23 @@ public class OrchestratorService {
     }
   }
 
-  public String handlePrompt(String prompt) {
+  public AssigmentResult handlePrompt(String prompt) {
     log.trace("Processing prompt: {}", prompt);
 
-    long start = System.currentTimeMillis();
+    final List<String> calledOperations = new ArrayList<>();
+    final List<AssigmentResult.Assignment> assignmentParts = new ArrayList<>();
+    final long start = System.currentTimeMillis();
+    AssignmentContext assignmentContext = null;
+    OrchestratorContext ctx = new OrchestratorContext(oneMcp, new ValueStore());
     try {
-      OrchestratorContext ctx = new OrchestratorContext(oneMcp, new ValueStore());
+      // annotate root span with incoming prompt (truncated to avoid sensitive data)
+      TelemetryTracer tracer = ctx.tracer();
+      if (tracer.current() != null) {
+        String promptPreview = prompt.length() > 500 ? prompt.substring(0, 500) + "…" : prompt;
+        tracer.current().attributes.put("prompt.preview", promptPreview);
+      }
       StdoutUtility.printNewLine(oneMcp, "Extracting entities.");
-      AssignmentContext assignmentContext =
-          new EntityExtractionService(ctx).extractContext(prompt.trim());
+      assignmentContext = new EntityExtractionService(ctx).extractContext(prompt.trim());
 
       StdoutUtility.printNewLine(oneMcp, "Generating execution plan.");
       JsonNode plan = new PlanGenerationService(ctx).generatePlan(assignmentContext);
@@ -99,17 +111,42 @@ public class OrchestratorService {
                   key,
                   (data) -> {
                     try {
+                      long opStart = System.currentTimeMillis();
+                      TelemetryTracer.Span span =
+                          ctx.tracer()
+                              .startChild("operation: %s.%s".formatted(service.getSlug(), key));
+                      calledOperations.add("%s.%s".formatted(service.getSlug(), key));
                       log.trace(
                           "Invoking operation {} with data {}", key, JacksonUtility.toJson(data));
                       StdoutUtility.printRollingLine(
                           oneMcp, "Invoking operation %s".formatted(key));
-                      return value.invoke(data.has("data") ? data.get("data") : data);
+                      JsonNode result = value.invoke(data.has("data") ? data.get("data") : data);
+                      long opEnd = System.currentTimeMillis();
+                      ctx.tracer()
+                          .endCurrentOk(
+                              Map.of(
+                                  "service",
+                                  service.getSlug(),
+                                  "operation",
+                                  key,
+                                  "latencyMs",
+                                  (opEnd - opStart)));
+                      return result;
                     } catch (Exception e) {
                       log.error(
                           "Error invoking service {} with data {}",
                           key,
                           JacksonUtility.toJson(data),
                           e);
+                      ctx.tracer()
+                          .endCurrentError(
+                              Map.of(
+                                  "service",
+                                  service.getSlug(),
+                                  "operation",
+                                  key,
+                                  "error",
+                                  e.getClass().getSimpleName() + ": " + e.getMessage()));
                       throw new ExecutionPlanException(
                           "Error invoking service %s".formatted(key), e);
                     }
@@ -120,7 +157,17 @@ public class OrchestratorService {
       StdoutUtility.printNewLine(oneMcp, "Executing plan.");
       ExecutionPlanEngine engine =
           new ExecutionPlanEngine(JacksonUtility.getJsonMapper(), operationRegistry);
-      JsonNode output = engine.execute(plan, null);
+      TelemetryTracer.Span execSpan = ctx.tracer().startChild("execution_plan");
+      JsonNode output;
+      try {
+        output = engine.execute(plan, null);
+        ctx.tracer().endCurrentOk(Map.of("engine", "ExecutionPlanEngine"));
+      } catch (Exception ex) {
+        ctx.tracer()
+            .endCurrentError(
+                Map.of("engine", "ExecutionPlanEngine", "error", ex.getClass().getSimpleName()));
+        throw ex;
+      }
       String outputStr = JacksonUtility.toJson(output);
 
       log.trace("Generated answer:\n{}", StringUtility.formatWithIndent(outputStr, 4));
@@ -130,10 +177,33 @@ public class OrchestratorService {
               .formatted(
                   (System.currentTimeMillis() - start),
                   StringUtility.formatWithIndent(outputStr, 4)));
-      return outputStr;
+
+      if (assignmentContext.getUnhandledParts() != null
+          && !assignmentContext.getUnhandledParts().isEmpty()) {
+        assignmentParts.add(
+            new AssigmentResult.Assignment(
+                false, assignmentContext.getUnhandledParts(), false, null));
+      }
+      assignmentParts.add(
+          new AssigmentResult.Assignment(
+              true, assignmentContext.getRefinedAssignment(), false, outputStr));
     } catch (Exception e) {
       StdoutUtility.printError(oneMcp, "Could not handle assignment properly", e);
+      assignmentParts.add(
+          new AssigmentResult.Assignment(
+              true, prompt, true, ExceptionUtil.formatCompactStackTrace(e)));
       throw e;
     }
+
+    long totalTimeMs = System.currentTimeMillis() - start;
+    AssigmentResult.Statistics stats =
+        new AssigmentResult.Statistics(
+            ctx.tracer().promptTokens(),
+            ctx.tracer().completionTokens(),
+            ctx.tracer().totalTokens(),
+            totalTimeMs,
+            calledOperations,
+            ctx.tracer().toTrace());
+    return new AssigmentResult(assignmentParts, stats, assignmentContext);
   }
 }

@@ -3,6 +3,7 @@ package com.gentoro.onemcp.mcp;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.exception.ExceptionUtil;
+import com.gentoro.onemcp.utility.JacksonUtility;
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServer;
@@ -132,7 +133,8 @@ public class McpServer implements AutoCloseable {
                                 oneMcp
                                     .orchestrator()
                                     .handlePrompt(request.arguments().get("prompt").toString());
-                            return new McpSchema.CallToolResult(result, false);
+                            return new McpSchema.CallToolResult(
+                                JacksonUtility.toJson(result), false);
                           } catch (Exception e) {
                             log.error("Failed to handle MCP tool request", e);
                             return new McpSchema.CallToolResult(

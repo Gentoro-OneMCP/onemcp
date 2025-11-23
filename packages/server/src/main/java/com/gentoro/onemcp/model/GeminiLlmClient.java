@@ -52,8 +52,31 @@ public class GeminiLlmClient extends AbstractLlmClient {
     GenerateContentConfig.Builder configBuilder = initializeConfigBuilder(tools);
 
     String modelName = configuration.getString("model", "gemini-2.5-flash");
+    TelemetrySink t = telemetry();
+    long start = System.currentTimeMillis();
+    if (t != null) {
+      t.startChild("llm.gemini");
+      t.currentAttributes().put("provider", "gemini");
+      t.currentAttributes().put("model", modelName);
+      t.currentAttributes().put("tools.count", tools == null ? 0 : tools.size());
+      t.currentAttributes().put("messages.count", 1);
+      t.currentAttributes().put("mode", "generate");
+    }
     GenerateContentResponse chatCompletion =
         geminiClient.models.generateContent(modelName, message, configBuilder.build());
+    long end = System.currentTimeMillis();
+    if (t != null) {
+      chatCompletion
+          .usageMetadata()
+          .ifPresent(
+              um -> {
+                t.addUsage(
+                    um.promptTokenCount().map(Long::valueOf).orElse(null),
+                    um.candidatesTokenCount().map(Long::valueOf).orElse(null),
+                    um.totalTokenCount().map(Long::valueOf).orElse(null));
+              });
+      t.endCurrentOk(java.util.Map.of("latencyMs", (end - start)));
+    }
     List<Candidate> candidates =
         chatCompletion
             .candidates()
@@ -107,17 +130,37 @@ public class GeminiLlmClient extends AbstractLlmClient {
     main_loop:
     while (true) {
       long start = System.currentTimeMillis();
+      TelemetrySink t = telemetry();
+      if (t != null) {
+        t.startChild("llm.gemini");
+        t.currentAttributes().put("provider", "gemini");
+        t.currentAttributes().put("model", modelName);
+        t.currentAttributes().put("tools.count", tools == null ? 0 : tools.size());
+        t.currentAttributes().put("messages.count", localMessages.size());
+        t.currentAttributes().put("mode", "chat");
+      }
 
       log.trace("Running inference with model: {}", modelName);
       chatCompletions =
           geminiClient.models.generateContent(modelName, localMessages, configBuilder.build());
-      listener.on(EventType.ON_COMPLETION, chatCompletions);
+      if (listener != null) listener.on(EventType.ON_COMPLETION, chatCompletions);
 
       long end = System.currentTimeMillis();
       log.trace(
           "Gemini inference took {} ms, and a total of {} token(s).",
           (end - start),
           chatCompletions.usageMetadata().get().totalTokenCount().get());
+      if (t != null) {
+        chatCompletions
+            .usageMetadata()
+            .ifPresent(
+                um ->
+                    t.addUsage(
+                        um.promptTokenCount().map(Long::valueOf).orElse(null),
+                        um.candidatesTokenCount().map(Long::valueOf).orElse(null),
+                        um.totalTokenCount().map(Long::valueOf).orElse(null)));
+        t.endCurrentOk(java.util.Map.of("latencyMs", (end - start)));
+      }
 
       if (chatCompletions.finishReason().knownEnum()
           == FinishReason.Known.MALFORMED_FUNCTION_CALL) {
@@ -167,7 +210,7 @@ public class GeminiLlmClient extends AbstractLlmClient {
           FunctionCall functionCall = part.functionCall().get();
           Tool tool =
               tools.stream()
-                  .filter(t -> t.name().equals(functionCall.name().get()))
+                  .filter(toolCandidate -> toolCandidate.name().equals(functionCall.name().get()))
                   .findFirst()
                   .orElse(null);
 
@@ -191,7 +234,7 @@ public class GeminiLlmClient extends AbstractLlmClient {
             continue;
           }
 
-          listener.on(EventType.ON_TOOL_CALL, tool);
+          if (listener != null) listener.on(EventType.ON_TOOL_CALL, tool);
           try {
             Map<String, Object> values = functionCall.args().get();
             String result = tool.execute(values);
