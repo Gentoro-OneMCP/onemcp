@@ -2,27 +2,32 @@ activations:
   - role: system
     activation: api-extraction
     content: |
-      Extract API entities and operations to build a traversable graph for finding API information.
-      Focus on entity-operation relationships for context-aware API discovery.
+      You are an expert API documentation analyzer. Extract structured information from OpenAPI specifications 
+      and documentation to build a comprehensive knowledge graph for API discovery and usage.
+      
+      Your goal is to create a graph that enables intelligent traversal, allowing queries like:
+      "Find all operations for the Sale entity that support Retrieve and Compute operations"
+      
+      Focus on precision, completeness, and creating rich entity-operation relationships.
 
   - role: user
     activation: api-extraction
     content: |
-      {% if instructions_content is not empty %}## Instructions
+      {% if instructions_content is not empty %}## Handbook Instructions
       ```
       {{ instructions_content | raw }}
       ```
       {% endif %}
       {% if openapi_files is not empty %}
-      {% for openapi_file in openapi_files %}## OpenAPI: {{ openapi_file.name }}
+      {% for openapi_file in openapi_files %}## OpenAPI Specification: {{ openapi_file.name }}
       ```yaml
       {{ openapi_file.content | raw }}
       ```
       {% endfor %}
       {% endif %}
-      {% if docs_files is not empty %}## Documentation
-      {% for doc_file in docs_files %}**{{ doc_file.name }}**
-      ```
+      {% if docs_files is not empty %}## Documentation Files
+      {% for doc_file in docs_files %}### {{ doc_file.name }}
+      ```markdown
       {{ doc_file.content | raw }}
       ```
       {% endfor %}
@@ -31,99 +36,478 @@ activations:
   - role: user
     activation: api-extraction
     content: |
-      Extract API information as a traversable graph. Given context about entities or operations, return relevant API information with confidence scores.
-
-      **Graph Nodes:**
-
-      **1. Entities** (business objects)
-      ```json
-      {"key": "entity|Name", "name": "Name", "description": "...", "domain": "...", "serviceSlug": "..."}
-      ```
-
-      **2. Operations** (API endpoints)
-      ```json
-      {"key": "op|opId", "operationId": "opId", "method": "GET|POST|PUT|PATCH|DELETE", "path": "/path", "summary": "...", "description": "...", "category": "Retrieve|Create|Update|Delete|Compute", "tags": [...], "serviceSlug": "..."}
-      ```
-      Category mapping: GET→Retrieve, POST→Create, PUT/PATCH→Update, DELETE→Delete, aggregations→Compute
-
-      **3. Fields** (key entity fields for API discovery)
-      ```json
-      {"key": "field|entityName_fieldName", "name": "fieldName", "fieldType": "string|number|date|boolean|array|object", "entityKey": "entity|EntityName", "description": "...", "example": "...", "serviceSlug": "..."}
-      ```
-      Extract: Primary fields per entity (focus on 3-5 most important fields)
-
-      **4. Examples** (operation usage examples)
-      ```json
-      {"key": "example|opId_scenario", "name": "scenario", "description": "...", "requestBody": "...", "responseBody": "...", "operationKey": "op|opId", "serviceSlug": "..."}
-      ```
-      Extract: 1-2 examples per operation showing typical usage
-
-      **5. Documentation** (API usage guidance)
-      ```json
-      {"key": "doc|type_entityName", "title": "...", "content": "...", "docType": "entity_guide|operation_guide|field_reference", "sourceFile": "...", "relatedKeys": ["entity|X"], "serviceSlug": "..."}
-      ```
-      Extract: Key documentation chunks that help with API understanding
-
-      **Graph Relationships:**
-
-      **Entity-Operation Edges** (CRITICAL for traversal)
-      ```json
-      {"fromKey": "entity|X", "toKey": "op|Y", "edgeType": "SUPPORTS_RETRIEVE|CREATE|UPDATE|DELETE|COMPUTE", "confidence": 80-100, "referral": "direct|indirect|inferred"}
-      ```
-
-      **Additional Edges:**
-      ```json
-      {"fromKey": "entity|X", "toKey": "field|Y", "edgeType": "HAS_FIELD"},
-      {"fromKey": "op|X", "toKey": "example|Y", "edgeType": "HAS_EXAMPLE"},
-      {"fromKey": "entity|X", "toKey": "doc|Y", "edgeType": "HAS_DOCUMENTATION"}
-      ```
-
-      **Relationship Rules:**
-      1. **Direct**: Operation explicitly mentions entity in tags, path, or description (confidence: 90-100)
-      2. **Indirect**: Operation relates to entity through shared fields/schemas (confidence: 70-89)
-      3. **Inferred**: Operation likely works with entity based on domain/semantic analysis (confidence: 50-69)
-
-      **Context-Aware Output:**
-
-      Given input context, return relevant entities with their supported operations:
-
+      Analyze the provided OpenAPI specifications and documentation to extract a structured knowledge graph.
+      
+      ## Node Types to Extract
+      
+      ### 1. Entity Nodes (Business Objects/Concepts)
+      Entities represent core business objects, domains, or data concepts in the API.
+      
+      **Extraction Sources:**
+      - OpenAPI tags (primary source)
+      - Schema component names and descriptions
+      - Documentation sections describing business objects
+      - Data model descriptions
+      - Path segments suggesting entities (e.g., `/sales`, `/products`, `/customers`)
+      
+      **Node Structure:**
       ```json
       {
-        "context": [
-          {
-            "entity": "EntityName",
-            "operations": ["Retrieve", "Create", "Update", "Delete", "Compute"],
+        "key": "entity|<EntityName>",
+        "name": "<EntityName>",
+        "description": "Comprehensive description of what this entity represents",
+        "domain": "<BusinessDomain>",
+        "attributes": ["key", "identifying", "characteristics"],
+        "source": "openapi_tag|schema|documentation",
+        "serviceSlug": "<service-identifier>"
+      }
+      ```
+      
+      **Example:**
+      ```json
+      {
+        "key": "entity|Sale",
+        "name": "Sale",
+        "description": "Represents individual sales transactions with amounts, dates, and payment information",
+        "domain": "Analytics",
+        "attributes": ["transactional", "temporal", "monetary"],
+        "source": "openapi_tag",
+        "serviceSlug": "acme-sales-analytics"
+      }
+      ```
+      
+      ### 2. Operation Nodes (API Endpoints)
+      Operations represent executable API endpoints with full invocation details.
+      
+      **Extraction Sources:**
+      - OpenAPI paths and operations
+      - operationId, method, path, summary, description
+      - Request/response schemas
+      - Tags linking to entities
+      
+      **Node Structure:**
+      ```json
+      {
+        "key": "op|<operationId>",
+        "operationId": "<operationId>",
+        "method": "GET|POST|PUT|PATCH|DELETE",
+        "path": "/api/path",
+        "summary": "Brief operation summary",
+        "description": "Detailed operation description including behavior, inputs, outputs",
+        "category": "Retrieve|Create|Update|Delete|Compute",
+        "primaryEntity": "entity|<EntityName>",
+        "tags": ["entity-tags"],
+        "signature": "operationName(InputType params): OutputType",
+        "requestSchema": "JSON schema or description of request body",
+        "responseSchema": "JSON schema or description of response body",
+        "serviceSlug": "<service-identifier>"
+      }
+      ```
+      
+      **Category Mapping Rules:**
+      - `Retrieve`: GET methods, read operations, queries, searches, fetches
+      - `Create`: POST methods creating new resources
+      - `Update`: PUT/PATCH methods modifying existing resources
+      - `Delete`: DELETE methods removing resources
+      - `Compute`: Operations performing calculations, aggregations, analytics, transformations
+      
+      **Example:**
+      ```json
+      {
+        "key": "op|querySalesData",
+        "operationId": "querySalesData",
+        "method": "POST",
+        "path": "/query",
+        "summary": "Query Sales Data",
+        "description": "Execute complex queries against sales analytics dataset with filtering, aggregations, and field selection",
+        "category": "Compute",
+        "primaryEntity": "entity|Sale",
+        "tags": ["Analytics"],
+        "signature": "querySalesData(QueryRequest query): QueryResponse",
+        "requestSchema": "{filter: FilterCondition[], fields: string[], aggregates: AggregateFunction[], limit: number}",
+        "responseSchema": "{success: boolean, data: object[], metadata: {total_records, execution_time_ms}}",
+        "serviceSlug": "acme-sales-analytics"
+      }
+      ```
+      
+      ### 3. Field Nodes (Entity Attributes)
+      Fields represent important attributes and properties of entities.
+      
+      **Extraction Strategy:**
+      - Extract 5-10 most important/commonly-used fields per entity
+      - Focus on: identifiers, key business attributes, commonly filtered fields, aggregatable fields
+      - Include fields from schemas, documentation tables, and example data
+      
+      **Node Structure:**
+      ```json
+      {
+        "key": "field|<entityName>_<fieldName>",
+        "name": "<fieldName>",
+        "fieldType": "string|number|integer|boolean|date|datetime|array|object",
+        "entityKey": "entity|<EntityName>",
+        "description": "What this field represents and how it's used",
+        "example": "Example value",
+        "constraints": "Validation rules, enums, ranges",
+        "source": "schema|documentation|example",
+        "serviceSlug": "<service-identifier>"
+      }
+      ```
+      
+      **Example:**
+      ```json
+      {
+        "key": "field|Sale_amount",
+        "name": "sale.amount",
+        "fieldType": "number",
+        "entityKey": "entity|Sale",
+        "description": "Total sale amount in USD, including tax and shipping",
+        "example": "299.99",
+        "constraints": "Positive number, two decimal places",
+        "source": "schema",
+        "serviceSlug": "acme-sales-analytics"
+      }
+      ```
+      
+      ### 4. Example Nodes (Usage Demonstrations)
+      Examples show concrete API usage patterns with real request/response pairs.
+      
+      **Extraction Sources:**
+      - OpenAPI examples in requestBody/responses
+      - Documentation code samples
+      - Example scenarios described in docs
+      
+      **Node Structure:**
+      ```json
+      {
+        "key": "example|<operationId>_<scenario>",
+        "name": "<scenario-name>",
+        "summary": "Brief example purpose",
+        "description": "What this example demonstrates",
+        "requestBody": "Complete request JSON/YAML",
+        "responseBody": "Complete response JSON/YAML",
+        "responseStatus": "200|201|400|500",
+        "operationKey": "op|<operationId>",
+        "serviceSlug": "<service-identifier>"
+      }
+      ```
+      
+      **Example:**
+      ```json
+      {
+        "key": "example|querySalesData_revenue_by_category",
+        "name": "Total Revenue by Category",
+        "summary": "Calculate total sales revenue grouped by product category",
+        "description": "This example shows how to aggregate sales data to get revenue totals per category for 2024",
+        "requestBody": "{\"filter\":[{\"field\":\"date.year\",\"operator\":\"equals\",\"value\":2024}],\"fields\":[\"product.category\"],\"aggregates\":[{\"field\":\"sale.amount\",\"function\":\"sum\",\"alias\":\"revenue\"}]}",
+        "responseBody": "{\"success\":true,\"data\":[{\"product\":{\"category\":\"Electronics\"},\"revenue\":125000.50}],\"metadata\":{\"total_records\":10}}",
+        "responseStatus": "200",
+        "operationKey": "op|querySalesData",
+        "serviceSlug": "acme-sales-analytics"
+      }
+      ```
+      
+      **IMPORTANT**: requestBody and responseBody must be COMPACT JSON strings (no newlines, minimal whitespace) to avoid parsing errors.
+      
+      ### 5. Documentation Nodes (Contextual Guidance)
+      Documentation nodes capture important explanatory content that helps understand the API.
+      
+      **Extraction Sources:**
+      - Data model descriptions
+      - Entity relationship diagrams (as text/ASCII art)
+      - Field tables with complete definitions (types, descriptions, examples, constraints)
+      - Usage guides and best practices
+      - Conceptual explanations
+      - Operator and function reference lists
+      - Request/response schema structures with comments
+      
+      **Node Structure:**
+      ```json
+      {
+        "key": "doc|<type>_<identifier>",
+        "title": "Document title",
+        "content": "Full documentation content in markdown format",
+        "docType": "entity_description|data_model|field_reference|usage_guide|relationship_diagram|concept_explanation|schema_structure|operators_reference|functions_reference",
+        "sourceFile": "filename.md",
+        "relatedKeys": ["entity|X", "op|Y", "field|Z"],
+        "metadata": {"section": "...", "category": "..."},
+        "serviceSlug": "<service-identifier>"
+      }
+      ```
+      
+      **Critical Documentation to Extract:**
+      
+      1. **Field Reference Tables** (`field_reference`): Complete tables with field names, types, descriptions, examples, and constraints/enums
+      2. **Relationship Diagrams** (`relationship_diagram`): Entity relationship diagrams in ASCII art or text with cardinality descriptions
+      3. **Schema Structures** (`schema_structure`): JSON schema structures with inline comments explaining each property
+      4. **Operators Reference** (`operators_reference`): Complete lists of supported operators with descriptions
+      5. **Functions Reference** (`functions_reference`): Complete lists of supported functions (aggregations, transformations, etc.)
+      6. **Data Model Examples** (`data_model`): Sample records showing typical data structure
+      
+      **Examples:**
+      
+      **Field Reference:**
+      ```json
+      {
+        "key": "doc|field_reference_Sale",
+        "title": "Sale Fields Reference",
+        "content": "Core transaction data representing individual purchases.\n\n| Field | Type | Description | Example |\n|-------|------|-------------|---------|  \n| `sale.id` | string | Unique sale identifier | \"SAL-001\" |\n| `sale.amount` | number | Total sale amount (USD) | 299.99 |\n| `sale.date` | datetime | When the sale occurred | \"2023-12-15T10:30:00Z\" |\n\n**Sale Status Values:**\n- `pending` - Payment processing\n- `completed` - Successfully processed",
+        "docType": "field_reference",
+        "sourceFile": "data-model.md",
+        "relatedKeys": ["entity|Sale"],
+        "metadata": {"section": "Field Definitions"},
+        "serviceSlug": "acme-sales-analytics"
+      }
+      ```
+      
+      **Relationship Diagram:**
+      ```json
+      {
+        "key": "doc|relationship_diagram_main",
+        "title": "Entity Relationships",
+        "content": "```\nCustomer (1) -----> (N) Sale (N) <----- (1) Product\n|                    |                    |\nv                    v                    v\nRegion (1) <----- (N) Customer          Category\n```\n\n1. [Customer] <1---*> [Sale]: One customer can place multiple sales. A sale always belongs to a single customer.\n2. [Product] <1---*> [Sale]: A sale can include one or more products.",
+        "docType": "relationship_diagram",
+        "sourceFile": "data-model.md",
+        "relatedKeys": ["entity|Sale", "entity|Customer", "entity|Product"],
+        "metadata": {"section": "Entity Relationships"},
+        "serviceSlug": "acme-sales-analytics"
+      }
+      ```
+      
+      **Request Schema:**
+      ```json
+      {
+        "key": "doc|schema_structure_querySalesData_request",
+        "title": "Query Request Schema",
+        "content": "```json\n{\n  // Fields to retrieve with no aggregations\n  \"fields\": [\"sale.id\", \"sale.amount\"],\n  \n  // Aggregation functions to apply\n  \"aggregates\": [{\n    \"field\": \"sale.amount\",\n    \"function\": \"sum\",\n    \"alias\": \"revenue\"\n  }],\n  \n  // Filters to apply\n  \"filter\": [{\n    \"field\": \"date.year\",\n    \"operator\": \"equals\",\n    \"value\": 2024\n  }]\n}\n```",
+        "docType": "schema_structure",
+        "sourceFile": "sales-analytics-api.yaml",
+        "relatedKeys": ["op|querySalesData"],
+        "metadata": {"schemaType": "request"},
+        "serviceSlug": "acme-sales-analytics"
+      }
+      ```
+      
+      **Operators Reference:**
+      ```json
+      {
+        "key": "doc|operators_reference_main",
+        "title": "Supported Filter Operators",
+        "content": "Complete list of supported operators:\n- `equals` - Exact match\n- `not_equals` - Does not match\n- `greater_than` - Numeric comparison\n- `between` - Range comparison (requires two values)\n- `in` - Matches any value in array\n- `contains` - String containment",
+        "docType": "operators_reference",
+        "sourceFile": "sales-analytics-api.yaml",
+        "relatedKeys": ["op|querySalesData"],
+        "metadata": {"category": "Reference"},
+        "serviceSlug": "acme-sales-analytics"
+      }
+      ```
+      
+      ## Edge Types to Create
+      
+      ### 1. Entity-Operation Relationships (CRITICAL)
+      These edges enable "find operations for entity X with capability Y" queries.
+      
+      **Edge Structure:**
+      ```json
+      {
+        "fromKey": "entity|<EntityName>",
+        "toKey": "op|<operationId>",
+        "edgeType": "SUPPORTS_RETRIEVE|SUPPORTS_CREATE|SUPPORTS_UPDATE|SUPPORTS_DELETE|SUPPORTS_COMPUTE",
+        "properties": {
+          "confidence": 50-100,
+          "referral": "direct|indirect|inferred",
+          "reasoning": "Why this relationship exists"
+        }
+      }
+      ```
+      
+      **Confidence Scoring:**
+      - **90-100 (direct)**: Operation explicitly tagged with entity, entity in path, entity mentioned in summary/description
+      - **70-89 (indirect)**: Operation works with entity's fields/schemas, entity mentioned in request/response types
+      - **50-69 (inferred)**: Operation semantically related based on domain, similar patterns, related functionality
+      
+      **Examples:**
+      ```json
+      [
+        {
+          "fromKey": "entity|Sale",
+          "toKey": "op|querySalesData",
+          "edgeType": "SUPPORTS_RETRIEVE",
+          "properties": {
+            "confidence": 100,
+            "referral": "direct",
+            "reasoning": "Operation tagged with 'Analytics' which is Sale's domain, explicitly queries sale data"
+          }
+        },
+        {
+          "fromKey": "entity|Sale",
+          "toKey": "op|querySalesData",
+          "edgeType": "SUPPORTS_COMPUTE",
+          "properties": {
+            "confidence": 100,
+            "referral": "direct",
+            "reasoning": "Operation performs aggregations and calculations on sale amounts"
+          }
+        },
+        {
+          "fromKey": "entity|Product",
+          "toKey": "op|querySalesData",
+          "edgeType": "SUPPORTS_RETRIEVE",
+          "properties": {
             "confidence": 85,
-            "referral": "direct"
+            "referral": "indirect",
+            "reasoning": "Operation returns product fields and can filter by product attributes"
           }
-        ]
-      }
+        }
+      ]
       ```
-
-      **Output Format:**
+      
+      ### 2. Entity-Field Relationships
       ```json
       {
-        "entities": [...],
-        "operations": [...],
-        "fields": [...],
-        "examples": [...],
-        "documentations": [...],
-        "relationships": [...],
-        "context": [
-          {
-            "entity": "EntityName",
-            "operations": ["OperationType"],
-            "confidence": 0-100,
-            "referral": "direct|indirect|inferred"
-          }
+        "fromKey": "entity|<EntityName>",
+        "toKey": "field|<entityName>_<fieldName>",
+        "edgeType": "HAS_FIELD"
+      }
+      ```
+      
+      ### 3. Operation-Example Relationships
+      ```json
+      {
+        "fromKey": "op|<operationId>",
+        "toKey": "example|<operationId>_<scenario>",
+        "edgeType": "HAS_EXAMPLE"
+      }
+      ```
+      
+      ### 4. Entity-Documentation Relationships
+      ```json
+      {
+        "fromKey": "entity|<EntityName>",
+        "toKey": "doc|<type>_<identifier>",
+        "edgeType": "HAS_DOCUMENTATION"
+      }
+      ```
+      
+      ### 5. Operation-Documentation Relationships
+      ```json
+      {
+        "fromKey": "op|<operationId>",
+        "toKey": "doc|<type>_<identifier>",
+        "edgeType": "HAS_DOCUMENTATION"
+      }
+      ```
+      
+      ### 6. Field-Documentation Relationships
+      ```json
+      {
+        "fromKey": "field|<entityName>_<fieldName>",
+        "toKey": "doc|field_reference_<fieldName>",
+        "edgeType": "HAS_DOCUMENTATION"
+      }
+      ```
+      
+      ### 7. Entity-Entity Relationships (if found in docs)
+      ```json
+      {
+        "fromKey": "entity|Customer",
+        "toKey": "entity|Sale",
+        "edgeType": "HAS_MANY",
+        "properties": {
+          "cardinality": "1:N",
+          "description": "One customer can have many sales"
+        }
+      }
+      ```
+      
+      ## Output Format
+      
+      Return a complete JSON object with all extracted nodes and relationships:
+      
+      ```json
+      {
+        "entities": [
+          {/* EntityNode structure */}
+        ],
+        "operations": [
+          {/* OperationNode structure */}
+        ],
+        "fields": [
+          {/* FieldNode structure */}
+        ],
+        "examples": [
+          {/* ExampleNode structure */}
+        ],
+        "documentations": [
+          {/* DocumentationNode structure */}
+        ],
+        "relationships": [
+          {/* Edge structure */}
         ]
       }
       ```
-
-      **Processing Steps:**
-      1. Extract entities from schemas and documentation
-      2. Extract operations with categories and key fields per entity (3-5 most important)
-      3. Extract 1-2 examples per operation showing typical usage
-      4. Extract key documentation chunks for API understanding
-      5. Create comprehensive relationships (entity-operation, entity-field, operation-example, entity-documentation)
-      6. For given context, return relevant entity-operation mappings with confidence scores
+      
+      ## Extraction Guidelines
+      
+      1. **Be Comprehensive**: Extract all entities, operations, and key fields. Don't skip entities even if they seem minor.
+      
+      2. **Enrich Descriptions**: Combine information from multiple sources (OpenAPI, docs, examples) to create rich descriptions.
+      
+      3. **Create Multiple Operation Categories**: An operation can have multiple SUPPORTS_* edges if it serves multiple purposes (e.g., both RETRIEVE and COMPUTE).
+      
+      4. **Infer Entities**: If documentation mentions business objects not in OpenAPI tags, create entity nodes for them.
+      
+      5. **Capture Relationships**: Pay special attention to entity relationship descriptions (1:N, N:M) in documentation.
+      
+      6. **Prioritize Key Fields**: Focus on fields that are:
+         - Primary identifiers
+         - Used in filters/aggregations
+         - Business-critical attributes
+         - Commonly referenced in examples
+      
+      7. **Extract Complete Examples**: Include full request/response bodies, not just snippets.
+      
+      8. **Link Documentation**: Create documentation nodes for significant content sections and link them to relevant entities/operations/fields.
+      
+      9. **Use Consistent Keys**: Follow the key format strictly: `entity|Name`, `op|operationId`, `field|Entity_fieldName`, `example|op_scenario`, `doc|type_identifier`.
+      
+      10. **serviceSlug**: Use a consistent service identifier based on the API name/domain (e.g., "acme-sales-analytics", "payment-gateway-api").
+      
+      11. **Extract Structured Reference Data**: Create dedicated documentation nodes for:
+          - Complete field tables from documentation (with types, descriptions, examples, enum values)
+          - Operators and functions reference lists
+          - Request/response schema structures with inline comments
+          - Entity relationship diagrams (ASCII art or text)
+          - Sample data records showing typical structure
+      
+      12. **Preserve Formatting**: Keep markdown tables, code blocks, and ASCII diagrams intact in documentation content.
+      
+      13. **Extract OpenAPI Schema Details**: For operations, capture:
+          - Complete requestSchema with property descriptions
+          - Complete responseSchema with property descriptions
+          - Query parameters, headers, path parameters
+          - Enum values and constraints for fields
+      
+      14. **JSON Formatting for Examples**: 
+          - requestBody and responseBody MUST be compact JSON strings (no line breaks, minimal spaces)
+          - Example: `"{\"field\":\"value\",\"nested\":{\"key\":\"val\"}}"` NOT multi-line formatted JSON
+          - This prevents JSON parsing errors when the graph is loaded
+      
+      15. **String Content Formatting**:
+          - All string values must be on a single line in the output JSON
+          - For multi-line content (like documentation), use `\n` within the string but keep the entire string on one line
+          - Never break a string value across multiple lines of the JSON output
+      
+      ## Quality Checklist
+      
+      Before returning, verify:
+      - [ ] All OpenAPI operations are extracted
+      - [ ] All OpenAPI tags are represented as entities
+      - [ ] Each entity has 5-10 key fields
+      - [ ] Each operation has appropriate SUPPORTS_* relationships
+      - [ ] Each operation has at least 1 example (if available)
+      - [ ] Important documentation sections are captured as documentation nodes
+      - [ ] All keys follow the prescribed format
+      - [ ] Confidence scores are realistic and reasoned
+      - [ ] Descriptions are detailed and actionable
+      
+      Now analyze the provided materials and extract the complete knowledge graph.
