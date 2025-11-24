@@ -14,6 +14,7 @@ import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTrans
 import io.modelcontextprotocol.spec.McpSchema;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -166,8 +167,40 @@ public class McpServer implements AutoCloseable {
                                     .orchestrator()
                                     .handlePrompt(
                                         request.arguments().get("prompt").toString(), sink);
+                            
+                            // Get report path if available
+                            String reportPath = oneMcp.inferenceLogger().getCurrentReportPath();
+                            
+                            // Build response with content and reportPath
+                            Map<String, Object> response = new HashMap<>();
+                            
+                            // Extract content from result (get the first assignment's content)
+                            String content = "";
+                            if (result.parts() != null && !result.parts().isEmpty()) {
+                              var firstPart = result.parts().get(0);
+                              if (firstPart != null && firstPart.content() != null) {
+                                content = firstPart.content();
+                              }
+                            }
+                            // If content is still empty, try to get it from the final response
+                            if (content == null || content.isEmpty()) {
+                              // The final response should be in the last successful assignment
+                              for (var part : result.parts()) {
+                                if (part != null && part.isSupported() && !part.isError() 
+                                    && part.content() != null && !part.content().isEmpty()) {
+                                  content = part.content();
+                                  // Continue to find the last one (most recent)
+                                }
+                              }
+                            }
+                            
+                            response.put("content", content);
+                            if (reportPath != null && !reportPath.isEmpty()) {
+                              response.put("reportPath", reportPath);
+                            }
+                            
                             return new McpSchema.CallToolResult(
-                                JacksonUtility.toJson(result), false);
+                                JacksonUtility.toJson(response), false);
                           } catch (Exception e) {
                             log.error("Failed to handle MCP tool request", e);
                             return new McpSchema.CallToolResult(

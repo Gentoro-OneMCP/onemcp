@@ -18,6 +18,7 @@ import com.gentoro.onemcp.indexing.GraphIndexingService;
 import com.gentoro.onemcp.mcp.McpServer;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.model.LlmClientFactory;
+import com.gentoro.onemcp.logging.InferenceLogger;
 import com.gentoro.onemcp.orchestrator.OrchestratorService;
 import com.gentoro.onemcp.prompt.PromptRepository;
 import com.gentoro.onemcp.prompt.PromptRepositoryFactory;
@@ -41,6 +42,7 @@ public class OneMcp {
   private KnowledgeBase knowledgeBase;
   private LlmClient llmClient;
   private OrchestratorService orchestrator;
+  private InferenceLogger inferenceLogger;
 
   private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
   private final CountDownLatch shutdownLatch = new CountDownLatch(1);
@@ -72,6 +74,9 @@ public class OneMcp {
     }
 
     this.llmClient = LlmClientFactory.createProvider(this);
+
+    // Initialize inference logger
+    this.inferenceLogger = new InferenceLogger(this);
 
     if (configuration().getBoolean("graph.indexing.enabled", false)) {
       try {
@@ -205,6 +210,10 @@ public class OneMcp {
 
   public OrchestratorService orchestrator() {
     return orchestrator;
+  }
+
+  public InferenceLogger inferenceLogger() {
+    return inferenceLogger;
   }
 
   /**
