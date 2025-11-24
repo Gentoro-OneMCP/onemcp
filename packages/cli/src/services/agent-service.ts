@@ -2,6 +2,7 @@
  * OneMCP service manager
  */
 import { dirname, join } from 'path';
+import fs from 'fs-extra';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import chalk from 'chalk';
@@ -376,9 +377,17 @@ export class AgentService {
     const appConfig = processManager.getConfig('app');
     if (appConfig) {
       // Set foundation directory
-        appConfig.env = {
+      appConfig.env = {
         ...appConfig.env,
         FOUNDATION_DIR: handbookPath,
+      };
+
+      // Set logging directory for reports
+      const initialLogsDir = join(handbookPath, 'logs');
+      await fs.ensureDir(initialLogsDir);
+      appConfig.env = {
+        ...appConfig.env,
+        ONEMCP_LOG_DIR: initialLogsDir,
       };
 
       // Set API keys and provider from handbook config

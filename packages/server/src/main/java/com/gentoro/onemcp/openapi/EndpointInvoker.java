@@ -23,12 +23,19 @@ public class EndpointInvoker {
   private final String pathTemplate;
   private final String method;
   private final Operation operation;
+  private com.gentoro.onemcp.logging.InferenceLogger inferenceLogger;
 
   public EndpointInvoker(String baseUrl, String pathTemplate, String method, Operation operation) {
     this.baseUrl = baseUrl;
     this.pathTemplate = pathTemplate;
     this.method = method;
     this.operation = operation;
+    this.inferenceLogger = null;
+  }
+
+  // Set inference logger for API call logging
+  public void setInferenceLogger(com.gentoro.onemcp.logging.InferenceLogger logger) {
+    this.inferenceLogger = logger;
   }
 
   public JsonNode invoke(JsonNode input) throws Exception {
@@ -60,9 +67,25 @@ public class EndpointInvoker {
 
     // 6️⃣ Send request
     HttpClient client = HttpClient.newHttpClient();
+    HttpRequest httpRequest = builder.build();
+    long startTime = System.currentTimeMillis();
     HttpResponse<String> response =
-        client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+    long duration = System.currentTimeMillis() - startTime;
 
+    // Log API call if inference logger is available
+    if (inferenceLogger != null) {
+      String requestBodyStr = body;
+      String responseBodyStr = response.body();
+      inferenceLogger.logApiCall(
+          method,
+          fullUrl,
+          response.statusCode(),
+          duration,
+          requestBodyStr != null ? requestBodyStr : "",
+          responseBodyStr != null ? responseBodyStr : "");
+    }
+    
     return HttpUtils.toJsonNode(response.body());
   }
 

@@ -18,6 +18,7 @@ export class ChatMode {
   private currentHandbook: string = '';
   private handbookConfig: HandbookConfig | null = null;
   private globalConfig: GlobalConfig | null = null;
+  private lastReportPath: string | null = null;
 
   /**
    * Start interactive chat session
@@ -134,6 +135,9 @@ export class ChatMode {
         console.log(chalk.green('Agent:'));
         console.log(response);
         console.log();
+        
+        // Display report location if available
+        this.showReportLocation();
       } catch (error: any) {
         spinner.fail(`Error: ${error.message}`);
         console.log();
@@ -192,8 +196,31 @@ export class ChatMode {
             // Try to parse the JSON response from the tool
             try {
               const parsed = JSON.parse(content.text);
-              return parsed.content || content.text;
+              // Extract report path if available
+              if (parsed && typeof parsed === 'object' && 'reportPath' in parsed) {
+                this.lastReportPath = parsed.reportPath;
+              }
+              // Return the content field if it exists and is a non-empty string
+              if (parsed && typeof parsed === 'object' && 'content' in parsed) {
+                const responseContent = parsed.content;
+                if (typeof responseContent === 'string' && responseContent.trim().length > 0) {
+                  // Try to parse the content as JSON and return the whole JSON object
+                  try {
+                    const contentJson = JSON.parse(responseContent);
+                    if (contentJson && typeof contentJson === 'object') {
+                      // Return the whole JSON object, pretty-printed
+                      return JSON.stringify(contentJson, null, 2);
+                    }
+                  } catch {
+                    // Not JSON, return as-is
+                  }
+                  return responseContent;
+                }
+              }
+              // If content is missing or empty, return a fallback message
+              return 'Response received (no content)';
             } catch {
+              // If JSON parsing fails, return the raw text
               return content.text;
             }
           }
@@ -359,6 +386,16 @@ export class ChatMode {
     console.log(chalk.dim(`Provider: ${this.handbookConfig?.provider || 'Not configured'}`));
     console.log(chalk.dim('Chat history cleared.'));
     console.log();
+  }
+
+  /**
+   * Show the location of the generated report
+   */
+  private showReportLocation(): void {
+    if (this.lastReportPath) {
+      console.log(chalk.dim('Report: ') + chalk.cyan(this.lastReportPath));
+      this.lastReportPath = null; // Clear after displaying
+    }
   }
 }
 

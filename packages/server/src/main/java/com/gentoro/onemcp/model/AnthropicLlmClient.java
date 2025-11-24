@@ -69,34 +69,40 @@ public class AnthropicLlmClient extends AbstractLlmClient {
     InitializationContext ctx = initialize(Collections.emptyList(), tools);
 
     long start = System.currentTimeMillis();
-    TelemetrySink t = telemetry();
-    if (t != null) {
-      t.startChild("llm.anthropic");
-      t.currentAttributes().put("provider", "anthropic");
-      t.currentAttributes().put("model", ctx.modelName());
-      t.currentAttributes().put("tools.count", tools == null ? 0 : tools.size());
-      t.currentAttributes().put("messages.count", ctx.localMessages().size());
-      t.currentAttributes().put("mode", "generate");
-    }
+    TelemetrySink t = setupTelemetry(
+        "anthropic",
+        ctx.modelName(),
+        tools == null ? 0 : tools.size(),
+        ctx.localMessages().size(),
+        "generate");
+    
     ctx.configBuilder().messages(ctx.localMessages());
     com.anthropic.models.messages.Message chatCompletion =
         anthropicClient.messages().create(ctx.configBuilder().build());
     if (listener != null) listener.on(EventType.ON_COMPLETION, chatCompletion);
 
     long end = System.currentTimeMillis();
-    long totalTokens = chatCompletion.usage().inputTokens() + chatCompletion.usage().outputTokens();
+    long promptTokens = chatCompletion.usage().inputTokens();
+    long completionTokens = chatCompletion.usage().outputTokens();
+    long totalTokens = promptTokens + completionTokens;
+    
+    // Extract response text
+    String responseText = "";
+    if (!chatCompletion.content().isEmpty()) {
+      for (com.anthropic.models.messages.ContentBlock block : chatCompletion.content()) {
+        if (block.isText()) {
+          responseText += block.asText().text();
+        }
+      }
+    }
+    
     log.info(
         "[Inference] - Anthropic({}):\nLLM inference took {} ms.\nTotal tokens {}.\n---\n",
         ctx.modelName(),
         (end - start),
         totalTokens);
-    if (t != null) {
-      t.addUsage(
-          Long.valueOf(chatCompletion.usage().inputTokens()),
-          Long.valueOf(chatCompletion.usage().outputTokens()),
-          Long.valueOf(totalTokens));
-      t.endCurrentOk(java.util.Map.of("latencyMs", (end - start), "usage.total", totalTokens));
-    }
+    
+    finishTelemetry(t, (end - start), promptTokens, completionTokens, totalTokens, responseText);
 
     if (chatCompletion.content().isEmpty()) {
       throw new com.gentoro.onemcp.exception.LlmException(
@@ -137,13 +143,26 @@ public class AnthropicLlmClient extends AbstractLlmClient {
       listener.on(EventType.ON_COMPLETION, chatCompletions);
 
       long end = System.currentTimeMillis();
-      long totalTokens =
-          chatCompletions.usage().inputTokens() + chatCompletions.usage().outputTokens();
+      long promptTokens = chatCompletions.usage().inputTokens();
+      long completionTokens = chatCompletions.usage().outputTokens();
+      long totalTokens = promptTokens + completionTokens;
+      
+      // Extract response text
+      String responseText = "";
+      for (com.anthropic.models.messages.ContentBlock block : chatCompletions.content()) {
+        if (block.isText()) {
+          responseText += block.asText().text();
+        }
+      }
+      
       log.info(
           "[Inference] - Anthropic({}):\nLLM inference took {} ms.\nTotal tokens {}.\n---\n",
           ctx.modelName(),
           (end - start),
           totalTokens);
+      
+      // Log LLM inference complete with response
+      logInferenceComplete((end - start), promptTokens, completionTokens, responseText);
 
       // Iterate through the content blocks
       chatCompletions
@@ -175,7 +194,14 @@ public class AnthropicLlmClient extends AbstractLlmClient {
           Map<String, Object> values = new HashMap<>();
           Objects.requireNonNull(toolCall._input().convert(toolCallTypeRef))
               .forEach((key, value) -> values.put(key, value.toString()));
+          
+          // Log tool call
+          logToolCall(tool.name(), values);
+          
           String result = tool.execute(values);
+          
+          // Log tool output
+          logToolOutput(tool.name(), result);
 
           ctx.localMessages()
               .add(

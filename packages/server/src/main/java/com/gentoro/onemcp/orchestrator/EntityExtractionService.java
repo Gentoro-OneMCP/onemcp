@@ -31,9 +31,14 @@ public class EntityExtractionService {
     while (++attempts <= 3) {
       long start = System.currentTimeMillis();
       String result;
-      try (LlmClient.TelemetryScope ignored =
-          context.llmClient().withTelemetry(new OrchestratorTelemetrySink(context.tracer()))) {
+      OrchestratorTelemetrySink sink = new OrchestratorTelemetrySink(context.tracer(), context);
+      sink.setPhase("extract");
+      try (LlmClient.TelemetryScope ignored = context.llmClient().withTelemetry(sink)) {
         result = context.llmClient().generate(promptSession.renderText(), List.of(), false, null);
+        // Store result in telemetry for logging
+        if (sink.currentAttributes() != null) {
+          sink.currentAttributes().put("response", result);
+        }
       }
       long end = System.currentTimeMillis();
       // Annotate the entity_extraction attempt on the parent span

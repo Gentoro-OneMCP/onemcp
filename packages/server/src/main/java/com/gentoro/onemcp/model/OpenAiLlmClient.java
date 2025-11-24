@@ -65,16 +65,14 @@ public class OpenAiLlmClient extends AbstractLlmClient {
     ChatCompletionCreateParams.Builder builder = initialize(Collections.emptyList(), tools);
 
     long start = System.currentTimeMillis();
-    TelemetrySink t = telemetry();
-    if (t != null) {
-      t.startChild("llm.openai");
-      t.currentAttributes().put("provider", "openai");
-      String modelId = configuration.getString("model", ChatModel.GPT_4_1.toString());
-      t.currentAttributes().put("model", modelId);
-      t.currentAttributes().put("tools.count", tools == null ? 0 : tools.size());
-      t.currentAttributes().put("messages.count", 0);
-      t.currentAttributes().put("mode", "generate");
-    }
+    String modelId = configuration.getString("model", ChatModel.GPT_4_1.toString());
+    TelemetrySink t = setupTelemetry(
+        "openai",
+        modelId,
+        tools == null ? 0 : tools.size(),
+        0,
+        "generate");
+    
     ChatCompletion chatCompletion = openAIClient.chat().completions().create(builder.build());
     if (listener != null) listener.on(EventType.ON_COMPLETION, chatCompletion);
 
@@ -97,21 +95,16 @@ public class OpenAiLlmClient extends AbstractLlmClient {
                     new com.gentoro.onemcp.exception.LlmException(
                         "No content returned from Gemini inference."));
     long end = System.currentTimeMillis();
-    if (t != null) {
-      chatCompletion
-          .usage()
-          .ifPresent(
-              u ->
-                  t.addUsage(
-                      Long.valueOf(u.promptTokens()),
-                      Long.valueOf(u.completionTokens()),
-                      Long.valueOf(u.totalTokens())));
-      Long total =
-          chatCompletion.usage().isPresent()
-              ? Long.valueOf(chatCompletion.usage().get().totalTokens())
-              : null;
-      t.endCurrentOk(java.util.Map.of("latencyMs", (end - start), "usage.total", total));
+    long promptTokens = 0;
+    long completionTokens = 0;
+    Long totalTokens = null;
+    if (chatCompletion.usage().isPresent()) {
+      promptTokens = chatCompletion.usage().get().promptTokens();
+      completionTokens = chatCompletion.usage().get().completionTokens();
+      totalTokens = Long.valueOf(chatCompletion.usage().get().totalTokens());
     }
+    
+    finishTelemetry(t, (end - start), promptTokens, completionTokens, totalTokens, content);
     return content;
   }
 
@@ -125,6 +118,19 @@ public class OpenAiLlmClient extends AbstractLlmClient {
     String result = null;
     main_loop:
     while (true) {
+      // Log input messages for this LLM call
+      // Note: We log the original messages list, which may not include tool responses in multi-turn conversations
+      // but will show the initial prompt and system messages
+      if (oneMcp != null && oneMcp.inferenceLogger() != null && !builder.build().messages().isEmpty()) {
+        // Log a summary - the full message conversion is complex due to OpenAI SDK types
+        // We'll log the original messages that were passed in (from AbstractLlmClient.chat)
+        // For multi-turn with tools, the builder contains the full history but it's hard to convert
+        List<Message> messagesToLog = messages; // Use original messages list
+        if (messagesToLog != null && !messagesToLog.isEmpty()) {
+          oneMcp.inferenceLogger().logLlmInputMessages(messagesToLog);
+        }
+      }
+      
       long start = System.currentTimeMillis();
       TelemetrySink t2 = telemetry();
       if (t2 != null) {
@@ -143,6 +149,12 @@ public class OpenAiLlmClient extends AbstractLlmClient {
       ChatCompletion.Choice choice = chatCompletion.choices().getFirst();
 
       long end = System.currentTimeMillis();
+      long promptTokens = chatCompletion.usage().isPresent() 
+          ? chatCompletion.usage().get().promptTokens() : 0;
+      long completionTokens = chatCompletion.usage().isPresent() 
+          ? chatCompletion.usage().get().completionTokens() : 0;
+      String responseText = choice.message().content().map(String::trim).orElse("");
+      
       log.info(
           "[Inference] - OpenAI:\nLLM inference took {} ms.\nTotal tokens {}.\n---\n",
           (end - start),
@@ -160,13 +172,21 @@ public class OpenAiLlmClient extends AbstractLlmClient {
             chatCompletion.usage().isPresent()
                 ? Long.valueOf(chatCompletion.usage().get().totalTokens())
                 : null;
-        t2.endCurrentOk(java.util.Map.of("latencyMs", (end - start), "usage.total", total));
+        t2.endCurrentOk(java.util.Map.of("latencyMs", (end - start), "usage.total", total, "response", responseText));
       }
 
       builder.addMessage(choice.message());
       if (choice.message().toolCalls().isPresent()) {
         llmToolCalls.addAll(choice.message().toolCalls().get());
       }
+
+      // Log LLM inference complete for this call (whether it has tool calls or not)
+      // If there are tool calls, the response is about tool calls, otherwise it's the final answer
+      String finalResponse = responseText;
+      if (!llmToolCalls.isEmpty()) {
+        finalResponse = "[Tool calls: " + llmToolCalls.size() + "] " + responseText;
+      }
+      logInferenceComplete((end - start), promptTokens, completionTokens, finalResponse);
 
       if (llmToolCalls.isEmpty()) {
         result = choice.message().content().map(String::trim).orElse("");
@@ -187,7 +207,14 @@ public class OpenAiLlmClient extends AbstractLlmClient {
                         Objects.requireNonNullElse(
                             toolCall.function().get().function().arguments(), "{}"),
                         typeRef);
+            
+            // Log tool call
+            logToolCall(tool.name(), values);
+            
             String content = tool.execute(values);
+            
+            // Log tool output
+            logToolOutput(tool.name(), content);
             builder.addMessage(
                 ChatCompletionToolMessageParam.builder()
                     .toolCallId(toolCall.function().get().id())

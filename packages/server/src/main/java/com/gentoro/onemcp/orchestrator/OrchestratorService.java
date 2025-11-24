@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.UUID;
 
 public class OrchestratorService {
   private static final org.slf4j.Logger log =
@@ -86,11 +87,16 @@ public class OrchestratorService {
   public AssigmentResult handlePrompt(String prompt, ProgressSink progress) {
     log.trace("Processing prompt: {}", prompt);
 
+    // Generate execution ID and start execution tracking
+    String executionId = UUID.randomUUID().toString();
+    String reportPath = oneMcp.inferenceLogger().startExecution(executionId, prompt);
+
     final List<String> calledOperations = new ArrayList<>();
     final List<AssigmentResult.Assignment> assignmentParts = new ArrayList<>();
     final long start = System.currentTimeMillis();
     AssignmentContext assignmentContext = null;
     OrchestratorContext ctx = new OrchestratorContext(oneMcp, new ValueStore());
+    boolean success = false;
     try {
       // annotate root span with incoming prompt (truncated to avoid sensitive data)
       TelemetryTracer tracer = ctx.tracer();
@@ -111,14 +117,18 @@ public class OrchestratorService {
       progress.beginStage("plan", "Generating execution plan", 1);
       StdoutUtility.printNewLine(oneMcp, "Generating execution plan.");
       JsonNode plan = new PlanGenerationService(ctx).generatePlan(assignmentContext);
+      String planJson = JacksonUtility.toJson(plan);
       StdoutUtility.printSuccessLine(
           oneMcp,
           "Generated plan:\n%s"
-              .formatted(StringUtility.formatWithIndent(JacksonUtility.toJson(plan), 4)));
+              .formatted(StringUtility.formatWithIndent(planJson, 4)));
       log.trace(
-          "Generated plan:\n{}", StringUtility.formatWithIndent(JacksonUtility.toJson(plan), 4));
+          "Generated plan:\n{}", StringUtility.formatWithIndent(planJson, 4));
       int steps = plan.has("steps") && plan.get("steps").isArray() ? plan.get("steps").size() : 0;
       progress.endStageOk("plan", Map.of("steps", steps));
+      
+      // Log execution plan for reporting
+      oneMcp.inferenceLogger().logExecutionPlan(planJson);
 
       // Prepare operations stage (we can’t know execution count precisely here)
       OperationRegistry operationRegistry = new OperationRegistry();
@@ -139,6 +149,9 @@ public class OrchestratorService {
                           "Invoking operation {} with data {}", key, JacksonUtility.toJson(data));
                       StdoutUtility.printRollingLine(
                           oneMcp, "Invoking operation %s".formatted(key));
+                      
+                      // Set inference logger on invoker to log API calls
+                      value.setInferenceLogger(oneMcp.inferenceLogger());
                       JsonNode result = value.invoke(data.has("data") ? data.get("data") : data);
                       long opEnd = System.currentTimeMillis();
                       ctx.tracer()
@@ -211,12 +224,21 @@ public class OrchestratorService {
       assignmentParts.add(
           new AssigmentResult.Assignment(
               true, assignmentContext.getRefinedAssignment(), false, outputStr));
+      success = true;
+
+      // Log final response
+      oneMcp.inferenceLogger().logFinalResponse(outputStr);
     } catch (Exception e) {
       StdoutUtility.printError(oneMcp, "Could not handle assignment properly", e);
       assignmentParts.add(
           new AssigmentResult.Assignment(
               true, prompt, true, ExceptionUtil.formatCompactStackTrace(e)));
+      success = false;
       throw e;
+    } finally {
+      // Complete execution tracking
+      long totalTimeMs = System.currentTimeMillis() - start;
+      oneMcp.inferenceLogger().completeExecution(executionId, totalTimeMs, success);
     }
 
     long totalTimeMs = System.currentTimeMillis() - start;
