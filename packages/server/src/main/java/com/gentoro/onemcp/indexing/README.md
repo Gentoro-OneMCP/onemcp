@@ -24,12 +24,11 @@ graph:
     clearOnStartup: ${env:GRAPH_INDEXING_CLEAR_ON_STARTUP:-true}
     driver: ${env:GRAPH_INDEXING_DRIVER:-arangodb}
     arangodb:
-      enabled: ${env:ARANGODB_ENABLED:-false}
+      enabled: ${env:ARANGODB_ENABLED:-true}
       host: ${env:ARANGODB_HOST:-localhost}
       port: ${env:ARANGODB_PORT:-8529}
       user: ${env:ARANGODB_USER:-root}
       password: ${env:ARANGODB_PASSWORD:-test123}
-      clearOnStartup: ${env:ARANGODB_CLEAR_ON_STARTUP:-true}
 ```
 
 See [`application.yaml`](https://github.com/Gentoro-OneMCP/onemcp/blob/main/packages/server/src/main/resources/application.yaml#L68-L89) for the full configuration.
@@ -44,7 +43,7 @@ Enabling Indexing
    - Export credentials (e.g., `export ARANGODB_PASSWORD=test123`).
 2. **Configure the server**  
    - Turn on the feature: `export GRAPH_INDEXING_ENABLED=true`.  
-   - Opt into the Arango driver: `export GRAPH_INDEXING_DRIVER=arangodb` and `export ARANGODB_ENABLED=true`.  
+   - Opt into the Arango driver: `export GRAPH_INDEXING_DRIVER=arangodb` (Arango stays enabled by default via `ARANGODB_ENABLED`, override it only if you need to disable the driver).  
    - Optional: `export GRAPH_INDEXING_CLEAR_ON_STARTUP=true` for clean re-runs.
 3. **Launch OneMCP**  
    - From `packages/server`, run `mvn package` (first time) and start the server (`java -jar target/onemcp-1.0-SNAPSHOT.jar`).  
