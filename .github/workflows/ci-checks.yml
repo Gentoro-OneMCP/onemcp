@@ -367,7 +367,7 @@ jobs:
       if: always()
       run: |
         # Check if artifacts were successfully downloaded
-        if [ -d "src/onemcp/target" ] && [ -d "src/acme-analytics-server/server/target" ] && [ -d "src/typescript-runtime/dist" ]; then
+        if [ -d "packages/server/target" ] && find packages/server/target -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | grep -q .; then
           echo "Artifacts already available, skipping build"
           exit 0
         fi
@@ -389,7 +389,7 @@ jobs:
 
     - name: Verify artifacts for Docker build
       run: |
-        echo "Verifying artifacts are available for Docker build..."
+        echo "Verifying artifacts are available for buildah..."
         
         # Wait for build step to complete if it's running
         echo "Waiting a moment for any build processes to complete..."
@@ -408,7 +408,7 @@ jobs:
             ls -la "$ONEMCP_JAR"
           else
             echo "❌ onemcp JAR not found in target directory"
-            echo "Contents of src/onemcp/target:"
+            echo "Contents of packages/server/target:"
             ls -la packages/server/target/ || echo "Cannot list target directory"
             echo "Build step may still be running or failed"
             exit 1
@@ -425,8 +425,10 @@ jobs:
       if: matrix.platform == 'linux/arm64'
       uses: docker/setup-qemu-action@v3
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+    - name: Install Buildah
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y buildah
 
     - name: Install xmllint
       run: |
@@ -450,13 +452,13 @@ jobs:
         ./scripts/docker/build-base.sh "$VERSION" "" --platform "${{ matrix.platform }}"
         
         echo "Verifying base image was built..."
-        docker images | grep "admingentoro/gentoro" || echo "No gentoro images found"
+        buildah images | grep "admingentoro/gentoro" || echo "No gentoro images found"
         
-        # Check for both versioned and latest base images
-        if docker image inspect "admingentoro/gentoro:base-$VERSION" >/dev/null 2>&1; then
+        # Simple check using buildah list output
+        if buildah images | grep -q "admingentoro/gentoro.*base-$VERSION"; then
           echo "✅ Base image admingentoro/gentoro:base-$VERSION found"
-        elif docker image inspect "admingentoro/gentoro:base-latest" >/dev/null 2>&1; then
-          echo "✅ Base image admingentoro/gentoro:base-latest found (will be used as fallback)"
+        elif buildah images | grep -q "admingentoro/gentoro.*base-latest"; then
+          echo "✅ Base image admingentoro/gentoro:base-latest found"
         else
           echo "❌ No base image found locally"
           exit 1
@@ -465,24 +467,8 @@ jobs:
     - name: Build product image
       run: |
         VERSION="${{ steps.version.outputs.version }}"
-        POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" packages/server/pom.xml)
-        JAR_NAME="onemcp-$POM_VERSION.jar"
         echo "Building product image for ${{ matrix.platform }}..."
-        
-        echo "Checking if base image exists before building product image..."
-        docker images | grep "admingentoro/gentoro" || echo "No gentoro images found"
-        
-        # Check for both versioned and latest base images (product script has fallback logic)
-        if docker image inspect "admingentoro/gentoro:base-$VERSION" >/dev/null 2>&1; then
-          echo "✅ Base image admingentoro/gentoro:base-$VERSION found"
-        elif docker image inspect "admingentoro/gentoro:base-latest" >/dev/null 2>&1; then
-          echo "✅ Base image admingentoro/gentoro:base-latest found (will be used as fallback)"
-        else
-          echo "❌ No base image found locally"
-          exit 1
-        fi
-        
-        ./scripts/docker/build-product.sh "$VERSION" "$JAR_NAME" "" --platform "${{ matrix.platform }}"
+        ./scripts/docker/build-product.sh "$VERSION" "" --platform "${{ matrix.platform }}"
 
     - name: Container Validation
       run: |

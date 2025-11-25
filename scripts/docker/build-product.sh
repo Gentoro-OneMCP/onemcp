@@ -59,6 +59,24 @@ if [[ -n "$PLATFORM_VALUE" ]]; then
   PLATFORMS="$PLATFORM_VALUE"
 fi
 
+# Detect container runtime (Buildah vs Podman)
+if command -v buildah &> /dev/null; then
+    RUNTIME="buildah"
+    echo "Using Buildah runtime"
+elif command -v podman &> /dev/null; then
+    RUNTIME="podman"
+    echo "Using Podman runtime"
+else
+    echo "Error: Neither Buildah nor Podman is available"
+    exit 1
+fi
+
+# Set storage driver for non-Linux environments
+if [[ "$(uname)" != "Linux" ]] || [[ -n "${CI:-}" ]]; then
+    export STORAGE_DRIVER="vfs"
+    echo "Using VFS storage driver for compatibility"
+fi
+
 # Get version from POM if JAR_NAME not provided
 if [[ -z "$JAR_NAME" ]]; then
   POM_VERSION=$(xmllint --xpath "/*[local-name()='project']/*[local-name()='version']/text()" "$POM" 2>/dev/null || true)
@@ -93,69 +111,194 @@ echo "✅ JAR validation passed - Spring Boot fat JAR with proper manifest"
 echo "Building product image with version: $VERSION"
 echo "JAR: $JAR_NAME"
 echo "Platforms: $PLATFORMS"
+echo "Runtime: $RUNTIME"
 
-# Use consistent Dockerfile path for local and push 
+# Use consistent Dockerfile path for local and push
 DOCKERFILE_PATH="$ROOT_DIR/scripts/docker/Dockerfile"
 if [[ ! -f "$DOCKERFILE_PATH" ]]; then
   echo "Dockerfile not found at: $DOCKERFILE_PATH"
   exit 1
 fi
 
-# Determine build command based on whether we're pushing
+IMAGE_NAME="admingentoro/gentoro:$VERSION"
+IMAGE_LATEST="admingentoro/gentoro:latest"
+BASE_IMAGE_NAME="admingentoro/gentoro:base-$VERSION"
+
+# Check authentication before pushing
+check_auth() {
+    local registry="docker.io"
+    echo "Checking authentication to $registry..."
+    
+    if [[ "$RUNTIME" == "buildah" ]]; then
+        if ! buildah login --get-login "$registry" &> /dev/null; then
+            echo "❌ Not logged in to $registry. Please run:"
+            echo "   buildah login $registry"
+            return 1
+        fi
+    else
+        if ! podman login --get-login "$registry" &> /dev/null; then
+            echo "❌ Not logged in to $registry. Please run:"
+            echo "   podman login $registry"
+            return 1
+        fi
+    fi
+    echo "✅ Authenticated to $registry"
+    return 0
+}
+
+########################################
+# PUSH MODE → full multi-arch build    #
+########################################
 if [[ "$PUSH_FLAG" == "--push" ]]; then
-  echo "Will push images to registry"
-  BUILD_CMD="docker buildx build --no-cache"
-  BUILD_ARGS=(
-    -f "$DOCKERFILE_PATH"
-    --platform "$PLATFORMS"
-    --build-arg "APP_JAR=packages/server/target/$JAR_NAME"
-    --build-arg "BASE_IMAGE=admingentoro/gentoro:base-$VERSION"
-    -t "admingentoro/gentoro:$VERSION"
-    -t "admingentoro/gentoro:latest"
-    --push
-    "$ROOT_DIR"
-  )
-else
-  echo "Building for local use"
-  # For local builds, use docker buildx with --load to access local images
-  # Don't override PLATFORMS if it was set via --platform parameter
-  if [[ -z "$PLATFORM_VALUE" ]]; then
-    PLATFORMS="linux/amd64"
+  echo "Multi-arch push mode"
+  
+  # Check authentication before proceeding
+  if ! check_auth; then
+    exit 1
   fi
 
-  # Check if base image exists locally - try both versioned and latest
-  BASE_IMAGE_NAME="admingentoro/gentoro:base-$VERSION"
-  if ! docker image inspect "$BASE_IMAGE_NAME" >/dev/null 2>&1; then
+  # Convert comma-separated platforms to array
+  IFS=',' read -ra PLATFORM_ARRAY <<< "$PLATFORMS"
+
+  MANIFEST_NAME="gentoro-product-${VERSION}-manifest"
+  
+  # Remove existing manifest if it exists
+  if [[ "$RUNTIME" == "buildah" ]]; then
+    buildah manifest rm "$MANIFEST_NAME" 2>/dev/null || true
+    buildah manifest create "$MANIFEST_NAME"
+  else
+    podman manifest rm "$MANIFEST_NAME" 2>/dev/null || true
+    podman manifest create "$MANIFEST_NAME"
+  fi
+
+  for PLATFORM in "${PLATFORM_ARRAY[@]}"; do
+    echo "Building $PLATFORM"
+
+    # Include your Docker Hub username in the temporary tag
+    TMP_TAG="admingentoro/gentoro-product-${VERSION}-$(echo "$PLATFORM" | tr '/' '-')"
+
+    if [[ "$RUNTIME" == "buildah" ]]; then
+      buildah bud \
+        --no-cache \
+        --platform "$PLATFORM" \
+        -f "$DOCKERFILE_PATH" \
+        --build-arg "APP_JAR=packages/server/target/$JAR_NAME" \
+        --build-arg "BASE_IMAGE=$BASE_IMAGE_NAME" \
+        -t "$TMP_TAG" \
+        "$ROOT_DIR"
+
+      # Push directly to Docker Hub with your namespace
+      buildah push "$TMP_TAG" "docker://$TMP_TAG"
+      buildah manifest add "$MANIFEST_NAME" "docker://$TMP_TAG"
+      
+      # Clean up temporary image
+      buildah rmi "$TMP_TAG" 2>/dev/null || true
+    else
+      podman build \
+        --no-cache \
+        --platform "$PLATFORM" \
+        -f "$DOCKERFILE_PATH" \
+        --build-arg "APP_JAR=packages/server/target/$JAR_NAME" \
+        --build-arg "BASE_IMAGE=$BASE_IMAGE_NAME" \
+        -t "$TMP_TAG" \
+        "$ROOT_DIR"
+
+      # Push directly to Docker Hub with your namespace
+      podman push "$TMP_TAG" "docker://$TMP_TAG"
+      podman manifest add "$MANIFEST_NAME" "docker://$TMP_TAG"
+      
+      # Clean up temporary image
+      podman rmi "$TMP_TAG" 2>/dev/null || true
+    fi
+  done
+
+  echo "Pushing multi-arch manifest to Docker Hub"
+  if [[ "$RUNTIME" == "buildah" ]]; then
+    buildah manifest push --all "$MANIFEST_NAME" "docker://$IMAGE_NAME"
+    buildah manifest push --all "$MANIFEST_NAME" "docker://$IMAGE_LATEST"
+    
+    # Clean up manifest
+    buildah manifest rm "$MANIFEST_NAME" 2>/dev/null || true
+  else
+    podman manifest push --all "$MANIFEST_NAME" "docker://$IMAGE_NAME"
+    podman manifest push --all "$MANIFEST_NAME" "docker://$IMAGE_LATEST"
+    
+    # Clean up manifest
+    podman manifest rm "$MANIFEST_NAME" 2>/dev/null || true
+  fi
+
+  echo "✅ Successfully pushed multi-arch product image: $IMAGE_NAME"
+  exit 0
+fi
+
+########################################
+# LOCAL MODE → single-platform build   #
+########################################
+echo "Local build mode (single platform)"
+
+# Auto-select host architecture unless user specified a platform
+if [[ -z "$PLATFORM_VALUE" ]]; then
+  HOST_ARCH=$(uname -m)
+  case "$HOST_ARCH" in
+    x86_64) HOST_ARCH=amd64 ;;
+    arm64|aarch64) HOST_ARCH=arm64 ;;
+    *) echo "Unsupported host architecture: $HOST_ARCH"; exit 1 ;;
+  esac
+  PLATFORMS="linux/$HOST_ARCH"
+  echo "Default local build platform: $PLATFORMS"
+fi
+
+# Check if base image exists locally - try both versioned and latest
+if [[ "$RUNTIME" == "buildah" ]]; then
+  if ! buildah images | grep -q "admingentoro/gentoro.*base-$VERSION"; then
     echo "⚠️  Base image $BASE_IMAGE_NAME not found, trying base-latest..."
-    if docker image inspect "admingentoro/gentoro:base-latest" >/dev/null 2>&1; then
+    if buildah images | grep -q "admingentoro/gentoro.*base-latest"; then
       BASE_IMAGE_NAME="admingentoro/gentoro:base-latest"
       echo "✅ Using admingentoro/gentoro:base-latest"
     else
       echo "❌ No base image found locally"
       echo "Available base images:"
-      docker images | grep "admingentoro/gentoro.*base" || echo "No base images found"
+      buildah images | grep "admingentoro/gentoro.*base" || echo "No base images found"
+      exit 1
+    fi
+  else
+    echo "✅ Base image $BASE_IMAGE_NAME found"
+  fi
+else
+  if ! podman image exists "$BASE_IMAGE_NAME"; then
+    echo "⚠️  Base image $BASE_IMAGE_NAME not found, trying base-latest..."
+    if podman image exists "admingentoro/gentoro:base-latest"; then
+      BASE_IMAGE_NAME="admingentoro/gentoro:base-latest"
+      echo "✅ Using admingentoro/gentoro:base-latest"
+    else
+      echo "❌ No base image found locally"
+      echo "Available base images:"
+      podman images | grep "admingentoro/gentoro.*base" || echo "No base images found"
       exit 1
     fi
   fi
+fi
 
-  BUILD_CMD="docker build"
-  BUILD_ARGS=(
-    -f "$DOCKERFILE_PATH"
-    --build-arg "APP_JAR=packages/server/target/$JAR_NAME"
-    --build-arg "BASE_IMAGE=$BASE_IMAGE_NAME"
-    -t "admingentoro/gentoro:$VERSION"
-    -t "admingentoro/gentoro:latest"
-    --platform "$PLATFORMS"
+if [[ "$RUNTIME" == "buildah" ]]; then
+  buildah bud \
+    --no-cache \
+    --platform "$PLATFORMS" \
+    -f "$DOCKERFILE_PATH" \
+    --build-arg "APP_JAR=packages/server/target/$JAR_NAME" \
+    --build-arg "BASE_IMAGE=$BASE_IMAGE_NAME" \
+    -t "$IMAGE_NAME" \
+    -t "$IMAGE_LATEST" \
     "$ROOT_DIR"
-  )
+else
+  podman build \
+    --no-cache \
+    --platform "$PLATFORMS" \
+    -f "$DOCKERFILE_PATH" \
+    --build-arg "APP_JAR=packages/server/target/$JAR_NAME" \
+    --build-arg "BASE_IMAGE=$BASE_IMAGE_NAME" \
+    -t "$IMAGE_NAME" \
+    -t "$IMAGE_LATEST" \
+    "$ROOT_DIR"
 fi
 
-echo "Running: $BUILD_CMD ${BUILD_ARGS[*]}"
-
-# Build Docker image
-if ! $BUILD_CMD "${BUILD_ARGS[@]}"; then
-  echo "Failed to build product image"
-  exit 1
-fi
-
-echo "Successfully built admingentoro/gentoro:$VERSION for platforms: $PLATFORMS"
+echo "✅ Successfully built local product image: $IMAGE_NAME ($PLATFORMS)"

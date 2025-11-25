@@ -52,19 +52,44 @@ cleanup_container() {
     fi
 }
 
+load_images_to_docker() {
+    log_info "Loading Buildah images to Docker daemon for validation..."
+    
+    # Load base image
+    if buildah images | grep -q "admingentoro/gentoro.*base-$VERSION"; then
+        buildah push "$BASE_IMAGE" "docker-daemon:$BASE_IMAGE" || {
+            log_warning "Failed to load base image to Docker daemon, continuing with validation..."
+        }
+    fi
+    
+    # Load product image 
+    if buildah images | grep -q "admingentoro/gentoro.*$VERSION"; then
+        buildah push "$PRODUCT_IMAGE" "docker-daemon:$PRODUCT_IMAGE" || {
+            log_warning "Failed to load product image to Docker daemon, continuing with validation..."
+        }
+    fi
+    
+    # Start Docker daemon if not running
+    if ! systemctl is-active --quiet docker; then
+        log_info "Starting Docker daemon..."
+        sudo systemctl start docker || true
+    fi
+}
+
 validate_base_image() {
     log_info "Validating base image: $BASE_IMAGE on $PLATFORM"
-    
     local container_name="base-validation-$(date +%s)"
     
     # Check if base image exists locally
     if ! docker image inspect "$BASE_IMAGE" >/dev/null 2>&1; then
-        log_error "Base image $BASE_IMAGE does not exist locally"
-        log_info "Available images:"
-        docker images | grep -E "(gentoro|base)" || echo "No gentoro images found"
+        log_error "Base image $BASE_IMAGE does not exist locally in Docker"
+        log_info "Available images in Docker:"
+        docker images | grep -E "(gentoro|base)" || echo "No gentoro images found in Docker"
+        log_info "Available images in Buildah:"
+        buildah images | grep -E "(gentoro|base)" || echo "No gentoro images found in Buildah"
         return 1
     else
-        log_info "Base image found locally"
+        log_info "Base image found locally in Docker"
     fi
     
     # Start base image container
@@ -122,17 +147,18 @@ validate_base_image() {
 
 validate_product_image() {
     log_info "Validating product image: $PRODUCT_IMAGE on $PLATFORM"
-    
     local container_name="product-validation-$(date +%s)"
     
     # Check if product image exists locally
     if ! docker image inspect "$PRODUCT_IMAGE" >/dev/null 2>&1; then
-        log_error "Product image $PRODUCT_IMAGE does not exist locally"
-        log_info "Available images:"
-        docker images | grep -E "gentoro" || echo "No gentoro images found"
+        log_error "Product image $PRODUCT_IMAGE does not exist locally in Docker"
+        log_info "Available images in Docker:"
+        docker images | grep -E "gentoro" || echo "No gentoro images found in Docker"
+        log_info "Available images in Buildah:"
+        buildah images | grep -E "gentoro" || echo "No gentoro images found in Buildah"
         return 1
     else
-        log_info "Product image found locally"
+        log_info "Product image found locally in Docker"
     fi
     
     # Start product image container with port mappings
@@ -257,6 +283,8 @@ main() {
     log_info "Platform: $PLATFORM"
     log_info "Base Image: $BASE_IMAGE"
     log_info "Product Image: $PRODUCT_IMAGE"
+
+    load_images_to_docker
     
     # Validate base image
     if ! validate_base_image; then
