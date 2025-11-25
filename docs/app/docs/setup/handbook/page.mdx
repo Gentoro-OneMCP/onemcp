@@ -1,0 +1,27 @@
+---
+asIndexPage: true
+title: Handbook
+---
+
+## **Handbook**
+
+OneMCP uses the handbook folder as its source of truth. There, developers will provide the following content:
+- Agent.yaml
+- Guardrails.yaml
+- Documentation
+- OpenAPI Specs
+- Regression Tests
+- User feedback
+
+Together, these files will be used to generate a comprehensive Graph knowledge base for OneMCP, and will be used extensively on each request.
+
+Here is a typical handbook folder structure:
+```
+~/handbooks
+├── Agent.yaml
+├── Guardrails.yaml
+├── apis/                       # OpenAPI specifications
+├── docs/                       # Supplementary documentation
+├── regression/                 # Optional test definitions
+└── user-feedback/              # Optional collected feedback from users.
+```

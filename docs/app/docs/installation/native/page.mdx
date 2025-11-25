@@ -1,0 +1,275 @@
+---
+title: Running Natively
+---
+
+## **Native Execution**
+
+OneMCP can run **natively** on any machine with **Java 21** installed.
+The runtime is packaged as a **self-contained JAR** with all dependencies embedded (fat/uber-jar).
+No external libraries or build tools are required — simply execute the binary with Java 21+.
+
+This approach is ideal for:
+
+* Local development
+* Advanced debugging
+* Embedded or offline environments
+* Custom integrations
+* Direct CLI usage and interactive experimentation
+
+---
+
+## **1. Requirements**
+
+* **Java 21 or later** (OpenJDK, Temurin, Zulu, or any standards-compliant distribution)
+* A local **Handbook** directory (unless using bundled sample content)
+* An appropriate **llm provider key** (OpenAI, Gemini, Anthropic, Ollama, etc.)
+
+---
+
+## **2. Running OneMCP Natively**
+
+Assuming the packaged runtime is named:
+
+```
+onemcp.jar
+```
+
+You can execute it with:
+
+```bash
+java -jar onemcp.jar \
+  --mode=interactive \
+  --config-file=classpath:application.yaml
+```
+
+The runtime accepts two top-level parameters: **mode** and **config-file**.
+
+---
+
+## **3. Runtime Modes**
+
+OneMCP supports multiple execution modes, depending on how you want to interact with the system.
+
+### ## **3.1 `interactive` (Terminal REPL mode)**
+
+Runs OneMCP interactively.
+Assignments are entered directly into the terminal; results stream back in real time.
+
+Use this mode if you want:
+
+* Fast local experimentation
+* Testing prompts
+* Debugging agent behavior
+
+**Example:**
+
+```bash
+java -jar onemcp.jar --mode=interactive --config-file=classpath:application.yaml
+```
+
+---
+
+### ## **3.2 `dry-run` (Environment & configuration validation)**
+
+Verifies that:
+
+* Handbook is accessible
+* LLM provider keys are valid
+* Graph indexing is configured correctly
+* All dependency services are reachable
+
+No assignment is executed; the system exits immediately after validation.
+
+**Example:**
+
+```bash
+java -jar onemcp.jar --mode=dry-run --config-file=file:///opt/onemcp/application.yaml
+```
+
+---
+
+### ## **3.3 `server` (MCP Server Mode)**
+
+Starts the full OneMCP runtime and exposes the **MCP endpoint** via HTTP.
+Other tools, agents, or orchestrators can connect to it as a long-running service.
+
+Use this mode for:
+
+* Local integration
+* Automation
+* Connecting external clients
+* Running the binary in production
+
+**Example:**
+
+```bash
+java -jar onemcp.jar --mode=server --config-file=classpath:application.yaml
+```
+
+The server binds to the configured host + port (default: `0.0.0.0:8080`).
+
+---
+
+### ## **3.4 `regression` (Regression test executor)**
+
+Executes all regression tests located in the **Handbook** directory.
+Each test verifies the correctness and stability of agent behavior.
+
+This is especially useful before deployments or after Handbook updates.
+
+**Example:**
+
+```bash
+java -jar onemcp.jar --mode=regression --config-file=classpath:application.yaml
+```
+
+---
+
+## **4. Configuration File (`config-file`)**
+
+The `--config-file` parameter accepts:
+
+* **Classpath resources**
+`classpath:application.yaml`
+* **Local or absolute file paths**
+`file:///application.yaml`
+`file:///opt/onemcp/prod.yaml`
+* **Environment variable expanded paths**
+`${env:CONFIG_LOCATION}`
+
+This file defines all runtime behavior: Handbook location, logging, LLM provider settings, HTTP server, graph indexing, etc.
+
+---
+
+## **5. Example Configuration File**
+
+Here is the example you've provided, formatted exactly as shown for documentation reference:
+
+```yaml
+handbook:
+  location: ${env:HANDBOOK_DIR:-classpath:acme-handbook}
+
+prompt:
+  location: classpath:prompts
+
+# Logging levels can be configured here and applied at startup by OneMcp
+logging:
+  level:
+    root: INFO
+    # Fine-tune specific packages/classes as needed
+    com:
+      google:
+        genai: OFF
+      gentoro:
+        onemcp: INFO
+    org:
+      eclipse:
+        jetty: WARN
+    okhttp3: INFO
+    io:
+      modelcontextprotocol: INFO
+
+http:
+  port: ${env:SERVER_PORT:-8080}
+  hostname: 0.0.0.0
+  acme:
+    context-path: /acme
+  mcp:
+    endpoint: ${env:PROTOCOL_MCP_CONFIG_MESSAGE_ENDPOINT:-/mcp}
+    keep-alive: -1
+    keep-alive-seconds: -1
+    disallow-delete: false
+    server:
+      name: "onemcp-server"
+      version: "1.0.0"
+    tool:
+      name: onemcp.run
+      description: |
+        OneMCP entry point, express your request using Natural Language.
+
+llm:
+  active-profile: ${env:LLM_ACTIVE_PROFILE:-gemini-flash}
+  ollama:
+    baseUrl: http://192.168.2.77:11434
+    model: qwen3-coder:30b
+    provider: ollama
+  openai:
+    apiKey: ${env:OPENAI_API_KEY:-sk-proj-...}
+    model: ${env:OPENAI_MODEL_NAME:-gpt-5-nano-2025-08-07}
+    provider: openai
+  anthropic-sonnet:
+    apiKey: ${env:ANTHROPIC_API_KEY:-sk-ant-...}
+    model: ${env:ANTHROPIC_MODEL_NAME:-claude-sonnet-4-5-20250929}
+    provider: anthropic
+  gemini-flash:
+    apiKey: ${env:GEMINI_API_KEY:-...}
+    model: ${env:GEMINI_MODEL_NAME:-gemini-2.5-flash}
+    provider: gemini
+  gemini-pro:
+    apiKey: ${env:GEMINI_API_KEY:-...}
+    model: ${env:GEMINI_MODEL_NAME:-gemini-2.5-pro}
+    provider: gemini
+  cache:
+    enabled: false
+
+graph:
+  indexing:
+    enabled: ${env:GRAPH_INDEXING_ENABLED:-false}
+    clearOnStartup: ${env:GRAPH_INDEXING_CLEAR_ON_STARTUP:-true}
+    driver: ${env:GRAPH_INDEXING_DRIVER:-arangodb}
+    # NOTE: ArangoDB must be running with authentication configured:
+    #   docker run -e ARANGO_ROOT_PASSWORD=test123 -p 8529:8529 -d arangodb:latest
+    arangodb:
+      enabled: ${env:ARANGODB_ENABLED:-false}
+      host: ${env:ARANGODB_HOST:-localhost}
+      port: ${env:ARANGODB_PORT:-8529}
+      user: ${env:ARANGODB_USER:-root}
+      password: ${env:ARANGODB_PASSWORD:-test123}
+      clearOnStartup: ${env:ARANGODB_CLEAR_ON_STARTUP:-true}
+    # Add more drivers here as needed
+  query:
+    driver: ${env:GRAPH_QUERY_DRIVER:-arangodb}
+    arangodb:
+      entityContextQueryPath: ${env:ARANGODB_ENTITY_CONTEXT_QUERY_PATH:-/aql/entity-context-query.aql}
+    # Add more drivers here as needed
+```
+
+---
+
+## **6. Recommended Directory Layout**
+
+```
+onemcp/
+  ├── onemcp.jar
+  ├── application.yaml
+  ├── handbook/
+  ├── prompts/
+  └── logs/
+```
+
+---
+
+## **7. Native Mode Use Cases**
+
+| Mode        | Ideal For                                           |
+| ----------- | --------------------------------------------------- |
+| interactive | Prompt testing, debugging, experimentation          |
+| dry-run     | CI/CD pipelines, validation gates                   |
+| server      | Integrating MCP endpoints, service deployments      |
+| regression  | Pre-deployment testing, validating Handbook changes |
+
+---
+
+## **8. Summary**
+
+Running OneMCP natively provides:
+
+* Zero-dependency execution (Java 21 only)
+* Fast startup
+* Local-first debugging
+* Full CLI and server functionality
+* Complete control over the Handbook and configuration
+
+This mode is ideal for developers who want deep flexibility and visibility.
+
+---

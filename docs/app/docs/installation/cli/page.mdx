@@ -1,0 +1,118 @@
+---
+title: CLI Installation
+---
+
+## **CLI Installation**
+
+The **OneMCP CLI** (`onemcp`) is a lightweight cross-platform tool designed to simplify how users interact with the OneMCP runtime.
+It provides a unified interface for:
+
+* Chatting with the server
+* Triggering assignments
+* Running regression tests
+* Managing configuration
+* Controlling local or remote OneMCP instances
+
+The CLI is distributed as a **standalone binary**, with first-class support for:
+
+* **macOS** (Intel & Apple Silicon)
+* **Linux** (amd64, arm64, x86)
+* **Windows** (PowerShell)
+
+It can be used in terminals, shells, as part of automation scripts, or CI pipelines.
+
+---
+
+## **1. Installing the CLI**
+
+### **1.1 macOS & Linux (Homebrew)**
+
+The CLI is available via **Homebrew**, the simplest way to install on macOS and Linux.
+
+#### **Install**
+
+```bash
+brew install onemcp
+```
+
+#### **Upgrade**
+
+```bash
+brew upgrade onemcp
+```
+
+#### **Verify**
+
+```bash
+onemcp --version
+```
+
+---
+
+### **1.2 Windows (PowerShell via `scoop`)**
+
+Windows users can install using **Scoop**, a popular PowerShell package manager.
+
+### **Install Scoop (if needed)**
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+iwr -useb get.scoop.sh | iex
+```
+
+### **Install the CLI**
+
+```powershell
+scoop install onemcp
+```
+
+### **Verify**
+
+```powershell
+onemcp --version
+```
+
+---
+
+### **1.3 Manual Installation (All OS / Architectures)**
+
+For air-gapped systems, custom environments, or embedded devices, you can manually download the binary for:
+
+* macOS (amd64 / arm64)
+* Linux (amd64 / arm64 / x86)
+* Windows (amd64 / arm64)
+
+#### **Download and install**
+
+```bash
+curl -LO https://github.com/.../onemcp.zip
+unzip onemcp.zip
+chmod +x onemcp
+sudo mv onemcp /usr/local/bin/onemcp
+```
+
+Or Windows:
+
+```powershell
+Invoke-WebRequest -Uri "https://github.com/.../onemcp.exe" -OutFile "onemcp.exe"
+```
+
+---
+
+## **2. Basic Usage**
+
+The `onemcp` tool uses the following structure:
+
+```
+onemcp [command] [options]
+```
+
+### **Example**
+
+```bash
+onemcp chat
+```
+
+This opens an interactive chat session that communicates with the active OneMCP server.
+
+---

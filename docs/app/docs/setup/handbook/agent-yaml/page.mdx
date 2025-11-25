@@ -1,0 +1,45 @@
+---
+title: Agent.yaml
+---
+
+## **Agent.yaml**
+
+This file contains the overall agent instructions and configuration.
+
+Here is an example a valid definition:
+
+```yaml
+agent:
+  version: 1.0.0
+
+  # Use markdown notation to describe the agent's purpose and capabilities.
+  instructions: |
+    A comprehensive data analytics API for exploring e-commerce sales data.
+    This API provides powerful querying capabilities to analyze sales performance,
+    customer behavior, product trends, and regional insights.
+
+  # Describe all entities and their relationships.
+  # As OneMCP uses Graph contextual data retrieval, expressing the entities and their relationships is crucial.
+  entities:
+    # Unique ID of the Entity, Could use a parallel of OpenAPI Tags.
+    - name: Order
+      # Use markdown notation to describe the entity's purpose and capabilities.
+      description: |
+        Represents one order's details (items, quantity, buyer, revenue).
+      # Describe how this entity relates to other entities.
+      relationships:
+        - name: Customer
+          # Relationship type: toOne or toMany
+          type: toOne
+          # Use markdown notation to describe how the relationship works.
+          description: |
+            An Order will always belong to a Customer. A Customer will place and order with one or more Products on it.
+      # Describe the operations that can be performed on this entity.
+      operations:
+        # Type of the Operation according to OneMCP mapped Operations.
+        # Retrieve, Compute, Delete, Change, Write.
+        - kind: Retrieve
+          # Use markdown notation to describe the operation's purpose and capabilities.
+          description: |
+            Orders can be retrieved and combined with Product and Customer data to provide a complete view of the order.
+```

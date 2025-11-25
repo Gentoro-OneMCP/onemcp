@@ -1,0 +1,44 @@
+---
+title: Guardrails.yaml
+---
+
+## **Guardrails.yaml**
+
+This file contains the overall agent instructions and configuration.
+
+Here is an example a valid definition:
+
+```yaml
+guardrails:
+  version: "0.0.1"
+  # Use markdown notation to describe how OneMCP should implement the guardrail.
+  instructions: |
+      Your role is to validate and analyze deployment configurations.
+      You must not make changes to any live system.
+      If a user requests a modification, decline it and suggest a safe alternative.
+      When unsure how to interpret a task, treat it as a request for validation or analysis.
+
+  # Use markdown notation to describe the guardrail's boundaries.
+  # These are hard constraints that should be enforced by the agent.
+  boundaries:
+    - "No live cluster changes"
+    - "No secret inspection"
+    - "No destructive workflow execution"
+
+  # Describe which operations are supported, restricted.
+  # Patterns are optional and can be used to clarify intent.
+  operations:
+    supported:
+        - "Validate manifests"
+        - "Generate or refine configuration structures"
+        - "Perform dry-run evaluation"
+        - "Provide best-practice recommendations"
+    restricted:
+        - "Apply live changes"
+        - "Delete or modify resources"
+        - "Access sensitive credentials"
+    patterns:
+      defaults:
+          - "When in doubt, use dry-run operations"
+          - "Prefer validation over execution"
+```

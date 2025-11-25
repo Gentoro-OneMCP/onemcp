@@ -4,13 +4,81 @@ asIndexPage: true
 description: Core ideas behind OneMCP and how it works.
 ---
 
-# Concepts
+## Concepts
 
-Use this section to explain the foundational ideas behind the product.
+This section gives a developer-focused overview of how OneMCP turns a user assignment into safe, grounded actions. Use it as the mental model for building, extending, and operating agents in production.
 
-Suggested topics:
+---
 
-- Architecture overview
-- Knowledge base and retrieval
-- Tools and orchestration
-- Telemetry and observability
+### Runtime at a glance
+
+At runtime, a request flows through a deterministic pipeline:
+
+1. Guardrails — Define the allowed intent, capabilities, and boundaries for the agent. All requests are validated pre- and post-execution against these rules.
+2. Retrieval — Fetch minimal-but-sufficient context from the Handbook graph: optimized docs, entities/relations, and augmented API segments.
+3. Orchestrator — Generate a plan using validated capabilities and retrieved context; coordinate execution and iterative evaluation.
+4. Runner — Execute concrete tool/API calls as prescribed by the plan with strict isolation and streaming telemetry.
+5. Evaluator — Validate outputs against schemas, guardrails, and plan expectations; decide whether to continue, refine, or abort.
+
+This loop repeats until the plan converges or a violation/terminal condition is reached.
+
+---
+
+### Authoritative source: the Handbook
+
+All grounded behavior comes from the Handbook, a versioned knowledge base containing:
+
+- Guardrails (intent, supported operations, policies)
+- API definitions (e.g., OpenAPI) and generated client metadata
+- Documentation, examples, and best practices
+- Regression tests and user feedback
+
+Retrieval ingests and optimizes these assets into a graph for low-latency, LLM-friendly consumption during planning.
+
+---
+
+### Responsibilities by subsystem
+
+- Guardrails: High-level constraints that express what the agent may do, not low-level endpoints. Keeps the system safe and maintainable as APIs evolve.
+- Retrieval: Builds and queries the contextual graph to return compact, relevant context for the current assignment.
+- Orchestrator: Produces a deterministic, schema-bound plan; requests more context when needed; delegates execution; runs an evaluation loop.
+- Runner: Performs the actual calls and streams logs, artifacts, and intermediate results. No planning logic.
+- Evaluator: Checks step and plan outputs for schema adherence, constraint compliance, and end-to-end correctness.
+
+---
+
+### How to design an agent (developer checklist)
+
+1. Define Guardrails
+   - Intent: domain, purpose, boundaries
+   - Supported operations: high-level capability classes (read-only, validate, summarize, simulate)
+   - Instructions: defaults, fallbacks, how to handle ambiguity/denials
+2. Curate the Handbook
+   - Author docs and examples in user-facing terms
+   - Include API specs; keep them accurate and small where possible
+   - Capture feedback and regression notes
+3. Wire tools and clients
+   - Ensure API clients/schemas are available to the runtime
+   - Prefer schema-rich definitions to maximize planning quality
+4. Observe and iterate
+   - Use telemetry from Runner/Orchestrator/Evaluator to refine guardrails, docs, and API metadata
+
+---
+
+### When to use each concept page
+
+- Architecture — End-to-end system diagram and responsibilities across subsystems. See: [Architecture](./architecture)
+- Guardrails — How to express intent, capability classes, and boundaries safely. See: [Guardrails](./guardrails)
+- Retrieval — How the Handbook becomes a contextual graph and how queries work. See: [Retrieval](./retrieval)
+- Orchestrator — Plan generation, coordination, and evaluation loop details. See: [Orchestrator](./orchestrator)
+
+---
+
+### Key properties
+
+- Grounded by design: plans are generated only from Handbook-backed context
+- Deterministic surfaces: explicit plans, schemas, and guardrail checks
+- Evolves safely: high-level guardrails decouple behavior from changing APIs
+- Production ready: isolation, streaming telemetry, and post-exec evaluation
+
+Use the pages linked above to dive deeper into each concept and how to extend or integrate them in your environment.

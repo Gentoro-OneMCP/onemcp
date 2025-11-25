@@ -1,0 +1,436 @@
+---
+title: OpenAPI Specifications
+---
+
+## **OpenAPI Specifications**
+
+The `/apis` folder contains one or more **OpenAPI specifications** that define external systems, services, and enterprise integrations accessible to OneMCP.
+During execution planning, OneMCP uses these specifications to:
+
+* Understand the structure and capabilities of downstream services
+* Generate or validate execution plans
+* Infer dependencies between API operations
+* Produce accurate requests with the right payload expectations
+* Interpret responses and incorporate them into the workflow
+
+This directory is essential for enabling OneMCP to perform real-world actions based on standardized and well-defined interfaces.
+
+---
+
+## **Requirements for OpenAPI Specifications**
+
+To ensure high-quality ingestion and optimal reasoning, all OpenAPI documents in `/apis` must follow these rules:
+
+---
+
+### **1. Accepted Formats**
+
+Files **must** be authored as:
+
+* `*.yaml`
+* `*.json`
+
+YAML is recommended for readability, but JSON is fully supported.
+
+---
+
+### **2. Rich Documentation**
+
+All OpenAPI definitions should include:
+
+* Summary and description for every operation
+* Field-level descriptions for schemas
+* Explicit error definitions
+* Clear documentation of constraints (nullable, formats, enums, patterns)
+* Human-readable context explaining when and why the operation is used
+
+The richer the documentation, the more context OneMCP can leverage during planning.
+
+---
+
+### **3. Well-Defined Tags and Relationships**
+
+Operations must be grouped using meaningful `tags`, which help OneMCP:
+
+* Understand the functional grouping of endpoints
+* Determine logical workflows
+* Identify API capability clusters
+
+Tags should reflect business domains, such as:
+
+* `Users`
+* `Orders`
+* `Inventory`
+* `Billing`
+* `Notifications`
+
+Additionally, relationships between schemas (e.g., `Order` → `OrderItem`, `User` → `Address`) should be explicit.
+
+---
+
+### **4. High-Quality Examples**
+
+Include examples for:
+
+* Request payloads
+* Query parameters
+* Responses
+* Error states
+* Event objects (if applicable)
+
+Examples greatly enhance automatic grounding during API plan generation.
+
+---
+
+## **Recommended Structure**
+
+The `/apis` folder can hold one or more OpenAPI documents:
+
+```
+/apis
+├── crm-system.yaml
+├── erp-order-management.yaml
+└── notification-service.json
+```
+
+There is no enforced structure beyond placing the OpenAPI documents inside this folder.
+
+---
+
+# **Examples**
+
+Below are several examples showing how to meet the above constraints.
+
+---
+
+# **Example 1 — Well-Documented YAML Spec**
+
+```yaml
+openapi: 3.1.0
+info:
+  title: CRM System API
+  version: 1.0.0
+  description: >
+    API for managing customer profiles, contacts, and related interactions.
+    This service is used by OneMCP to retrieve customer data during plan generation.
+
+tags:
+  - name: Customers
+    description: Endpoints related to customer lifecycle operations.
+  - name: Contacts
+    description: Managing customer contact channels such as email or phone.
+
+paths:
+  /customers:
+    get:
+      tags: [Customers]
+      summary: List customers
+      description: Retrieves a paginated list of customers with optional filters.
+      parameters:
+        - name: status
+          in: query
+          description: Filter by customer account status.
+          schema:
+            type: string
+            enum: [active, inactive, pending]
+            example: active
+      responses:
+        '200':
+          description: Successfully returned matching customers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerList'
+              examples:
+                sample:
+                  value:
+                    total: 1
+                    items:
+                      - id: "c123"
+                        name: "Jane Doe"
+                        status: "active"
+
+  /customers/{id}:
+    get:
+      tags: [Customers]
+      summary: Get customer details
+      description: Retrieves full profile information for a single customer.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Customer record found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+
+components:
+  schemas:
+    CustomerList:
+      type: object
+      properties:
+        total:
+          type: integer
+          description: Total number of customers.
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Customer'
+
+    Customer:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the customer.
+          example: "c123"
+        name:
+          type: string
+          description: Full legal name.
+          example: "Jane Doe"
+        status:
+          type: string
+          description: Customer lifecycle status.
+          enum: [active, inactive, pending]
+          example: active
+        contacts:
+          type: array
+          description: List of contact channels.
+          items:
+            $ref: '#/components/schemas/Contact'
+
+    Contact:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [email, phone]
+          description: Type of contact method.
+        value:
+          type: string
+          description: The contact detail (email address or phone number).
+```
+
+This example demonstrates:
+
+* Detailed `info` and `description` fields
+* Proper use of tags
+* Well-structured schemas
+* Examples for responses
+* Rich relationship modeling (`Customer` → `Contact`)
+
+---
+
+# **Example 2 — JSON Spec With Strong Schema References**
+
+```json
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Notification Service",
+    "version": "2.0.0",
+    "description": "Service for sending emails, SMS and push notifications."
+  },
+  "tags": [
+    { "name": "Notifications", "description": "Operations for dispatching messages." }
+  ],
+  "paths": {
+    "/notifications/send": {
+      "post": {
+        "tags": ["Notifications"],
+        "summary": "Send a notification",
+        "description": "Dispatches a templated or raw message to a recipient.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SendNotificationRequest" },
+              "examples": {
+                "sms": {
+                  "value": {
+                    "channel": "sms",
+                    "recipient": "+1555012345",
+                    "message": "Your verification code is 82312."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message successfully queued for delivery.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SendNotificationResponse" }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SendNotificationRequest": {
+        "type": "object",
+        "required": ["channel", "recipient", "message"],
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": ["email", "sms", "push"],
+            "description": "The method of notification."
+          },
+          "recipient": {
+            "type": "string",
+            "description": "Email address, phone number or device token."
+          },
+          "message": {
+            "type": "string",
+            "description": "The content of the notification."
+          }
+        }
+      },
+      "SendNotificationResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Delivery request identifier."
+          },
+          "status": {
+            "type": "string",
+            "description": "Queue status.",
+            "enum": ["queued", "failed"]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+This JSON example highlights:
+
+* Clear field-level descriptions
+* Required properties
+* Useful request examples
+* Tags representing core functionality
+
+---
+
+# **Example 3 — Modeling Complex Relationships With Tags**
+
+```yaml
+openapi: 3.1.0
+info:
+  title: Order Management
+  version: 1.2.0
+  description: >
+    Core ERP operations for order lifecycle management: creation, updates,
+    shipments, invoicing and cancellations.
+
+tags:
+  - name: Orders
+    description: Creating, updating and retrieving orders.
+  - name: Shipments
+    description: Managing shipments and delivery schedules.
+  - name: Invoices
+    description: Payment request generation and reconciliation.
+
+paths:
+  /orders:
+    post:
+      tags: [Orders]
+      summary: Create a new order
+      description: >
+        Registers a new order with one or more line items. Returns the generated order ID.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderCreateRequest'
+            examples:
+              basic:
+                value:
+                  customerId: "c123"
+                  items:
+                    - sku: "SKU-001"
+                      quantity: 2
+                      price: 12.50
+      responses:
+        '201':
+          description: Order created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderCreateResponse'
+
+components:
+  schemas:
+    OrderCreateRequest:
+      type: object
+      required: [customerId, items]
+      properties:
+        customerId:
+          type: string
+          description: Customer placing the order.
+        items:
+          type: array
+          description: Line items included in the order.
+          items:
+            $ref: '#/components/schemas/OrderItem'
+
+    OrderItem:
+      type: object
+      required: [sku, quantity, price]
+      properties:
+        sku:
+          type: string
+        quantity:
+          type: integer
+        price:
+          type: number
+          format: float
+
+    OrderCreateResponse:
+      type: object
+      properties:
+        orderId:
+          type: string
+          example: "ord-93211"
+        status:
+          type: string
+          enum: [created, pending]
+```
+
+This example demonstrates:
+
+* Rich relationships (`OrderCreateRequest` → `OrderItem`)
+* Detailed examples
+* Clean tagging strategy across multiple business domains
+
+---
+
+# **Summary**
+
+The `/apis` directory is where developers define OneMCP’s integration capabilities using high-quality OpenAPI specifications.
+By following best practices—rich documentation, clear tags, strong schema relationships, and meaningful examples—you enable OneMCP to:
+
+* Generate accurate execution plans
+* Understand downstream system behavior
+* Craft valid requests and interpret responses
+* Maintain contextual consistency across operations
+
+A well-defined `/apis` folder directly increases the reliability and precision of OneMCP’s reasoning and execution.
+
+---

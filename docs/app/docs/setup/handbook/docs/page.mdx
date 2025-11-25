@@ -1,0 +1,235 @@
+---
+title: Documentation
+---
+
+## **Documentation**
+
+The `/docs` directory is the primary location for all supplementary documentation that supports **OneMCP’s overall behavior**, the **configured APIs**, and any **domain-specific knowledge** developers want the system to reference during runtime.
+
+Unlike `Agent.yaml` or `Guardrails.yaml`—which follow strict schemas—the `/docs` folder is **free-form**, allowing developers to organize information however they prefer, as long as the content complies with the following principles.
+
+---
+
+## **Purpose of `/docs`**
+
+OneMCP uses the `/docs` folder to enhance its understanding of:
+
+* Domain concepts and terminology
+* Business logic, workflows, and architecture
+* API usage patterns and operational context
+* Troubleshooting guides and decision pathways
+* Any additional material needed to ground model reasoning
+
+This directory allows you to integrate both high-level and deeply technical knowledge into OneMCP’s working memory.
+
+---
+
+## **Content Requirements**
+
+All files in `/docs` must adhere to the following requirements:
+
+### **Markdown Format**
+
+All documentation must be authored in **Markdown (`.md`)**.
+OneMCP expects markdown as the canonical source format for ingestion.
+
+### **Standalone and Meaningful**
+
+Each document should:
+
+* Contain a coherent topic or set of closely related topics
+* Be internally self-explanatory (no "see above" or referencing unrelated files implicitly)
+* Be free of incomplete stubs
+
+### **Machine-Readable**
+
+Although intended for human authors, content should be:
+
+* Structured with headings (`#`, `##`, `###`)
+* Use clear lists, tables, diagrams (mermaid supported)
+* Avoid unnecessary prose
+* Provide explicit definitions when introducing new concepts
+
+This improves semantic chunking and indexing.
+
+---
+
+## **How OneMCP Uses `/docs`**
+
+Once placed in the `/docs` folder, content undergoes several internal transformations:
+
+### 1. **Optimization**
+
+OneMCP applies its internal LLM pipeline to:
+
+* Identify related concepts across documents
+* Remove redundancies
+* Extract critical relationships
+* Normalize phrasing and semantics for embedding
+
+The goal is improved discoverability and reasoning without requiring developers to manually interlink documents.
+
+### 2. **Chunking**
+
+Documents are automatically separated into **small but contextually rich semantic chunks**, each retaining “anchored context”.
+Chunking considers:
+
+* Headings and sub-headings
+* Semantic boundaries
+* Code blocks and examples
+* Tables and structured lists
+
+These chunks become the basis for all retrieval operations during requests.
+
+### 3. **Knowledge Graph Indexing**
+
+Every chunk is stored and indexed inside OneMCP’s internal **GraphDB**, enabling:
+
+* Relationship mapping (concept A influences concept B)
+* Fast retrieval during agent reasoning
+* Execution-time grounding for API calls, tools, or workflows
+
+This makes `/docs` a powerful mechanism for shaping model behavior and ensuring correctness.
+
+---
+
+## **Recommended Content for `/docs`**
+
+Although flexible, the following types of documentation are strongly encouraged:
+
+### **1. System-Level Concepts**
+
+* High-level architecture diagrams
+* Component interaction explanations
+* Definitions of business entities and domain language
+* Workflows and sequences relevant to agent tasks
+
+### **2. API Context and Guidance**
+
+Even though the raw OpenAPI specs live under `/apis`, the `/docs` folder is ideal for:
+
+* Usage guides
+* Common examples and scenarios
+* Endpoint-level behavior that specs don’t capture
+* Error patterns and troubleshooting notes
+* Dependencies between APIs
+
+### **3. Rules, Policies, and Procedures**
+
+Beyond the formal guardrails:
+
+* Domain-specific rules
+* Compliance and regulatory notes
+* Internal processes agents must follow
+* Case studies and procedural templates
+
+### **4. Troubleshooting and Playbooks**
+
+* Incident response procedures
+* Observability notes
+* Known limitations
+* Runbooks
+
+### **5. Domain Knowledge**
+
+Any necessary contextual data:
+
+* Glossaries
+* Operational domain references
+* Business logic not described elsewhere
+
+---
+
+## **Directory Structure Guidelines (Optional)**
+
+You are **not required** to create subdirectories under `/docs`, but in collaborative or large projects, these patterns may help:
+
+```
+/docs
+├── architecture/
+│   ├── overview.md
+│   └── event-flow.md
+├── api-guides/
+│   ├── authentication.md
+│   └── pagination.md
+├── domain/
+│   ├── glossary.md
+│   └── business-rules.md
+└── troubleshooting/
+    └── common-errors.md
+```
+
+There is no strict schema—use whatever layout best fits your team’s workflow.
+
+---
+
+## **Best Practices**
+
+### **Keep Topics Narrow**
+
+Each file should capture a single conceptual unit.
+Example: Instead of one massive `system.md`, split into:
+
+* `architecture-overview.md`
+* `runtime-behavior.md`
+* `request-routing.md`
+
+### **Use Clear Headings for Better Chunking**
+
+Good chunk boundaries improve retrieval quality.
+
+### **Avoid Redundancy**
+
+If multiple docs repeat the same definition differently, optimization may weaken clarity.
+
+### **Include Examples**
+
+Code examples, sequence diagrams, API request samples—these significantly improve model-based reasoning.
+
+### **Include Metadata When Helpful**
+
+Not required, but structured frontmatter can improve searchability:
+
+```yaml
+---
+title: Authentication Flow
+tags: [auth, api, workflow]
+description: Explanation of the multi-step auth flow for service agents.
+---
+```
+
+---
+
+## **Example: A Well-Structured Documentation File**
+
+```md
+# Authentication Workflow
+
+This document describes the multi-step authentication workflow used by OneMCP when communicating with downstream APIs.
+
+## Overview
+The authentication mechanism is based on OAuth2 client credentials…
+
+## Token Acquisition
+Steps:
+1. Client sends…
+2. Server returns…
+
+## Token Rotation Rules
+- Tokens expire every 15 minutes…
+- Automatic rotation occurs…
+```
+
+---
+
+## **Summary**
+
+The `/docs` folder is where developers place all additional contextual knowledge that helps OneMCP behave accurately and intelligently at runtime. By supplying clean, structured, markdown-based documentation, you enable OneMCP to:
+
+* Optimize and relationally map knowledge
+* Chunk content into useful reasoning units
+* Index everything into the GraphDB for fast retrieval
+
+A well-organized `/docs` folder significantly improves the reliability, correctness, and interpretability of OneMCP.
+
+---
