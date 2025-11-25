@@ -1,0 +1,252 @@
+---
+title: Regression Tests
+---
+
+The `/regression` directory contains a suite of **optional but strongly recommended** regression tests used to validate OneMCP’s reasoning, domain understanding, and behavior for specific business rules or logic flows.
+
+Regression tests ensure that changes to your handbook—such as new documentation, updated APIs, modified guardrails, or agent configuration—do not unintentionally degrade the model’s output quality.
+
+These tests are **not executed automatically** to avoid unnecessary compute costs.
+They must be run manually using the CLI command:
+
+```
+onemcp run regression
+```
+
+This execution pattern makes the regression suite particularly suitable for **development workflows**, **pull requests**, and **CI/CD pipelines**.
+
+---
+
+# **Purpose of the Regression Suite**
+
+A regression suite provides predictable, repeatable evaluation of:
+
+* Business logic consistency
+* Interpretation of documentation in `/docs`
+* API usage reasoning
+* Guardrail application
+* Adherence to domain-specific rules
+* Output quality and expected format patterns
+
+Regression tests help developers catch regressions early and ensure that OneMCP continues to behave in line with defined requirements.
+
+---
+
+# **Test File Structure**
+
+Each regression file uses a common schema:
+
+```yaml
+regression:
+  name: "Order management"
+  version: "0.0.1"
+
+  tests:
+    - display-name: total sales
+      prompt: |
+        What is the total sales in 2024?
+      assert: |
+        Check if a number is produced.
+```
+
+Below is a breakdown of the schema and its constraints.
+
+---
+
+## **Field Reference**
+
+### **`regression.name`**
+
+A human-readable title describing the domain or high-level feature being validated.
+
+Example:
+
+* `"Order management"`
+* `"Customer identity validation"`
+* `"Financial reporting"`
+
+### **`regression.version`**
+
+A simple semantic version that lets you track iterations of the regression file.
+Useful when multiple teams contribute or when tests evolve over time.
+
+Example: `"1.2.0"`
+
+---
+
+## **`tests[]` — Defining Individual Test Cases**
+
+A regression file contains one or more test entries, each of which includes:
+
+### **`display-name`**
+
+A unique test identifier used in CLI output and reporting.
+It should be descriptive and unambiguous.
+
+Examples:
+
+* `"total sales"`
+* `"customer profile normalization"`
+* `"invalid login error handling"`
+
+### **`prompt`**
+
+The exact input that will be sent to the OneMCP agent during evaluation.
+This should represent a realistic user query or an internal request type.
+
+Use a literal block (`|`) for multi-line input.
+
+Example:
+
+```yaml
+prompt: |
+  Retrieve the sales totals for the last three quarters.
+```
+
+### **`assert`**
+
+A natural language expression that instructs the LLM how to validate the output.
+
+The assert statement:
+
+* Is written in plain English
+* Does not require structured rules
+* Should clearly describe the acceptance criteria
+* Is interpreted by the LLM judge during the regression execution
+
+Examples:
+
+```yaml
+assert: |
+  Check that the output contains a list of three quarters with numerical values.
+```
+
+```yaml
+assert: |
+  Verify that the answer reflects a failed authentication scenario.
+```
+
+```yaml
+assert: |
+  Confirm that the response includes a customer's email address.
+```
+
+Assertions should be clear, deterministic, and easy to evaluate using natural language reasoning.
+
+---
+
+# **Extended Example**
+
+Below is a more complete regression test suite:
+
+```yaml
+regression:
+  name: "ERP Order Logic"
+  version: "0.1.0"
+
+  tests:
+    - display-name: total sales for fiscal year
+      prompt: |
+        What is the total sales in 2024?
+      assert: |
+        Check that the answer provides a single numerical value.
+
+    - display-name: order item expansion
+      prompt: |
+        Expand the details for order ID ORD-33219.
+      assert: |
+        Ensure that the response includes a list of order line items.
+
+    - display-name: negative scenario – unknown order
+      prompt: |
+        Retrieve order information for order ID NOT-FOUND-999.
+      assert: |
+        Verify that the output clearly describes that the order does not exist.
+
+    - display-name: customer contact info
+      prompt: |
+        Provide the contact channels for customer C123.
+      assert: |
+        Check that the output includes at least one of the following: email or phone.
+```
+
+This sample demonstrates:
+
+* Mixed positive and negative tests
+* Multi-domain verification
+* Behavior-level validation
+* Useful natural-language assertions
+
+---
+
+# **Best Practices for Building a Regression Suite**
+
+### **1. Favor coverage over volume**
+
+A good regression suite captures **key business use cases**, not every query imaginable.
+
+### **2. Include both positive and negative tests**
+
+Validate:
+
+* Expected outputs
+* Proper handling of invalid inputs
+* Error reasoning
+* Guardrail enforcement
+
+### **3. Keep tests high-level**
+
+Tests should evaluate behavior, not implementation details.
+
+### **4. Keep assertions precise**
+
+Poorly written assertions produce inconsistent evaluations.
+
+### **5. Organize tests by domain**
+
+Examples of regression file sets:
+
+```
+/regression
+├── financial-reporting.yaml
+├── crm-operations.yaml
+└── order-management.yaml
+```
+
+### **6. Use semantic versioning**
+
+Increment versions when adding, removing, or modifying test cases.
+
+---
+
+# **Running Regression Tests**
+
+To execute the entire regression suite:
+
+```
+onemcp run regression
+```
+
+The output includes:
+
+* Per-test pass/fail results
+* A summarized report
+* Failure explanations (from the LLM-based evaluator)
+* Hints on potential misalignment in your handbook
+
+This makes regression tests a powerful tool for:
+
+* Development workflows
+* Code reviews
+* Integration checks
+* CI/CD pipelines
+
+---
+
+# **Summary**
+
+The `/regression` directory allows developers to define a clear, repeatable set of tests to validate OneMCP’s behavior against domain-specific expectations. By combining natural-language prompts and natural-language assertions, regression tests ensure that updates to your handbook do not introduce unintended regressions.
+
+A well-designed regression suite significantly increases the reliability and stability of your OneMCP integrations.
+
+---

@@ -1,13 +1,247 @@
 ---
+title: Orchestration
 description: Coordinates planning, generation, execution, and evaluation.
 ---
 
-# Orchestrator
+## **Orchestrator**
 
-The `Orchestrator` is the central coordinator that:
+The **Orchestrator** is the central coordination engine of OneMCP.
+It transforms a raw assignment into a validated, executable, and iteratively refined plan.
 
-- Consults the Foundation (KB + APIs) for grounding
-- Calls Planner, Generator, Executor, and Evaluator
-- Streams intermediate results and telemetry
+Below is a detailed technical breakdown.
 
-Key class: `com.gentorox.orchestrator.Orchestrator`.
+---
+
+### **1. Core Responsibilities**
+
+The Orchestrator performs five critical functions:
+
+#### **1.1 Context Acquisition**
+
+* Generates a retrieval query based on prompt intent.
+* Requests contextual segments from Data Retrieval.
+* Merges retrieved context with metadata and prior traces.
+* Ensures all information is Handbook-backed.
+
+#### **1.2 Guardrail Validation (Pre-flight)**
+
+Before **any planning**, the Orchestrator:
+
+* Parses the task into candidate actions.
+* Intersects the candidates with permitted capabilities.
+* Rejects prohibited categories or operations.
+* Produces a “safe action space” used during planning.
+
+#### **1.3 Plan Generation**
+
+Produces the **Execution Plan**, a structured, deterministic blueprint describing:
+
+* The ordered sequence of steps
+* Required inputs and expected outputs
+* Tool/API calls (grounded by spec metadata)
+* Conditions, branches, and retries
+* Resource or dependency constraints
+
+Internally, plan generation uses:
+
+* Contextual reasoning from retrieved Handbook segments
+* Safety-filtered tool selection
+* Step decomposition heuristics
+* Schema-driven API call construction
+
+#### **1.4 Execution Coordination**
+
+The Orchestrator itself **does not run the steps**.
+Instead, it:
+
+* Delegates each step to the Runner
+* Tracks intermediate outputs
+* Determines when additional context is needed
+* Handles tool errors or partial failures
+
+#### **1.5 Evaluation Loop**
+
+After each step or full plan:
+
+* Sends results to the Evaluator
+* Reads compliance, success/failure, and diagnostics
+* Decides whether to:
+
+* Continue
+* Regenerate sub-plans
+* Fetch more context
+* Abort
+
+This loop continues until:
+
+* The plan converges, or
+* Guardrails reject future attempts.
+
+---
+
+## **2. Internal Architecture**
+
+The Orchestrator is composed of several internal subsystems.
+
+### **2.1 Planner**
+
+Generates candidate steps.
+
+Inputs:
+
+* Retrieved contextual segments
+* Guardrail-validated capability list
+* API definitions + schema metadata
+
+Outputs:
+
+* A step graph or linear sequence
+* Schema-bound input/output shapes
+* Safety annotations
+
+### **2.2 Resolver**
+
+Responsible for:
+
+* Filling missing parameters
+* Constructing fully-defined API calls
+* Mapping abstract actions to concrete tool/client methods
+
+Uses:
+
+* API signature introspection
+* Handbook metadata (examples, patterns, constraints)
+
+### **2.3 Dispatcher**
+
+Synchronizes Runner execution.
+
+Tasks:
+
+* Executes steps sequentially or in parallel
+* Handles retries, backoff, and cancellation
+* Passes step outputs to the Evaluator
+* Aggregates results into a unified output
+
+### **2.4 State Manager**
+
+Maintains the internal working state:
+
+* Contextual cache
+* Partial outputs
+* Step history
+* Error registry
+* Evaluation feedback
+
+State is immutable per step but evolves per plan iteration.
+
+---
+
+## **3. Orchestration Lifecycle (Step-By-Step)**
+
+A developer-level walkthrough:
+
+---
+
+### **Step 1: Assignment Intake**
+
+* Normalize the user prompt.
+* Perform task classification (task type, capability domain).
+* Generate the retrieval query template.
+
+---
+
+### **Step 2: Context Retrieval**
+
+* Query Data Retrieval using the task intent.
+* Receive structured context objects.
+* Validate their provenance (must come from Handbook).
+* Merge context into the Orchestrator’s working state.
+
+---
+
+### **Step 3: Pre-flight Guardrail Check**
+
+* List candidate tools/actions.
+* Remove unsafe or unsupported operations.
+* If zero valid operations remain → fail with diagnostic.
+
+---
+
+### **Step 4: Plan Generation**
+
+Planner:
+
+* Breaks down the assignment into sub-tasks.
+* Maps sub-tasks to permissible operations.
+* Builds a step graph or linear plan.
+
+Resolver:
+
+* Completes parameter schemas using context or inference.
+* Ensures all API calls map to real client methods.
+
+Final output: a complete, ready-to-run **Execution Plan**.
+
+---
+
+### **Step 5: Execution**
+
+Dispatcher sends steps to the Runner:
+
+* Monitors state transitions
+* Streams logs and outputs
+* Catches tool/API errors
+* Requests re-planning if steps are invalid
+
+---
+
+### **Step 6: Evaluation**
+
+Evaluator checks:
+
+* Result schema validity
+* Guardrail violation
+* Consistency with expected outcomes
+
+Feedback flows back to the Orchestrator.
+
+---
+
+### **Step 7: Iteration**
+
+If evaluation flags issues:
+
+* Orchestrator may regenerate part or all of the plan
+* Fetch missing context
+* Adjust step order or parameters
+* Reattempt execution
+
+This loop continues until success or a terminal error.
+
+---
+
+## **4. Data Contracts & Internal Models**
+
+### **Execution Plan (EP)**
+
+A structured JSON-like model:
+
+```json
+{
+  "steps": [
+    {
+      "id": "step-1",
+      "action": "api.call",
+      "method": "Inventory.getItems",
+      "inputs": { "category": "widgets" },
+      "expects": { "type": "List<Item>" }
+    }
+  ],
+  "dependencies": [],
+  "metadata": {
+    "context_version": "hb-2025.01.12",
+    "safety_level": "standard"
+  }
+}
+```

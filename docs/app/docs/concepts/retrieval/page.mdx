@@ -1,11 +1,167 @@
 ---
+title: Contextual Retrieval
 description: How documents are chunked, indexed, and retrieved.
 ---
 
-# Knowledge Base & Retrieval
+## **Retrieval**
 
-Cover:
+The Retrieval subsystem provides OneMCP with the **contextual knowledge** it needs to produce grounded, accurate, and efficient execution plans.
+It serves as the bridge between the raw Handbook assets and the contextual signals consumed by the Orchestrator during planning.
 
-- Document ingestion and chunking
-- Index strategy and in-memory KB
-- Retriever parameters
+Retrieval relies on a **GraphDB-backed contextual index** that enables fast, structured access to entities, relationships, and optimized content derived from the Handbook.
+
+---
+
+## **1. Purpose of Retrieval**
+
+Retrieval ensures that, for any assignment:
+
+* The Orchestrator receives **only the relevant context**
+* Contextual reasoning is grounded in authoritative Handbook content
+* Latency is minimized by operating on pre-optimized, pre-indexed data
+* The LLM operates with **compact, easy-to-process** contextual units
+
+It is the foundation of OneMCP’s grounding and precision.
+
+---
+
+## **2. What Gets Indexed (Handbook Assets)**
+
+During indexing, Retrieval processes and stores the following Handbook content:
+
+### ✔ **Documentation Files**
+
+Human-authored docs (capabilities, workflows, examples, domain guides).
+Parsed and chunked, then optimized to remove redundancy.
+
+### ✔ **OpenAPI Definitions**
+
+API schemas, type definitions, and interfaces.
+Enriched with runtime-relevant metadata to improve grounding.
+
+### ✔ **User Feedback**
+
+Structured and unstructured feedback from users:
+corrections, confirmations, suggestions, and regression annotations.
+
+All assets are transformed into a **graph representation** that captures meaning, structure, and contextual relationships.
+
+---
+
+## **3. What Gets Optimized (Contextual Enhancements)**
+
+The Retrieval subsystem does more than store Handbook content — it **optimizes and augments** it to maximize utility during execution planning.
+
+### ✔ **Contextual Entities**
+
+Key concepts, objects, types, APIs, domains, operations
+→ extracted via entity parsing and semantic analysis.
+
+### ✔ **Contextual Relationships**
+
+Links between entities, such as:
+
+* dependencies
+* capabilities
+* constraints
+* workflow sequences
+
+This creates a navigable semantic graph.
+
+### ✔ **Optimized Documentation Chunks**
+
+Documentation is:
+
+* re-chunked for retrieval granularity
+* de-duplicated
+* streamlined to reduce token usage
+* preserved in meaning and instructional clarity
+
+Chunks are designed for **LLM consumption**, not human formatting.
+
+### ✔ **Augmented OpenAPI Definitions**
+
+OpenAPI schemas are enhanced with:
+
+* concise summaries
+* inferred usage patterns
+* “just-in-time” comments
+* common parameter explanations
+* example input/outputs (if missing)
+
+These augmentations give the Planner richer information without requiring full schema ingestion.
+
+---
+
+## **4. How the Context Graph Is Built**
+
+1. **Parse Handbook folder** (raw docs, API specs, feedback)
+2. **Extract entities and relationships**
+3. **Optimize and chunk content**
+4. **Generate semantic embeddings**
+5. **Build or update the contextual graph** (GraphDB)
+6. **Index for fast retrieval**
+
+The result is a **graph-based contextual database** used by the Runtime.
+
+---
+
+## **5. Where Retrieval Is Used (During Runtime)**
+
+When the Orchestrator receives an assignment:
+
+1. **Intent and entities are extracted** from the user prompt.
+
+2. The Orchestrator issues a **contextual query** to the Retrieval layer.
+
+3. The GraphDB index returns:
+
+* Relevant entities
+* Supporting documentation
+* Optimized chunks
+* Augmented OpenAPI segments
+* Related feedback or regression hints
+
+4. The Orchestrator uses these contextual results to:
+
+* Ground plan generation
+* Inform tool selection
+* Provide domain constraints and examples
+* Improve accuracy and reduce hallucination
+
+Retrieval ensures that every plan is supported by **real, verified, minimal-but-sufficient context**.
+
+---
+
+## **6. When the Index Is Generated**
+
+The contextual GraphDB index is built:
+
+### ✔ **At product startup**
+
+The entire Handbook directory is parsed and indexed.
+
+### ✔ **Whenever the Handbook changes**
+
+Any update — docs, specs, feedback — triggers:
+
+* Re-parsing
+* Re-optimization
+* Re-indexing
+
+This ensures the contextual graph always reflects the latest state of the Handbook.
+
+---
+
+## **7. Summary**
+
+Retrieval transforms raw Handbook content into a **highly optimized contextual knowledge graph**.
+It powers the Orchestrator’s ability to build safe, valid, and efficient plans by providing:
+
+* Structured entities
+* Meaningful relationships
+* Optimized documentation chunks
+* Augmented API insights
+* User feedback signals
+
+All stored in a graph-first structure designed for LLM reasoning and low-latency access.

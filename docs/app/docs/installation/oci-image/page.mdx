@@ -1,0 +1,182 @@
+---
+title: Container Image
+---
+
+
+## **OCI Container Distribution**
+
+The OneMCP system is distributed as a **fully OCI-compliant container image**, making it portable across all modern container runtimes.
+The official image is hosted publicly on **Docker Hub**:
+
+```
+admingentoro/gentoro:latest
+```
+
+This enables developers to run the system easily on:
+
+* Docker
+* Docker Desktop
+* Podman
+* containerd
+* NerdCTL
+* Kubernetes (via workload pods)
+* Any platform that supports OCI-compatible images
+
+---
+
+## **1. Running the Image (Docker / Docker Desktop)**
+
+The simplest way to start OneMCP is via Docker or Docker Desktop.
+
+### **Command**
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e ... \
+  admingentoro/gentoro:latest
+```
+
+### Explanation
+
+* `--rm` removes the container after shutdown
+* `-p 8080:8080` exposes the HTTP API
+* The container automatically starts the OneMCP runtime on port `8080`
+
+If Docker Desktop is installed, this command works identically on macOS, Windows, and Linux.
+
+---
+
+## **2. Running with Podman (Rootless or Rooted)**
+
+Podman is a drop-in Docker replacement and supports OCI images natively.
+
+### **Command**
+
+```bash
+podman run --rm -p 8080:8080 \
+  -e ... \
+  docker.io/admingentoro/gentoro:latest
+```
+
+If using rootless Podman, networking works automatically on modern Podman versions.
+
+### Notes
+
+* Podman automatically pulls from Docker Hub when prefixed with `docker.io/`
+* Rootless mode does not require sudo
+
+---
+
+## **3. Running on containerd (via nerdctl)**
+
+containerd alone does not have a CLI for Docker-like UX.
+**nerdctl** provides a Docker-compatible interface for containerd.
+
+### **Command**
+
+```bash
+nerdctl run --rm -p 8080:8080 \
+  -e ... \
+  admingentoro/gentoro:latest
+```
+
+### Notes
+
+* nerdctl uses pure OCI semantics
+* Works identically on Kubernetes nodes, Lima, Rancher Desktop, etc.
+
+---
+
+## **4. Using containerd directly (ctr CLI)**
+
+For lower-level environments (embedded systems, custom orchestrators):
+
+### **Pull image**
+
+```bash
+sudo ctr images pull docker.io/admingentoro/gentoro:latest
+```
+
+### **Run container**
+
+```bash
+sudo ctr run --rm \
+  --env ... \
+  -p 8080:8080 \
+  docker.io/admingentoro/gentoro:latest gentoro
+```
+
+The `gentoro` at the end is the container task name required by `ctr`.
+
+---
+
+## **5. Running in Kubernetes**
+
+You can deploy the image into any Kubernetes cluster using a standard Deployment and Service.
+
+### **Example Deployment**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gentoro
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gentoro
+  template:
+    metadata:
+      labels:
+        app: gentoro
+    spec:
+      containers:
+        - name: gentoro
+          image: admingentoro/gentoro:latest
+          ports:
+            - containerPort: 8080
+          env:
+            ...
+```
+
+### **Service**
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: gentoro
+spec:
+  type: ClusterIP
+  selector:
+    app: gentoro
+  ports:
+    - port: 8080
+      targetPort: 8080
+```
+
+---
+
+### **Harbor / private registries**
+
+Since the image is OCI-compliant, it can be mirrored to any registry.
+
+---
+
+## **6. Environment Variables & Configuration**
+
+The only required variable is:
+
+| Variable         | Required | Default  | Description                                         |
+| ---------------- | -------- | -------- | --------------------------------------------------- |
+| `SERVER_PORT`    | `True` | 8080 | TCP Port to where service will run  |
+| `LLM_ACTIVE_PROFILE` | `True` | `gemini-flash` | Which LLM to use internaly |
+| `OPENAI_API_KEY` | `False` | - | OpenAI Key when OpenAI is enabled at active profile |
+| `OPENAI_MODEL_NAME` | `False` | `gpt-5-nano-2025-08-07` | Which OpenAI model to use when OpenAI is enabled at active profile |
+| `GEMINI_API_KEY` | `False` | - | Gemini Key when `gemini-flash` is enabled at active profile |
+| `GEMINI_MODEL_NAME` | `False` | `gemini-2.5-flash` | Which Gemini model to use when `gemini-flash` is enabled at active profile |
+
+Other optional variables can be added depending on your deployment needs (logging, storage paths, etc.).
+
+---

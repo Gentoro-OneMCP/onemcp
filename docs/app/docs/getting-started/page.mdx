@@ -1,4 +1,5 @@
 ---
+title: Getting Started
 description: Get started with OneMCP in minutes using the CLI to connect your APIs to AI models.
 ---
 
@@ -8,10 +9,13 @@ Get up and running with OneMCP in minutes. The CLI provides the fastest way to s
 
 ## Prerequisites
 
-- **Node.js** >= 20
-- **Java** 21
-- **Maven** (for building the Java application)
-- An API key from OpenAI, Anthropic, or Google (Gemini)
+- **Java** 21 (if you are running natively)
+- **Docker Desktop or equivalent** (if you are running within Container)
+- Depending on the chosen model, you will also need an API Key.
+  - OpenAI (Requires an API Key)
+  - Anthropic (Requires an API Key)
+  - Gemini (Requires an API Key)
+  - Ollama
 
 ## Step 1: Install the CLI
 
@@ -78,11 +82,3 @@ The CLI automatically:
 - Started the ACME Analytics mock server (port 8082)
 - Connected your chosen AI provider
 - Indexed the handbook documentation and API specs
-
-## Next Steps
-
-- **Connect Your Own API**: See the [CLI Guide](/docs/guides/cli-guide) for connecting your own services
-- **Learn Core Concepts**: Understand the [Architecture](/docs/concepts/architecture) and [Retrieval](/docs/concepts/retrieval)
-- **Alternative Setup**: Prefer Docker? See [Run with Docker](/docs/guides/run-with-docker)
-- **Add Custom Tools**: Follow the [Adding a Tool](/docs/guides/adding-a-tool) guide
-- **Create a Foundation Folder**: Learn about [Ingest Foundation](/docs/guides/ingest-foundation) to set up your agent's knowledge base

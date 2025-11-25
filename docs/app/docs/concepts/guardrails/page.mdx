@@ -1,13 +1,199 @@
 ---
+title: Guardrails
 description: Constraints and validation shaping safe agent actions.
 ---
 
-# Guardrails
+## **Guardrails**
 
-Lightweight rules that constrain planning and execution:
+Guardrails define the **allowed intent**, **supported operational behaviors**, and **safe interaction patterns** of an Agent.
+They operate at a **high level**, independent of the underlying OpenAPI details, ensuring the Agent stays aligned with its purpose without requiring developers to specify hundreds of concrete operations.
 
-- Parameter schemas and required fields
-- Domain policies (rate limits, roles, approvals)
-- Safety checks before/after tool calls
+---
 
-Configured primarily via YAML and Foundation content; evaluated during plan, generate, and evaluate steps.
+## **1. Purpose of Guardrails**
+
+Guardrails enforce:
+
+* **What the Agent is meant to accomplish** (its **intent**)
+* **What types of operations the Agent is allowed to perform** (its **capabilities**)
+* **How the Agent should behave** when interpreting, planning, and executing tasks
+
+Rather than mapping to every OpenAPI endpoint, Guardrails describe the Agent’s behavior in terms of **domain operations**, **capability classes**, and **intent categories**.
+
+This keeps the system maintainable even with large or frequently changing API definitions.
+
+---
+
+## **2. What Developers Must Describe**
+
+To define Guardrails effectively, developers specify three elements:
+
+---
+
+### **2.1 Agent Intent (High-Level Purpose)**
+
+Agent Intent defines **why the Agent exists** and **what problems it is allowed to solve**.
+
+Describe:
+
+* The **domain**:
+e.g., “Inventory analytics”, “CI/CD automation”, “Case triage”
+
+* The **mission / use case**:
+e.g., “Provide insights”, “Validate configurations”, “Assist with case routing”
+
+* The **boundaries**:
+e.g., “Read-only”, “Configuration-only”, “No user data access”
+
+Intent gives the Agent a **semantic frame** to interpret user requests.
+
+#### Example (Intent Definition)
+
+```yaml
+intent:
+  domain: "Inventory Insights"
+  purpose: "Help users explore product data, generate insights, and answer analytical questions."
+  boundaries:
+    - "No state-changing operations"
+    - "No pricing or financial adjustments"
+    - "No customer-specific data retrieval"
+```
+
+---
+
+### **2.2 Supported Operations (High-Level Behavioral Capabilities)**
+
+This section expresses the **types of actions** the Agent is allowed to perform — not API endpoints.
+
+Operations should be described in **domain-level terms**, such as:
+
+* “Search inventory items”
+* “Classify a product”
+* “Generate summaries”
+* “Validate a configuration”
+* “Simulate a workflow”
+
+Avoid low-level descriptions like “GET /inventory/id”.
+
+Instead, define capability classes:
+
+#### Example (Capability Definitions)
+
+```yaml
+operations:
+  supported:
+    - "Lookup items based on filters"
+    - "Generate summaries or analytics"
+    - "Perform read-only simulation tasks"
+    - "Validate data structures against known rules"
+  restricted:
+    - "Modify or update system state"
+    - "Perform destructive or irreversible actions"
+    - "Access sensitive or user-specific information"
+  patterns:
+    defaults:
+      - "If uncertain, interpret requests as read-only queries"
+      - "Prefer safe fallbacks and simulation over real actions"
+```
+
+This empowers OneMCP to internally map these high-level operations to the appropriate underlying technical operations at runtime.
+
+---
+
+### **2.3 Clear and Comprehensive Instructions**
+
+Instructions convey to the Agent the **behavioral rules and decision-making guidelines** that govern its interpretation of tasks.
+
+Good instructions include:
+
+* What the Agent **must** do
+* What the Agent **must not** do
+* How to handle ambiguity
+* How to decline unsupported requests gracefully
+* Any assumptions or defaults
+
+#### Example (Instruction Block)
+
+```text
+You must only perform high-level operations related to product lookup, insights, or validation.
+You are not allowed to perform any action that changes system state.
+
+If a user requests an unsupported operation, explain that the capability is not allowed
+and provide an alternative within your supported operations.
+
+If the request is ambiguous, interpret it as a read-only lookup or insight query.
+All planning must stay within the intent and supported operation classes.
+```
+
+---
+
+## **3. How the Orchestrator Uses High-Level Guardrails**
+
+Even when Guardrails are defined at a high level:
+
+* The **Orchestrator** uses these constraints to filter permissible action categories.
+* The **Planner** decomposes tasks only into allowed operation classes.
+* The **Resolver** maps high-level operations to the correct underlying API calls (OpenAPI or otherwise).
+* The **Evaluator** validates results against intent + operations.
+
+This allows API schemas to evolve without requiring changes to guardrail definitions.
+
+---
+
+## **4. Best Practices for High-Level Guardrails**
+
+#### ✔ Define capabilities in user-facing terms
+
+Think: “What can the Agent *help the user do*?”
+Not: “Which API endpoints exist?”
+
+#### ✔ Keep Agent boundaries tight
+
+Ambiguity leads to misclassification — better to start strict and open up gradually.
+
+#### ✔ Avoid referencing technical API details
+
+Let the Planner → Resolver → Runner pipeline handle low-level grounding.
+
+#### ✔ Provide fallback rules
+
+Tell the Agent how to behave when users ask for things outside scope.
+
+#### ✔ Include domain examples
+
+This improves contextual retrieval and reduces hallucination.
+
+---
+
+## **5. Full Example Guardrails Specification (High-Level)**
+
+```yaml
+intent:
+  domain: "Deployment Readiness"
+  purpose: "Assist users with validating deployment manifests and running safe, read-only checks."
+  boundaries:
+    - "No live cluster changes"
+    - "No secret inspection"
+    - "No destructive workflow execution"
+
+operations:
+  supported:
+    - "Validate manifests"
+    - "Generate or refine configuration structures"
+    - "Perform dry-run evaluation"
+    - "Provide best-practice recommendations"
+  restricted:
+    - "Apply live changes"
+    - "Delete or modify resources"
+    - "Access sensitive credentials"
+  patterns:
+    defaults:
+      - "When in doubt, use dry-run operations"
+      - "Prefer validation over execution"
+
+instructions: |
+  Your role is to validate and analyze deployment configurations.
+  You must not make changes to any live system.
+  If a user requests a modification, decline it and suggest a safe alternative.
+  When unsure how to interpret a task, treat it as a request for validation or analysis.
+```

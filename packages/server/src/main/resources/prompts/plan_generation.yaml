@@ -115,7 +115,6 @@ activations:
         ```json
         {
             // one ore more fields to be retrieved, with no aggregations on it.
-        
             "fields": [
                 //only the name of the field.
                 // see the complete list of available fields below.

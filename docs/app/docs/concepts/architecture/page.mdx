@@ -1,62 +1,213 @@
 ---
+title: Architecture Overview
 description: High-level system diagram and responsibilities.
 ---
 
-# Architecture Overview
 
-This page gives a high-level view of the OneMCP runtime and how requests flow
-through the system.
+## **OneMCP Architecture**
 
-## High-Level Overview
+This document provides a technical overview of the **OneMCP runtime**, describing how requests propagate through the system and how each subsystem interacts during planning, execution, and evaluation.
+
+---
+
+## **1. System Diagram**
 
 ![Architecture Overview](/images/architecture-overview.png)
 
-Core components shown in the diagram:
+Use this diagram as the reference model for all sections below.
 
-- Controllers (HTTP/MCP) expose the MCP HTTP stream endpoint and receive client requests.
-- Orchestrator coordinates planning, generation, execution, and evaluation.
-- Services include the Knowledge Base (KB) and retrieval, telemetry (OpenTelemetry), and optional TS runtime helpers.
-- Model providers integrate with OpenAI, Gemini, Anthropic, and others via a pluggable interface.
+---
 
-## The Three Pillars
+## **2. Core Components**
 
-### 1) Foundation
+### **Guardrails**
 
-The Foundation is the agent’s source of truth. It includes:
+A deterministic filtering layer that validates:
 
-- Knowledge Base: Indexed content from `Agent.md`, Markdown docs, and code/API references.
-- API Definitions: OpenAPI specs and generated client methods used for grounded tool calls.
-- Business Rules: Constraints, policies, and domain-specific logic that shape valid actions.
+* Allowed actions
+* Tool / API call permissions
+* Domain constraints and policy restrictions
+* Unsupported or unsafe operations
 
-Together, these assets ground the agent’s reasoning and ensure generated actions map to real, allowed capabilities.
+Guardrails run *before* orchestration and *after* execution to ensure all operations are grounded and safe.
 
-### 2) Agent Behavior
+---
 
-Agent behavior is governed by configuration, typically YAML files, that define:
+### **Orchestrator**
 
-- Prompts and system guidance for planning and generation
-- Guardrails and validation rules (e.g., parameter schemas, rate limits, safety constraints)
-- Model attributes such as provider, model name, temperature, and timeouts
+The orchestration engine responsible for:
 
-These configurations make behavior explicit, versionable, and easy to change without code edits.
+* Taking the raw prompt assignment
+* Selecting relevant Handbook context
+* Generating an ordered execution plan
+* Splitting work across the Runner, Data Retrieval, and Evaluator
 
-### 3) Feedback Loop
+Key behavior:
 
-Continuous improvement comes from human-in-the-loop feedback and telemetry:
+* Plans are generated deterministically from validated context
+* Orchestrator re-queries Data Retrieval when context resolution is incomplete
+* Loops execution + evaluation until plan completion or guardrail violation
 
-- Review traces, logs, and outcomes to spot issues or inefficiencies
-- Capture approvals/corrections on generated plans or code
-- Feed learnings back into prompts, rules, or the Foundation assets
+---
 
-This iterative loop steadily improves reliability and task success.
+### **Data Retrieval**
 
-## Execution Workflow
+The contextual lookup service backed by the Handbook graph.
 
-At runtime, requests flow through four main stages:
+Responsibilities:
 
-- Planner: Interprets the goal, consults the Foundation, and proposes a grounded plan and tool sequence.
-- Generator: Produces concrete code or API calls (with inputs) to fulfill each step safely.
-- Code Executor: Executes generated code or tool calls in a controlled environment; streams results and artifacts.
-- Evaluator: Checks outcomes against expectations and guardrails; can request retries, refinements, or human input.
+* Returning minimal-but-sufficient context per assignment
+* Semantic + structural lookup against Handbook nodes
+* Providing execution-time references for API definitions, constraints, and docs
+* Improving recall/precision through LLM-optimized embeddings (during indexing)
 
-This loop repeats as needed until the goal is met or an error is surfaced with actionable context.
+Outputs:
+
+* Structured payloads (schemas, capabilities, constraints) consumed directly by the Orchestrator.
+
+---
+
+### **Handbook**
+
+Authoritative knowledge graph used to drive all grounded behavior.
+
+Contains:
+
+* **Guardrails** (constraint schemas, policies, domain rules)
+* **API Definitions** (OpenAPI specs, generated client methods)
+* **Documentation** (human-authored usage guides)
+* **Regression Tests** (expected behaviors, edge-case validations)
+* **User Feedback** (used to adjust future plan generation)
+
+The Handbook is immutable during a request.
+Indexing/optimization happens offline.
+
+---
+
+### **Runner**
+
+Executes the generated execution plan with strict isolation.
+
+Capabilities:
+
+* Perform validated tool/API calls
+* Maintain network connectivity to enterprise services
+* Stream logs, intermediate results, and artifacts
+* Support stepwise execution for inspection & debugging
+
+The Runner does **not** own any planning logic; it simply performs actions created by the Orchestrator.
+
+---
+
+### **Evaluator**
+
+Post-execution validation engine.
+
+Checks:
+
+* Action outputs vs. expected schemas
+* Adherence to Guardrails
+* End-to-end consistency and correctness
+* Plan-level vs. step-level validity
+
+If evaluation fails, the Orchestrator receives error states and can:
+
+* Regenerate sub-plans
+* Request additional context
+* Abort with actionable diagnostics
+
+---
+
+## **3. The Three Developer Pillars**
+
+### **1) Handbook = Ground Truth**
+
+All behavior must map to Handbook-backed capabilities.
+
+Dev implications:
+
+* Add new API? → Update Handbook API definitions
+* Add new constraints? → Extend Guardrail nodes
+* Add new behaviors? → Add documentation + regression tests
+* Fix model misunderstandings? → Add user feedback entries
+
+The Handbook determines what the agent *can* and *cannot* do.
+
+---
+
+### **2) Contextual Retrieval = Deterministic Context Boundary**
+
+Retrieval enforces **scoped execution**, reducing hallucination risk.
+
+Developer responsibilities:
+
+* Ensure new Handbook assets include correct metadata/tags
+* Validate embeddings during indexing
+* Use execution tracing to debug missing or noisy context
+
+Tracing (per assignment) includes:
+
+* Context selection
+* Plan generation steps
+* Execution transcript
+* Evaluation results
+
+This is essential when debugging incorrect agent behavior.
+
+---
+
+### **3) Runtime = Extract → Validate → Plan → Execute → Evaluate**
+
+This is the strict lifecycle for every request.
+
+#### **1. Extract**
+
+Identify relevant Handbook context for the assignment.
+
+#### **2. Validate**
+
+Reject prohibited or unsupported operations via Guardrails.
+
+#### **3. Plan**
+
+Produce an execution plan:
+
+* Action sequence
+* Tool/API call mapping
+* Inputs + expected outputs
+
+#### **4. Execute**
+
+Runner performs every step with isolation + streaming.
+
+#### **5. Evaluate**
+
+Evaluator checks correctness and guardrail compliance.
+
+If evaluation fails → Runtime loops back to planning with new constraints.
+
+---
+
+## **4. Developer Notes & Best Practices**
+
+### **Adding new capabilities**
+
+1. Update Handbook documentation
+2. Add API specs + client stubs
+3. Add regression tests
+4. Define/extend guardrail logic
+
+### **Debugging incorrect behavior**
+
+Use:
+
+* Execution trace logs
+* Context retrieval logs
+* Plan generation trace
+* Evaluation diagnostics
+
+### **Improving retrieval quality**
+
+* Ensure Handbook items have consistent metadata
+* Add examples or regression tests for ambiguous cases
+* Refine domain-specific guardrails
