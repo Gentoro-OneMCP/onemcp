@@ -35,6 +35,8 @@ jobs:
         restore-keys: ${{ runner.os }}-m2
 
     - name: Test CLI
+      env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
         cd packages/cli
         echo "Installing CLI dependencies..."
