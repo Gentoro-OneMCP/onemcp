@@ -50,7 +50,7 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
       currentAttributes().put("phase", currentPhase);
     }
     currentStartTime = System.currentTimeMillis();
-    
+
     // Log LLM inference start
     if (context != null && context.oneMcp() != null) {
       context.oneMcp().inferenceLogger().logLlmInferenceStart(currentPhase);
@@ -63,9 +63,9 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
     if (currentAttributes() != null) {
       currentAttributes().put("phase", currentPhase);
     }
-    
+
     tracer.endCurrentOk(attrs);
-    
+
     // Log LLM inference complete with tokens and duration
     // Note: This is a fallback - concrete implementations should log directly
     // But we'll try to capture what we can from telemetry
@@ -83,18 +83,25 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
         if (ct instanceof Number) completionTokens = ((Number) ct).longValue();
         else completionTokens = 0L;
       }
-      
+
       // Get response from attributes if available
       String response = attrs != null ? (String) attrs.get("response") : null;
       if (response == null) {
         response = (String) currentAttributes().get("response");
       }
-      
+
       // Only log if we haven't already logged (concrete implementations should handle this)
       // But we'll log anyway as a fallback since generate() might not log properly
       if (response != null || promptTokens > 0 || completionTokens > 0) {
-        context.oneMcp().inferenceLogger().logLlmInferenceComplete(
-            currentPhase, duration, promptTokens, completionTokens, response != null ? response : "");
+        context
+            .oneMcp()
+            .inferenceLogger()
+            .logLlmInferenceComplete(
+                currentPhase,
+                duration,
+                promptTokens,
+                completionTokens,
+                response != null ? response : "");
       }
     }
     currentStartTime = 0;
@@ -103,7 +110,7 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
   @Override
   public void endCurrentError(Map<String, Object> attrs) {
     tracer.endCurrentError(attrs);
-    
+
     // Log LLM inference complete even on error
     if (context != null && context.oneMcp() != null && currentStartTime > 0) {
       long duration = System.currentTimeMillis() - currentStartTime;
@@ -111,14 +118,17 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
       Long completionTokens = (Long) currentAttributes().get("_completionTokens");
       if (promptTokens == null) promptTokens = 0L;
       if (completionTokens == null) completionTokens = 0L;
-      
+
       String errorMsg = attrs != null ? (String) attrs.get("error") : "Error occurred";
-      context.oneMcp().inferenceLogger().logLlmInferenceComplete(
-          currentPhase, duration, promptTokens, completionTokens, "ERROR: " + errorMsg);
+      context
+          .oneMcp()
+          .inferenceLogger()
+          .logLlmInferenceComplete(
+              currentPhase, duration, promptTokens, completionTokens, "ERROR: " + errorMsg);
     }
     currentStartTime = 0;
   }
-  
+
   public void setCurrentMessages(java.util.List<LlmClient.Message> messages) {
     this.currentMessages = messages;
     if (context != null && context.oneMcp() != null && messages != null) {
@@ -132,7 +142,7 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
     currentAttributes().put("completion.token", Objects.requireNonNullElse(completionTokens, 0L));
     currentAttributes().put("total.token", Objects.requireNonNullElse(totalTokens, 0L));
     tracer.addUsage(promptTokens, completionTokens, totalTokens);
-    
+
     // Store token usage for logging
     currentAttributes().put("_promptTokens", promptTokens);
     currentAttributes().put("_completionTokens", completionTokens);

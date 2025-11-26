@@ -1,8 +1,8 @@
 package com.gentoro.onemcp.logging;
 
 import com.gentoro.onemcp.OneMcp;
-import com.gentoro.onemcp.context.KnowledgeBase;
 import com.gentoro.onemcp.messages.AssigmentResult;
+import com.gentoro.onemcp.handbook.Handbook;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import java.io.IOException;
@@ -102,9 +102,9 @@ public class InferenceLogger {
 
     // Auto-enable for handbook mode (CLI usage)
     try {
-      KnowledgeBase knowledgeBase = oneMcp.knowledgeBase();
-      if (knowledgeBase != null) {
-        Path handbookPath = knowledgeBase.handbookPath();
+      Handbook handbook = oneMcp.handbook();
+      if (handbook != null) {
+        Path handbookPath = handbook.location();
         if (handbookPath != null && Files.exists(handbookPath)) {
           log.info("Report mode auto-enabled for CLI/handbook mode");
           return true;
@@ -122,6 +122,7 @@ public class InferenceLogger {
    * Determine the logging directory for reports.
    *
    * <p>Priority:
+   *
    * <ol>
    *   <li>Environment variable {@code ONEMCP_LOG_DIR} (CLI mode: set to {@code {handbook}/logs})
    *   <li>Config file {@code logging.directory}
@@ -157,9 +158,9 @@ public class InferenceLogger {
       } else {
         // Priority 3: Try handbook mode (fallback for CLI mode when ONEMCP_LOG_DIR not set)
         try {
-          KnowledgeBase knowledgeBase = oneMcp.knowledgeBase();
-          if (knowledgeBase != null) {
-            Path handbookPath = knowledgeBase.handbookPath();
+          Handbook handbook = oneMcp.handbook();
+          if (handbook != null) {
+            Path handbookPath = handbook.location();
             if (handbookPath != null && Files.exists(handbookPath)) {
               baseLogDir = handbookPath.resolve("logs");
               log.debug("Using handbook logs directory: {}", baseLogDir);
@@ -197,7 +198,7 @@ public class InferenceLogger {
 
   /**
    * Get the handbook location for display in reports.
-   * 
+   *
    * @return handbook path as string, or null if not available
    */
   private String getHandbookLocation() {
@@ -209,20 +210,18 @@ public class InferenceLogger {
         return envHandbookPath.toString();
       }
     }
-    
+
     // Priority 2: KnowledgeBase handbook path
     try {
-      KnowledgeBase knowledgeBase = oneMcp.knowledgeBase();
-      if (knowledgeBase != null) {
-        Path handbookPath = knowledgeBase.handbookPath();
-        if (handbookPath != null) {
-          return handbookPath.toString();
+      if (oneMcp.handbook() != null) {
+        if (oneMcp.handbook().location() != null) {
+          return oneMcp.handbook().location().toString();
         }
       }
     } catch (Exception e) {
       log.debug("Could not get handbook path from KnowledgeBase: {}", e.getMessage());
     }
-    
+
     return null;
   }
 
@@ -238,8 +237,10 @@ public class InferenceLogger {
 
     if (reportModeEnabled) {
       // Generate report path pre-operation
-      String timestamp = Instant.now().atOffset(ZoneOffset.UTC).format(
-          DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss.SSSSSS'Z'"));
+      String timestamp =
+          Instant.now()
+              .atOffset(ZoneOffset.UTC)
+              .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss.SSSSSS'Z'"));
       String filename = "execution-" + timestamp + ".txt";
       Path reportPath = reportsDirectory.resolve(filename);
       executionReportPaths.put(executionId, reportPath);
@@ -292,13 +293,13 @@ public class InferenceLogger {
           String reportPathStr = reportPath.toString();
           currentReportPath.set(reportPathStr);
           log.info("Execution completed: {} (report: {})", executionId, reportPath);
-          
+
           // Clean up events and paths, but keep currentReportPath until it's retrieved
           executionEvents.remove(executionId);
           executionReportPaths.remove(executionId);
           currentExecutionId.remove();
           // Note: currentReportPath is NOT removed here - it will be removed when retrieved
-          
+
           return reportPathStr;
         }
       } else {
@@ -330,8 +331,8 @@ public class InferenceLogger {
   }
 
   /**
-   * Get the report path for the current execution (from thread-local).
-   * After retrieval, the thread-local is cleared.
+   * Get the report path for the current execution (from thread-local). After retrieval, the
+   * thread-local is cleared.
    *
    * @return report path or null if not available
    */
@@ -364,16 +365,20 @@ public class InferenceLogger {
     sb.append("\n");
 
     // Find start event for timestamp
-    String startTimestamp = events.stream()
-        .filter(e -> "execution_started".equals(e.type))
-        .findFirst()
-        .map(e -> e.timestamp)
-        .orElse(Instant.now().toString());
+    String startTimestamp =
+        events.stream()
+            .filter(e -> "execution_started".equals(e.type))
+            .findFirst()
+            .map(e -> e.timestamp)
+            .orElse(Instant.now().toString());
 
     sb.append("  Timestamp: ").append(startTimestamp).append("\n");
-    sb.append("  Duration:  ").append(durationMs).append("ms (").append(durationMs / 1000.0)
+    sb.append("  Duration:  ")
+        .append(durationMs)
+        .append("ms (")
+        .append(durationMs / 1000.0)
         .append("s)\n");
-    
+
     // Handbook location
     try {
       String handbookLocation = getHandbookLocation();
@@ -383,14 +388,12 @@ public class InferenceLogger {
     } catch (Exception e) {
       log.debug("Could not determine handbook location for report: {}", e.getMessage());
     }
-    
+
     sb.append("\n");
 
     // Combined Execution Summary
     long apiCalls = events.stream().filter(e -> "api_call".equals(e.type)).count();
-    long errors = events.stream()
-        .filter(e -> "api_call_error".equals(e.type))
-        .count();
+    long errors = events.stream().filter(e -> "api_call_error".equals(e.type)).count();
 
     sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
     sb.append("│ EXECUTION SUMMARY                                                            │\n");
@@ -407,10 +410,10 @@ public class InferenceLogger {
     long totalPromptTokens = 0;
     long totalCompletionTokens = 0;
     long totalLLMDuration = 0;
-    
+
     // Track phase counts for retry numbering
     Map<String, Integer> phaseCounts = new HashMap<>();
-    
+
     // LLM Calls
     for (ExecutionEvent event : events) {
       if ("llm_inference_complete".equals(event.type)) {
@@ -418,7 +421,7 @@ public class InferenceLogger {
         Object phase = event.data.get("phase");
         Object promptTokens = event.data.get("promptTokens");
         Object completionTokens = event.data.get("completionTokens");
-        
+
         long promptT = 0;
         long completionT = 0;
         long dur = 0;
@@ -434,13 +437,14 @@ public class InferenceLogger {
           dur = ((Number) duration).longValue();
           totalLLMDuration += dur;
         }
-        
+
         // Only process events with tokens > 0 (skip duplicate/fallback events)
         if (promptT == 0 && completionT == 0) {
           continue; // Skip this event
         }
-        
-        String phaseStr = (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
+
+        String phaseStr =
+            (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
         // Track phase counts and append retry number if > 1
         int phaseCount = phaseCounts.getOrDefault(phaseStr, 0) + 1;
         phaseCounts.put(phaseStr, phaseCount);
@@ -452,11 +456,12 @@ public class InferenceLogger {
         String callLabel = String.format("  LLM Call %d (%-10s):", llmCallNum++, phaseStr);
         String durationStr = dur > 0 ? String.format("%6dms", dur) : "   N/A";
         // Compact token display: Tokens: 23432+233=23665
-        String tokenStr = String.format("Tokens: %d+%d=%d", promptT, completionT, promptT + completionT);
+        String tokenStr =
+            String.format("Tokens: %d+%d=%d", promptT, completionT, promptT + completionT);
         sb.append(String.format("%-30s %8s | %s", callLabel, durationStr, tokenStr)).append("\n");
       }
     }
-    
+
     // API Calls
     for (ExecutionEvent event : events) {
       if ("api_call".equals(event.type)) {
@@ -464,20 +469,29 @@ public class InferenceLogger {
         Object url = event.data.get("url");
         if (duration != null) {
           String apiLabel = String.format("  API Call %d:", apiCallNum++);
-          String durationStr = duration instanceof Number 
-              ? String.format("%6dms", ((Number) duration).longValue()) 
-              : "   N/A";
+          String durationStr =
+              duration instanceof Number
+                  ? String.format("%6dms", ((Number) duration).longValue())
+                  : "   N/A";
           String urlStr = url != null ? url.toString() : "";
           sb.append(String.format("%-20s %8s   %s", apiLabel, durationStr, urlStr)).append("\n");
         }
       }
     }
-    
+
     if (llmCallNum > 1) {
       sb.append("\n");
-      sb.append("  Total LLM Duration:  ").append(String.format("%6d", totalLLMDuration)).append("ms\n");
+      sb.append("  Total LLM Duration:  ")
+          .append(String.format("%6d", totalLLMDuration))
+          .append("ms\n");
       if (totalPromptTokens > 0 || totalCompletionTokens > 0) {
-        sb.append("  Total Tokens:        ").append(totalPromptTokens).append("+").append(totalCompletionTokens).append("=").append(totalPromptTokens + totalCompletionTokens).append("\n");
+        sb.append("  Total Tokens:        ")
+            .append(totalPromptTokens)
+            .append("+")
+            .append(totalCompletionTokens)
+            .append("=")
+            .append(totalPromptTokens + totalCompletionTokens)
+            .append("\n");
       } else {
         sb.append("  Total Tokens:        0\n");
       }
@@ -500,13 +514,13 @@ public class InferenceLogger {
         break;
       }
     }
-    
+
     if (hasNormalizedSchema) {
       sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
       sb.append("│ PROMPT SCHEMA (Background)                                                   │\n");
       sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
       sb.append("\n");
-      
+
       for (ExecutionEvent event : events) {
         if ("normalized_prompt_schema".equals(event.type)) {
           Object schema = event.data.get("schema");
@@ -571,18 +585,20 @@ public class InferenceLogger {
 
         Object promptTokens = event.data.get("promptTokens");
         Object completionTokens = event.data.get("completionTokens");
-        
+
         long promptT = 0;
         long completionT = 0;
         if (promptTokens instanceof Number) promptT = ((Number) promptTokens).longValue();
-        if (completionTokens instanceof Number) completionT = ((Number) completionTokens).longValue();
-        
+        if (completionTokens instanceof Number)
+          completionT = ((Number) completionTokens).longValue();
+
         // Skip events with 0 tokens (likely duplicate/fallback events)
         if (promptT == 0 && completionT == 0) {
           continue; // Skip this event
         }
-        
-        String phaseStr = (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
+
+        String phaseStr =
+            (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
         // Track phase counts and append retry number if > 1
         int phaseCount = phaseCountsDetailed.getOrDefault(phaseStr, 0) + 1;
         phaseCountsDetailed.put(phaseStr, phaseCount);
@@ -590,13 +606,15 @@ public class InferenceLogger {
           phaseStr = phaseStr + "#" + phaseCount;
         }
         String callHeader = "LLM Call " + llmInteractionNum + " (" + phaseStr + ")";
-        
+
         // Box header for this LLM call
-        sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        sb.append(
+            "┌──────────────────────────────────────────────────────────────────────────────┐\n");
         sb.append("│ ").append(String.format("%-76s", callHeader)).append(" │\n");
-        sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+        sb.append(
+            "└──────────────────────────────────────────────────────────────────────────────┘\n");
         sb.append("\n");
-        
+
         // Show duration and tokens as regular content below header
         StringBuilder details = new StringBuilder();
         if (duration != null) {
@@ -604,13 +622,19 @@ public class InferenceLogger {
         }
         if (promptT > 0 || completionT > 0) {
           if (details.length() > 0) details.append(" | ");
-          details.append("Tokens: ").append(promptT).append("+").append(completionT).append("=").append(promptT + completionT);
+          details
+              .append("Tokens: ")
+              .append(promptT)
+              .append("+")
+              .append(completionT)
+              .append("=")
+              .append(promptT + completionT);
         }
         if (details.length() > 0) {
           sb.append("  ").append(details.toString()).append("\n");
           sb.append("\n");
         }
-        
+
         llmInteractionNum++; // Increment after processing this event
 
         // Find corresponding input messages event (look backwards from current event)
@@ -627,7 +651,7 @@ public class InferenceLogger {
             }
           }
         }
-        
+
         if (foundInput && currentInputMessages != null) {
           // Check if input is the same as previous
           if (currentInputMessages.equals(previousInputMessages)) {
@@ -663,13 +687,16 @@ public class InferenceLogger {
             previousInputMessages = currentInputMessages;
           }
         } else {
-          sb.append("┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
+          sb.append(
+              "┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
           sb.append("│ [No input messages captured]\n");
           sb.append("\n");
         }
 
         if (response != null && !response.toString().trim().isEmpty()) {
-          sb.append("┌─ OUTPUT (").append(callHeader).append(") ────────────────────────────────────────────────────────────────\n");
+          sb.append("┌─ OUTPUT (")
+              .append(callHeader)
+              .append(") ────────────────────────────────────────────────────────────────\n");
           String[] lines = response.toString().split("\n");
           for (String line : lines) {
             if (line.isEmpty()) {
@@ -693,7 +720,9 @@ public class InferenceLogger {
           }
           sb.append("\n");
         } else {
-          sb.append("┌─ OUTPUT (").append(callHeader).append(") ────────────────────────────────────────────────────────────────\n");
+          sb.append("┌─ OUTPUT (")
+              .append(callHeader)
+              .append(") ────────────────────────────────────────────────────────────────\n");
           sb.append("│ [No response text captured]\n");
           sb.append("\n");
         }
@@ -715,13 +744,15 @@ public class InferenceLogger {
         Object responseBody = event.data.get("responseBody");
 
         String apiHeader = "API Call " + apiCallNum2;
-        
+
         // Box header for this API call
-        sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        sb.append(
+            "┌──────────────────────────────────────────────────────────────────────────────┐\n");
         sb.append("│ ").append(String.format("%-76s", apiHeader)).append(" │\n");
-        sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+        sb.append(
+            "└──────────────────────────────────────────────────────────────────────────────┘\n");
         sb.append("\n");
-        
+
         // Show method, URL, status, and duration as regular content
         StringBuilder details = new StringBuilder();
         if (method != null) {
@@ -743,7 +774,7 @@ public class InferenceLogger {
           sb.append("  ").append(details.toString()).append("\n");
           sb.append("\n");
         }
-        
+
         apiCallNum2++;
 
         // Request Body
@@ -753,7 +784,10 @@ public class InferenceLogger {
           String reqBodyStr = requestBody.toString();
           try {
             Object parsed = JacksonUtility.getJsonMapper().readValue(reqBodyStr, Object.class);
-            reqBodyStr = JacksonUtility.getJsonMapper().writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+            reqBodyStr =
+                JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
           } catch (Exception e) {
             // Not JSON, use as-is
           }
@@ -786,7 +820,10 @@ public class InferenceLogger {
           String respBodyStr = responseBody.toString();
           try {
             Object parsed = JacksonUtility.getJsonMapper().readValue(respBodyStr, Object.class);
-            respBodyStr = JacksonUtility.getJsonMapper().writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+            respBodyStr =
+                JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
           } catch (Exception e) {
             // Not JSON, use as-is
           }
@@ -815,10 +852,11 @@ public class InferenceLogger {
           sb.append("│ [No response body]\n");
           sb.append("\n");
         }
-        
+
         // cURL Command - no left edge so users can copy-paste directly
         sb.append("┌─ cURL COMMAND ──────────────────────────────────────────────────────────\n");
-        StringBuilder curlCmd = new StringBuilder("curl -X ").append(method != null ? method : "GET");
+        StringBuilder curlCmd =
+            new StringBuilder("curl -X ").append(method != null ? method : "GET");
         if (url != null) {
           curlCmd.append(" '").append(url).append("'");
         }
@@ -832,7 +870,10 @@ public class InferenceLogger {
           String escapedBody = requestBody.toString().replace("'", "'\\''");
           // Wrap long curl body lines
           if (escapedBody.length() > 70) {
-            curlCmd.append("      -d '").append(escapedBody.substring(0, Math.min(70, escapedBody.length()))).append("...'\n");
+            curlCmd
+                .append("      -d '")
+                .append(escapedBody.substring(0, Math.min(70, escapedBody.length())))
+                .append("...'\n");
           } else {
             curlCmd.append("      -d '").append(escapedBody).append("'\n");
           }
@@ -865,7 +906,10 @@ public class InferenceLogger {
           // Try to pretty-print JSON
           try {
             Object parsed = JacksonUtility.getJsonMapper().readValue(planStr, Object.class);
-            planStr = JacksonUtility.getJsonMapper().writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+            planStr =
+                JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
           } catch (Exception e) {
             // Not JSON, use as-is
           }
@@ -899,7 +943,10 @@ public class InferenceLogger {
           // Try to parse and pretty-print as JSON
           try {
             Object parsed = JacksonUtility.getJsonMapper().readValue(responseStr, Object.class);
-            responseStr = JacksonUtility.getJsonMapper().writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+            responseStr =
+                JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
           } catch (Exception e) {
             // Not JSON, use as-is
           }
@@ -991,7 +1038,9 @@ public class InferenceLogger {
         data.put("promptTokens", promptTokens);
         data.put("completionTokens", completionTokens);
         data.put("response", response != null ? response : "");
-        events.add(new ExecutionEvent("llm_inference_complete", executionId, Instant.now().toString(), data));
+        events.add(
+            new ExecutionEvent(
+                "llm_inference_complete", executionId, Instant.now().toString(), data));
       }
     }
 
@@ -1016,7 +1065,12 @@ public class InferenceLogger {
         StringBuilder msgBuilder = new StringBuilder();
         if (messages != null) {
           for (LlmClient.Message msg : messages) {
-            msgBuilder.append("[").append(msg.role()).append("] ").append(msg.content()).append("\n");
+            msgBuilder
+                .append("[")
+                .append(msg.role())
+                .append("] ")
+                .append(msg.content())
+                .append("\n");
           }
         }
         events.add(
@@ -1025,10 +1079,13 @@ public class InferenceLogger {
                 executionId,
                 Instant.now().toString(),
                 Map.of("messages", msgBuilder.toString().trim())));
-        log.debug("LLM input messages logged (count: {}, executionId: {})", 
-            messages != null ? messages.size() : 0, executionId);
+        log.debug(
+            "LLM input messages logged (count: {}, executionId: {})",
+            messages != null ? messages.size() : 0,
+            executionId);
       } else {
-        log.warn("Cannot log LLM input messages: events list is null for executionId: {}", executionId);
+        log.warn(
+            "Cannot log LLM input messages: events list is null for executionId: {}", executionId);
       }
     } else {
       log.debug("Report mode disabled, skipping LLM input messages logging");
@@ -1064,7 +1121,7 @@ public class InferenceLogger {
                     "arguments", argsJson)));
         log.debug("Tool call logged: {} (executionId: {})", toolName, executionId);
       } else {
-        log.warn("Cannot log tool call: events list is null for executionId: {} (tool: {})", 
+        log.warn("Cannot log tool call: events list is null for executionId: {} (tool: {})",
             executionId, toolName);
       }
     } else {
@@ -1090,16 +1147,24 @@ public class InferenceLogger {
           if ("tool_call".equals(event.type) && toolName.equals(event.data.get("toolName"))) {
             event.data.put("output", output != null ? output.toString() : "");
             found = true;
-            log.debug("Tool output added to tool_call event: {} (executionId: {})", toolName, executionId);
+            log.debug(
+                "Tool output added to tool_call event: {} (executionId: {})",
+                toolName,
+                executionId);
             break;
           }
         }
         if (!found) {
-          log.warn("Could not find tool_call event for tool: {} (executionId: {})", toolName, executionId);
+          log.warn(
+              "Could not find tool_call event for tool: {} (executionId: {})",
+              toolName,
+              executionId);
         }
       } else {
-        log.warn("Cannot log tool output: events list is null for executionId: {} (tool: {})", 
-            executionId, toolName);
+        log.warn(
+            "Cannot log tool output: events list is null for executionId: {} (tool: {})",
+            executionId,
+            toolName);
       }
     } else {
       log.debug("Report mode disabled, skipping tool output logging");
@@ -1165,7 +1230,8 @@ public class InferenceLogger {
         if (error != null) {
           data.put("error", error);
         }
-        events.add(new ExecutionEvent("code_generation", executionId, Instant.now().toString(), data));
+        events.add(
+            new ExecutionEvent("code_generation", executionId, Instant.now().toString(), data));
       }
     }
 
@@ -1181,7 +1247,8 @@ public class InferenceLogger {
       if (events != null) {
         Map<String, Object> data = new HashMap<>();
         data.put("plan", planJson != null ? planJson : "");
-        events.add(new ExecutionEvent("execution_plan", executionId, Instant.now().toString(), data));
+        events.add(
+            new ExecutionEvent("execution_plan", executionId, Instant.now().toString(), data));
       }
     }
 
@@ -1219,7 +1286,11 @@ public class InferenceLogger {
                 "step_execution_result",
                 executionId,
                 Instant.now().toString(),
-                Map.of("stepId", stepId != null ? stepId : "", "result", result != null ? result.toString() : "")));
+                Map.of(
+                    "stepId",
+                    stepId != null ? stepId : "",
+                    "result",
+                    result != null ? result.toString() : "")));
       }
     }
 
@@ -1319,7 +1390,8 @@ public class InferenceLogger {
     public final String timestamp;
     public final Map<String, Object> data;
 
-    public ExecutionEvent(String type, String executionId, String timestamp, Map<String, Object> data) {
+    public ExecutionEvent(
+        String type, String executionId, String timestamp, Map<String, Object> data) {
       this.type = type;
       this.executionId = executionId;
       this.timestamp = timestamp;

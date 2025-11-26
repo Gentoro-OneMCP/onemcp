@@ -13,55 +13,53 @@ Within OneMCP we enable developers to express collection of regressions tests, t
 Regression tests are defined within the folder `regression/*`, and multiple suites can be grouped together using a single yaml file.
 
 ```yaml
-regression:
-  # name of the regression suite
-  name: "ERP Order Logic"
-  # Definition version of regression suite
-  version: "0.1.0"
-  # Collection of tests to run
-  tests:
-    # Unique name for each test, used to reference the test in assertions
-    - display-name: total sales for fiscal year
-      # Prompt to be used at the request
-      prompt: |
-        What is the total sales in 2024?
-      # As there is no way to enforce a given format of value,
-      # we use assertions to verify the response.
-      assert: |
-        Check that the answer provides a single numerical value.
+# name of the regression suite
+name: "ERP Order Logic"
+# Definition version of regression suite
+version: "0.1.0"
+# Collection of tests to run
+tests:
+# Unique name for each test, used to reference the test in assertions
+- display-name: total sales for fiscal year
+  # Prompt to be used at the request
+  prompt: |
+    What is the total sales in 2024?
+  # As there is no way to enforce a given format of value,
+  # we use assertions to verify the response.
+  assert: |
+    Check that the answer provides a single numerical value.
 ```
 
 **Example**
 
 ```yaml
-regression:
-  name: "ERP Order Logic"
-  version: "0.1.0"
+name: "ERP Order Logic"
+version: "0.1.0"
 
-  tests:
-    - display-name: total sales for fiscal year
-      prompt: |
-        What is the total sales in 2024?
-      assert: |
-        Check that the answer provides a single numerical value.
+tests:
+- display-name: total sales for fiscal year
+  prompt: |
+    What is the total sales in 2024?
+  assert: |
+    Check that the answer provides a single numerical value.
 
-    - display-name: order item expansion
-      prompt: |
-        Expand the details for order ID ORD-33219.
-      assert: |
-        Ensure that the response includes a list of order line items.
+- display-name: order item expansion
+  prompt: |
+    Expand the details for order ID ORD-33219.
+  assert: |
+    Ensure that the response includes a list of order line items.
 
-    - display-name: negative scenario – unknown order
-      prompt: |
-        Retrieve order information for order ID NOT-FOUND-999.
-      assert: |
-        Verify that the output clearly describes that the order does not exist.
+- display-name: negative scenario – unknown order
+  prompt: |
+    Retrieve order information for order ID NOT-FOUND-999.
+  assert: |
+    Verify that the output clearly describes that the order does not exist.
 
-    - display-name: customer contact info
-      prompt: |
-        Provide the contact channels for customer C123.
-      assert: |
-        Check that the output includes at least one of the following: email or phone.
+- display-name: customer contact info
+  prompt: |
+    Provide the contact channels for customer C123.
+  assert: |
+    Check that the output includes at least one of the following: email or phone.
 ```
 
 ### CLI Commands

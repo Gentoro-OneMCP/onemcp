@@ -64,13 +64,13 @@ public abstract class AbstractLlmClient implements LlmClient {
             .map(Tool::name)
             .collect(Collectors.joining(", ")),
         cacheable);
-    
+
     // Log input message for reporting
     if (oneMcp != null && oneMcp.inferenceLogger() != null) {
       List<Message> inputMessages = List.of(new Message(LlmClient.Role.USER, message));
       oneMcp.inferenceLogger().logLlmInputMessages(inputMessages);
     }
-    
+
     long start = System.currentTimeMillis();
     TelemetrySink t = telemetry();
     if (t != null) {
@@ -88,18 +88,19 @@ public abstract class AbstractLlmClient implements LlmClient {
     long promptTokens = 0;
     long completionTokens = 0;
     try {
-      result = runContentGeneration(
-          message,
-          tools,
-          new InferenceEventListener() {
-            @Override
-            public void on(EventType type, Object data) {
-              if (_listener != null) {
-                _listener.on(type, data);
-              }
-            }
-          });
-      
+      result =
+          runContentGeneration(
+              message,
+              tools,
+              new InferenceEventListener() {
+                @Override
+                public void on(EventType type, Object data) {
+                  if (_listener != null) {
+                    _listener.on(type, data);
+                  }
+                }
+              });
+
       // Capture token usage from telemetry sink
       if (t != null) {
         Map<String, Object> attrs = t.currentAttributes();
@@ -110,12 +111,12 @@ public abstract class AbstractLlmClient implements LlmClient {
           if (ct instanceof Number) completionTokens = ((Number) ct).longValue();
         }
       }
-      
+
       if (t != null) {
         t.endCurrentOk(
             Map.of("latencyMs", (System.currentTimeMillis() - start), "completion", result));
       }
-      
+
       return result;
     } catch (Exception e) {
       if (t != null) {
@@ -135,9 +136,8 @@ public abstract class AbstractLlmClient implements LlmClient {
       long duration = System.currentTimeMillis() - start;
       log.trace("generate() took {} ms", duration);
       StdoutUtility.printRollingLine(
-          oneMcp,
-          "(Inference): completed in (%d)ms".formatted(duration));
-      
+          oneMcp, "(Inference): completed in (%d)ms".formatted(duration));
+
       // Log LLM inference complete for reporting
       logInferenceComplete(duration, promptTokens, completionTokens, result);
     }
@@ -161,7 +161,7 @@ public abstract class AbstractLlmClient implements LlmClient {
             .map(Tool::name)
             .collect(Collectors.joining(", ")),
         cacheable);
-    
+
     // Note: Input messages will be logged by concrete implementations
     // which have access to the actual message state during inference
     long start = System.currentTimeMillis();
@@ -170,18 +170,19 @@ public abstract class AbstractLlmClient implements LlmClient {
     long completionTokens = 0;
     try {
       // TODO: Implement the proper caching logic when possible.
-      result = runInference(
-          messages,
-          tools,
-          new InferenceEventListener() {
-            @Override
-            public void on(EventType type, Object data) {
-              if (_listener != null) {
-                _listener.on(type, data);
-              }
-            }
-          });
-      
+      result =
+          runInference(
+              messages,
+              tools,
+              new InferenceEventListener() {
+                @Override
+                public void on(EventType type, Object data) {
+                  if (_listener != null) {
+                    _listener.on(type, data);
+                  }
+                }
+              });
+
       // Capture token usage from telemetry sink
       TelemetrySink sink = telemetry();
       if (sink != null) {
@@ -193,7 +194,7 @@ public abstract class AbstractLlmClient implements LlmClient {
           if (ct instanceof Number) completionTokens = ((Number) ct).longValue();
         }
       }
-      
+
       return result;
     } catch (Exception e) {
       throw ExceptionUtil.rethrowIfUnchecked(
@@ -205,9 +206,8 @@ public abstract class AbstractLlmClient implements LlmClient {
       long duration = System.currentTimeMillis() - start;
       log.trace("chat() took {} ms", duration);
       StdoutUtility.printRollingLine(
-          oneMcp,
-          "(Inference): completed in (%d)ms".formatted(duration));
-      
+          oneMcp, "(Inference): completed in (%d)ms".formatted(duration));
+
       // Note: LLM inference complete logging is handled by concrete implementations
       // which have access to the actual response text and token counts
     }
@@ -274,14 +274,14 @@ public abstract class AbstractLlmClient implements LlmClient {
       }
       sink.endCurrentOk(endAttrs);
     }
-    
+
     // Log LLM inference complete
     logInferenceComplete(duration, promptTokens, completionTokens, responseText);
   }
 
   /**
-   * Detects the current phase from the telemetry sink attributes.
-   * Checks for explicit phase attribute first, then falls back to span name detection.
+   * Detects the current phase from the telemetry sink attributes. Checks for explicit phase
+   * attribute first, then falls back to span name detection.
    *
    * @param sink The telemetry sink to extract phase information from
    * @return The detected phase name, or "unknown" if not found
@@ -290,25 +290,25 @@ public abstract class AbstractLlmClient implements LlmClient {
     if (sink == null) {
       return "unknown";
     }
-    
+
     Map<String, Object> attrs = sink.currentAttributes();
     if (attrs == null) {
       return "unknown";
     }
-    
+
     // Check for phase in attributes first (set by OrchestratorTelemetrySink)
     Object phaseObj = attrs.get("phase");
     if (phaseObj != null) {
       return phaseObj.toString();
     }
-    
+
     // Fall back to span name - use it directly if it looks like a phase
     // (not a provider name like "llm.anthropic" or operation names)
     String spanName = (String) attrs.get("span.name");
     if (spanName != null && !spanName.startsWith("llm.") && !spanName.startsWith("operation:")) {
       return spanName;
     }
-    
+
     return "unknown";
   }
 
@@ -348,8 +348,9 @@ public abstract class AbstractLlmClient implements LlmClient {
       long duration, long promptTokens, long completionTokens, String responseText) {
     if (oneMcp != null && oneMcp.inferenceLogger() != null) {
       String phase = detectPhase(telemetry());
-      oneMcp.inferenceLogger().logLlmInferenceComplete(
-          phase, duration, promptTokens, completionTokens, responseText);
+      oneMcp
+          .inferenceLogger()
+          .logLlmInferenceComplete(phase, duration, promptTokens, completionTokens, responseText);
     }
   }
 

@@ -6,39 +6,45 @@ title: Guardrails.yaml
 
 This file contains the overall agent instructions and configuration.
 
-Here is an example a valid definition:
+Here is an example of a valid definition:
 
 ```yaml
 guardrails:
-  version: "0.0.1"
-  # Use markdown notation to describe how OneMCP should implement the guardrail.
-  instructions: |
-      Your role is to validate and analyze deployment configurations.
-      You must not make changes to any live system.
-      If a user requests a modification, decline it and suggest a safe alternative.
-      When unsure how to interpret a task, treat it as a request for validation or analysis.
+  # Optionally, provide a complete history of releases for these Guardrails constraints.
+  releases:
+    - version: "0.0.1"
+      author:
+        name: ACME Corporation
+        #email: ...
+      date: "2023-01-01"
+      description: "Initial version"
+
+  # Use markdown notation to describe additional instructions for the guardrails.
+  # These instructions will be placed at the bottom of the Guardrails section.
+  additionalInstructions: |
+    > **Note:** Ensure that the above guardrails are enforced by the agent at all times.
 
   # Use markdown notation to describe the guardrail's boundaries.
   # These are hard constraints that should be enforced by the agent.
   boundaries:
-    - "No live cluster changes"
-    - "No secret inspection"
-    - "No destructive workflow execution"
+    - "Only read operations allowed, we do not allow any write operations"
+    - "The only allowed computations are the one supported by the listed APIs."
+    - "Never disclosure any information related to the internal working of this Agent."
+    - "Only accept assignments that are directly related to the scope and supported operations of the APIs."
 
   # Describe which operations are supported, restricted.
   # Patterns are optional and can be used to clarify intent.
   operations:
+    # Operations can be zero trust, where only allowed ones will be listed.
     supported:
-        - "Validate manifests"
-        - "Generate or refine configuration structures"
-        - "Perform dry-run evaluation"
-        - "Provide best-practice recommendations"
+      - "Validate manifests"
+      - "Generate or refine configuration structures"
+      - "Perform dry-run evaluation"
+      - "Provide best-practice recommendations"
+    # Or individual ones can be restricted.
     restricted:
-        - "Apply live changes"
-        - "Delete or modify resources"
-        - "Access sensitive credentials"
+      - "Although supported, we do not allow inquire on the health status of the system."
     patterns:
       defaults:
-          - "When in doubt, use dry-run operations"
-          - "Prefer validation over execution"
+        - "Assignments should always provide a time range for the data analysis, if not provided, assume the last 365 days"
 ```

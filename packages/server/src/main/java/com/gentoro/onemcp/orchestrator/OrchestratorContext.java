@@ -1,7 +1,7 @@
 package com.gentoro.onemcp.orchestrator;
 
 import com.gentoro.onemcp.OneMcp;
-import com.gentoro.onemcp.context.KnowledgeBase;
+import com.gentoro.onemcp.handbook.Handbook;
 import com.gentoro.onemcp.memory.ValueStore;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.prompt.PromptRepository;
@@ -16,7 +16,7 @@ import com.gentoro.onemcp.prompt.PromptRepository;
 public class OrchestratorContext {
   private final LlmClient llmClient;
   private final PromptRepository promptTemplateManager;
-  private final KnowledgeBase knowledgeBase;
+  private final Handbook handbook;
   private final ValueStore valueStore;
   private final OneMcp oneMcp;
   private final TelemetryTracer telemetryTracer;
@@ -25,7 +25,7 @@ public class OrchestratorContext {
     this.oneMcp = oneMcp;
     this.llmClient = oneMcp().llmClient();
     this.promptTemplateManager = oneMcp().promptRepository();
-    this.knowledgeBase = oneMcp.knowledgeBase();
+    this.handbook = oneMcp.handbook();
     this.valueStore = valueStore;
     this.telemetryTracer = new TelemetryTracer();
   }
@@ -41,8 +41,8 @@ public class OrchestratorContext {
   }
 
   /** Knowledge base/documentation access. */
-  public KnowledgeBase knowledgeBase() {
-    return knowledgeBase;
+  public Handbook handbook() {
+    return handbook;
   }
 
   /** Shared, persistent variable store across steps/executions. */
