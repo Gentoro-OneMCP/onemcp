@@ -9,16 +9,17 @@ import ch.qos.logback.core.rolling.RollingFileAppender;
 import ch.qos.logback.core.rolling.TimeBasedRollingPolicy;
 import com.gentoro.onemcp.acme.AcmeServer;
 import com.gentoro.onemcp.actuator.ActuatorService;
-import com.gentoro.onemcp.context.KnowledgeBase;
 import com.gentoro.onemcp.exception.ExecutionException;
-import com.gentoro.onemcp.exception.KnowledgeBaseException;
+import com.gentoro.onemcp.exception.HandbookException;
 import com.gentoro.onemcp.exception.StateException;
+import com.gentoro.onemcp.handbook.Handbook;
+import com.gentoro.onemcp.handbook.HandbookFactory;
 import com.gentoro.onemcp.http.EmbeddedJettyServer;
-import com.gentoro.onemcp.indexing.GraphIndexingService;
+import com.gentoro.onemcp.indexing.HandbookGraphService;
+import com.gentoro.onemcp.logging.InferenceLogger;
 import com.gentoro.onemcp.mcp.McpServer;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.model.LlmClientFactory;
-import com.gentoro.onemcp.logging.InferenceLogger;
 import com.gentoro.onemcp.orchestrator.OrchestratorService;
 import com.gentoro.onemcp.prompt.PromptRepository;
 import com.gentoro.onemcp.prompt.PromptRepositoryFactory;
@@ -39,11 +40,11 @@ public class OneMcp {
   private ConfigurationProvider configurationProvider;
   private PromptRepository promptRepository;
   private EmbeddedJettyServer httpServer;
-  private KnowledgeBase knowledgeBase;
+  private Handbook handbook;
   private LlmClient llmClient;
   private OrchestratorService orchestrator;
   private InferenceLogger inferenceLogger;
-
+  private HandbookGraphService graphService;
   private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
   private final CountDownLatch shutdownLatch = new CountDownLatch(1);
   private volatile Thread shutdownHook;
@@ -67,10 +68,9 @@ public class OneMcp {
     this.promptRepository = PromptRepositoryFactory.create(this);
 
     try {
-      this.knowledgeBase = new KnowledgeBase(this);
-      this.knowledgeBase.ingestHandbook();
+      this.handbook = HandbookFactory.create(this);
     } catch (Exception e) {
-      throw new KnowledgeBaseException("Failed to ingest Handbook content", e);
+      throw new HandbookException("Failed to ingest Handbook content", e);
     }
 
     this.llmClient = LlmClientFactory.createProvider(this);
@@ -78,15 +78,12 @@ public class OneMcp {
     // Initialize inference logger
     this.inferenceLogger = new InferenceLogger(this);
 
-    if (configuration().getBoolean("graph.indexing.enabled", false)) {
-      try {
-        log.info("Graph indexing enabled via configuration");
-        new GraphIndexingService(this).indexKnowledgeBase();
-      } catch (Exception e) {
-        throw new KnowledgeBaseException("Failed to index Handbook content", e);
-      }
-    } else {
-      log.debug("Graph indexing disabled via configuration");
+    try {
+      this.graphService = new HandbookGraphService(this);
+      this.graphService.initialize();
+      this.graphService.indexHandbook();
+    } catch (Exception e) {
+      throw new HandbookException("Failed to index Handbook content", e);
     }
 
     // Initialize shared Jetty server and register components
@@ -200,8 +197,8 @@ public class OneMcp {
     return httpServer;
   }
 
-  public KnowledgeBase knowledgeBase() {
-    return knowledgeBase;
+  public Handbook handbook() {
+    return handbook;
   }
 
   public LlmClient llmClient() {
@@ -214,6 +211,10 @@ public class OneMcp {
 
   public InferenceLogger inferenceLogger() {
     return inferenceLogger;
+  }
+
+  public HandbookGraphService graphService() {
+    return graphService;
   }
 
   /**

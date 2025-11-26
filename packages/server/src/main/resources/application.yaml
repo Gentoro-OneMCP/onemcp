@@ -67,31 +67,48 @@ llm:
 
 graph:
   indexing:
-    enabled: ${env:GRAPH_INDEXING_ENABLED:-false}
-    clearOnStartup: ${env:GRAPH_INDEXING_CLEAR_ON_STARTUP:-true}
-    chunking:
-      # Global chunking toggle (applies to all document types if type-specific config not set)
-      enabled: ${env:GRAPH_INDEXING_CHUNKING_ENABLED:-false}
-      # Document type specific chunking configurations
-      # These override the global setting when explicitly configured
-      openapi:
-        enabled: ${env:GRAPH_INDEXING_CHUNKING_OPENAPI_ENABLED:-}
-      # TODO: Add more document type chunking configurations here as needed
-      # markdown:
-      #   enabled: ${env:GRAPH_INDEXING_CHUNKING_MARKDOWN_ENABLED:-}
-    driver: ${env:GRAPH_INDEXING_DRIVER:-arangodb}
-    # NOTE: ArangoDB must be running with authentication configured:
-    #   docker run -e ARANGO_ROOT_PASSWORD=test123 -p 8529:8529 -d arangodb:latest
-    arangodb:
-      enabled: ${env:ARANGODB_ENABLED:-true}
-      host: ${env:ARANGODB_HOST:-localhost}
-      port: ${env:ARANGODB_PORT:-8529}
-      user: ${env:ARANGODB_USER:-root}
-      password: ${env:ARANGODB_PASSWORD:-test123}
-    # Add more drivers here as needed
-  query:
-    driver: ${env:GRAPH_QUERY_DRIVER:-arangodb}
-    arangodb:
-      entityContextQueryPath: ${env:ARANGODB_ENTITY_CONTEXT_QUERY_PATH:-/aql/entity-context-query.aql}
-    # Add more drivers here as needed
+    # When true, the selected driver database/collection is cleared before re-indexing
+    clearOnStartup: ${env:GRAPH_V2_CLEAR_ON_STARTUP:-true}
+  # Select the unified v2 GraphDriver backend.
+  # Supported values: in-memory | arangodb | neo4j
+  driver: ${env:GRAPH_V2_DRIVER:-neo4j}
 
+  # Document chunking configuration used by HandbookGraphService
+  chunking:
+    markdown:
+      # Strategy for Markdown chunking (future use): heading | paragraph | sliding-window
+      strategy: ${env:GRAPH_V2_CHUNKING_MARKDOWN_STRATEGY:-paragraph}
+      # Target tokens per chunk (approx; used by default MarkdownChunker)
+      windowSizeTokens: ${env:GRAPH_V2_MD_WINDOW_SIZE:-500}
+      overlapTokens: ${env:GRAPH_V2_MD_OVERLAP:-64}
+
+  # ArangoDB driver configuration
+  arangodb:
+    # Hostname/IP of ArangoDB server
+    host: ${env:GRAPH_V2_ARANGODB_HOST:-localhost}
+    # TCP port
+    port: ${env:GRAPH_V2_ARANGODB_PORT:-8529}
+    # Authentication
+    user: ${env:GRAPH_V2_ARANGODB_USER:-root}
+    password: ${env:GRAPH_V2_ARANGODB_PASSWORD:-test123}
+    # Database name prefix; final DB name is <prefix><handbookName>
+    databasePrefix: ${env:GRAPH_V2_ARANGODB_DB_PREFIX:-onemcp_}
+
+  # Neo4j embedded driver configuration
+  neo4j:
+    # Root directory where embedded Neo4j stores data (one folder shared by all handbooks)
+    rootDir: ${env:GRAPH_V2_NEO4J_ROOT_DIR:-data/neo4j}
+    # Database name prefix; final DB name defaults to <databasePrefix><handbookName> when 'database' not set
+    databasePrefix: ${env:GRAPH_V2_NEO4J_DB_PREFIX:-onemcp-}
+    # Optional: Explicit database name override (useful for single DB setups)
+    database: ${env:GRAPH_V2_NEO4J_DATABASE:-}
+
+    # Deprecated (Bolt/remote) settings - no longer used with embedded Neo4j
+    # uri: ${env:GRAPH_V2_NEO4J_URI:-bolt://localhost:7687}
+    # user: ${env:GRAPH_V2_NEO4J_USER:-neo4j}
+    # password: ${env:GRAPH_V2_NEO4J_PASSWORD:-neo4j}
+
+  # Usage examples:
+  # - In-memory (default): GRAPH_V2_DRIVER=in-memory
+  # - ArangoDB: GRAPH_V2_DRIVER=arangodb GRAPH_V2_ARANGODB_PASSWORD=... (ensure server is running)
+  # - Neo4j (embedded): GRAPH_V2_DRIVER=neo4j GRAPH_V2_NEO4J_ROOT_DIR=/path/to/data GRAPH_V2_NEO4J_DB_PREFIX=onemcp_

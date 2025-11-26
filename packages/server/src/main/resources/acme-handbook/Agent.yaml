@@ -1,0 +1,112 @@
+# Optionally, provide a complete history of releases for this agent.
+releases:
+  - version: "0.0.1"
+    author:
+      name: ACME Corporation
+      #email: ...
+    date: "2023-01-01"
+    description: "Initial version"
+# List here all APIs that this agent can interact with.
+apis:
+  - slug: sales-analytics-api
+    # If Slug is not provided, the name will be used to generate one.
+    name: Sales Analytics API
+    ref: sales-analytics-api.yaml
+    # Optionally, override the list of base URLs, AKA servers.
+    # Useful when they are not listed at the API definition, or they point to an unreachable location.
+    baseUrls:
+      - http://localhost:8080/acme
+    description: |
+      A comprehensive data analytics API for exploring e-commerce sales data. 
+      This API provides powerful querying capabilities to analyze sales performance,
+      customer behavior, product trends, and regional insights. 
+  
+      ## Key Features
+      - **Flexible Filtering**: Filter data using field operators (equals, greater than, contains, etc.)
+      - **Field Selection**: Choose exactly which fields to include in results
+      - **Aggregations**: Calculate sums, averages, counts, min/max values
+      - **Real-time Data**: Access to live sales data with historical context
+
+    # Describe all entities and their relationships.
+    # As OneMCP uses Graph contextual data retrieval, expressing the entities and their relationships is crucial.
+    entities:
+      # Unique ID of the Entity, Could use a parallel of OpenAPI Tags.
+      - name: Category
+        # Optional list of aliases for the entity.
+        aliases:
+          - terms: [Group]
+            description: "In the context of a collection of products, Category can also be referred as Group."
+        # Optionally link with an actual OpenAPI Tag.
+        # If not provided, will assume the same name as the Entity.
+        openApiTag: Category
+        # Use markdown notation to describe the entity's purpose and capabilities.
+        description: |
+          A collection of products sharing attributes. *Example: Electronics, Clothing.*
+        # Describe how this entity relates to other entities.
+        relationships:
+          - name: Product
+            # Relationship type: toOne or toMany
+            type: toMany
+            # Use markdown notation to describe how the relationship works.
+            description: |
+              A category can contain multiple products.
+        # Describe the operations that can be performed on this entity.
+        operations:
+          # Type of the Operation according to OneMCP mapped Operations.
+          # Retrieve, Compute, Delete, Change, Write.
+          - kind: Retrieve
+            # Use markdown notation to describe the operation's purpose and capabilities.
+            description: |
+              Can be **RETRIEVED** (filtered/all) and combined with **Product** data.
+
+      - name: Product
+        aliases:
+          - terms: [Item]
+            description: "In the context of an Order, a `Product` can also be referred as an `Item`."
+        description: "The items purchased. *Example: iPad, iPhone.*"
+        relationships:
+          - name: Order
+            type: toMany
+            description: "A Product can be bought multiple times, being part of multiple Orders."
+        operations:
+          - kind: Retrieve
+            description: "Can be **RETRIEVED** (filtered/all) and combined with **Category** and **Order** data."
+      - name: Customer
+        aliases:
+          - terms: [Buyer, Client]
+            description: "In the context of an Order, a `Customer` can also be referred as an `Buyer` or `Client`."
+        description: "The buyers placing orders. Contains personal info, addresses, and region."
+        relationships:
+          - name: Order
+            type: toMany
+            description: "A Customer can place multiple Orders."
+          - name: Region
+            type: toOne
+            description: "A Customer lives in a specific region."
+        operations:
+          - kind: Retrieve
+            description: "Can be **RETRIEVED** (filtered/all) and combined with **Region** and **Order** data."
+      - name: Order
+        aliases:
+          - terms: [Purchase]
+            description: "The act of placing an Order is also referred as a Purchase."
+        description: "Represents one order's details (items, quantity, buyer, revenue)."
+        relationships:
+          - name: Customer
+            type: toOne
+            description: "An Order always belongs to a Customer."
+          - name: Product
+            type: toMany
+            description: "An Order can contain multiple Products."
+        operations:
+          - kind: Retrieve
+            description: "Can be **RETRIEVED** (filtered/all) and combined with **Customer** and **Product** data"
+      - name: Region
+        description: "A geographical location from a customer's address. *Example: CA, San Francisco.*"
+        relationships:
+          - name: Customer
+            type: toMany
+            description: "A Region can contain multiple Customers living there"
+        operations:
+          - kind: Retrieve
+            description: "Can be **RETRIEVED** (filtered/all) and combined with **Customer** data"

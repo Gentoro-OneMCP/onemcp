@@ -69,13 +69,14 @@ public class AnthropicLlmClient extends AbstractLlmClient {
     InitializationContext ctx = initialize(Collections.emptyList(), tools);
 
     long start = System.currentTimeMillis();
-    TelemetrySink t = setupTelemetry(
-        "anthropic",
-        ctx.modelName(),
-        tools == null ? 0 : tools.size(),
-        ctx.localMessages().size(),
-        "generate");
-    
+    TelemetrySink t =
+        setupTelemetry(
+            "anthropic",
+            ctx.modelName(),
+            tools == null ? 0 : tools.size(),
+            ctx.localMessages().size(),
+            "generate");
+
     ctx.configBuilder().messages(ctx.localMessages());
     com.anthropic.models.messages.Message chatCompletion =
         anthropicClient.messages().create(ctx.configBuilder().build());
@@ -85,7 +86,7 @@ public class AnthropicLlmClient extends AbstractLlmClient {
     long promptTokens = chatCompletion.usage().inputTokens();
     long completionTokens = chatCompletion.usage().outputTokens();
     long totalTokens = promptTokens + completionTokens;
-    
+
     // Extract response text
     String responseText = "";
     if (!chatCompletion.content().isEmpty()) {
@@ -95,13 +96,13 @@ public class AnthropicLlmClient extends AbstractLlmClient {
         }
       }
     }
-    
+
     log.info(
         "[Inference] - Anthropic({}):\nLLM inference took {} ms.\nTotal tokens {}.\n---\n",
         ctx.modelName(),
         (end - start),
         totalTokens);
-    
+
     finishTelemetry(t, (end - start), promptTokens, completionTokens, totalTokens, responseText);
 
     if (chatCompletion.content().isEmpty()) {
@@ -146,7 +147,7 @@ public class AnthropicLlmClient extends AbstractLlmClient {
       long promptTokens = chatCompletions.usage().inputTokens();
       long completionTokens = chatCompletions.usage().outputTokens();
       long totalTokens = promptTokens + completionTokens;
-      
+
       // Extract response text
       String responseText = "";
       for (com.anthropic.models.messages.ContentBlock block : chatCompletions.content()) {
@@ -154,13 +155,13 @@ public class AnthropicLlmClient extends AbstractLlmClient {
           responseText += block.asText().text();
         }
       }
-      
+
       log.info(
           "[Inference] - Anthropic({}):\nLLM inference took {} ms.\nTotal tokens {}.\n---\n",
           ctx.modelName(),
           (end - start),
           totalTokens);
-      
+
       // Log LLM inference complete with response
       logInferenceComplete((end - start), promptTokens, completionTokens, responseText);
 
@@ -194,12 +195,12 @@ public class AnthropicLlmClient extends AbstractLlmClient {
           Map<String, Object> values = new HashMap<>();
           Objects.requireNonNull(toolCall._input().convert(toolCallTypeRef))
               .forEach((key, value) -> values.put(key, value.toString()));
-          
+
           // Log tool call
           logToolCall(tool.name(), values);
-          
+
           String result = tool.execute(values);
-          
+
           // Log tool output
           logToolOutput(tool.name(), result);
 

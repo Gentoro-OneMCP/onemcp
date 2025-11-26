@@ -13,13 +13,13 @@ import io.swagger.v3.oas.models.parameters.Parameter;
 import io.swagger.v3.oas.models.responses.ApiResponse;
 import io.swagger.v3.oas.models.tags.Tag;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Parser for OpenAPI specifications that extracts structured information for graph construction.
  *
  * <p>This parser extracts operations, schemas, tags, and examples from OpenAPI specs without
- * requiring the full spec to be sent to an LLM, enabling efficient processing of large specifications.
+ * requiring the full spec to be sent to an LLM, enabling efficient processing of large
+ * specifications.
  */
 public class OpenApiSpecParser {
   private static final org.slf4j.Logger log =
@@ -33,9 +33,7 @@ public class OpenApiSpecParser {
     this.jsonMapper = JacksonUtility.getJsonMapper();
   }
 
-  /**
-   * Represents a parsed operation from an OpenAPI spec.
-   */
+  /** Represents a parsed operation from an OpenAPI spec. */
   public static class ParsedOperation {
     private final String operationId;
     private final String method;
@@ -119,9 +117,7 @@ public class OpenApiSpecParser {
     }
   }
 
-  /**
-   * Represents a parsed example from an OpenAPI spec.
-   */
+  /** Represents a parsed example from an OpenAPI spec. */
   public static class ParsedExample {
     private final String name;
     private final String summary;
@@ -170,9 +166,7 @@ public class OpenApiSpecParser {
     }
   }
 
-  /**
-   * Represents a parsed tag/entity from an OpenAPI spec.
-   */
+  /** Represents a parsed tag/entity from an OpenAPI spec. */
   public static class ParsedTag {
     private final String name;
     private final String description;
@@ -197,9 +191,7 @@ public class OpenApiSpecParser {
     }
   }
 
-  /**
-   * Represents a parsed schema component from an OpenAPI spec.
-   */
+  /** Represents a parsed schema component from an OpenAPI spec. */
   public static class ParsedSchema {
     private final String name;
     private final Schema<?> schema;
@@ -258,14 +250,11 @@ public class OpenApiSpecParser {
     return operations;
   }
 
-  /**
-   * Parse a single operation from the OpenAPI spec.
-   */
+  /** Parse a single operation from the OpenAPI spec. */
   private ParsedOperation parseOperation(Operation operation, String method, String path) {
     String operationId = operation.getOperationId();
     String summary = operation.getSummary() != null ? operation.getSummary() : "";
-    String description =
-        operation.getDescription() != null ? operation.getDescription() : summary;
+    String description = operation.getDescription() != null ? operation.getDescription() : summary;
 
     // Extract tags
     List<String> tags =
@@ -305,12 +294,9 @@ public class OpenApiSpecParser {
         category);
   }
 
-  /**
-   * Extract request schema from operation (request body).
-   */
+  /** Extract request schema from operation (request body). */
   private String extractRequestSchema(Operation operation) {
-    if (operation.getRequestBody() == null
-        || operation.getRequestBody().getContent() == null) {
+    if (operation.getRequestBody() == null || operation.getRequestBody().getContent() == null) {
       return null;
     }
 
@@ -328,9 +314,7 @@ public class OpenApiSpecParser {
     return null;
   }
 
-  /**
-   * Extract response schema from operation (first successful response).
-   */
+  /** Extract response schema from operation (first successful response). */
   private String extractResponseSchema(Operation operation) {
     if (operation.getResponses() == null) {
       return null;
@@ -369,15 +353,12 @@ public class OpenApiSpecParser {
     return null;
   }
 
-  /**
-   * Extract examples from operation.
-   */
+  /** Extract examples from operation. */
   private List<ParsedExample> extractExamples(Operation operation) {
     List<ParsedExample> examples = new ArrayList<>();
 
     // Extract from request body examples
-    if (operation.getRequestBody() != null
-        && operation.getRequestBody().getContent() != null) {
+    if (operation.getRequestBody() != null && operation.getRequestBody().getContent() != null) {
       Content content = operation.getRequestBody().getContent();
       for (MediaType mediaType : content.values()) {
         if (mediaType.getExamples() != null) {
@@ -427,9 +408,7 @@ public class OpenApiSpecParser {
     return examples;
   }
 
-  /**
-   * Determine operation category based on HTTP method and operation details.
-   */
+  /** Determine operation category based on HTTP method and operation details. */
   private String determineCategory(String method, Operation operation) {
     String upperMethod = method.toUpperCase();
     switch (upperMethod) {
@@ -503,21 +482,17 @@ public class OpenApiSpecParser {
       return schemas;
     }
 
-    for (Map.Entry<String, Schema> schemaEntry :
-        openAPI.getComponents().getSchemas().entrySet()) {
+    for (Map.Entry<String, Schema> schemaEntry : openAPI.getComponents().getSchemas().entrySet()) {
       String name = schemaEntry.getKey();
       Schema<?> schema = schemaEntry.getValue();
-      String description =
-          schema.getDescription() != null ? schema.getDescription() : "";
+      String description = schema.getDescription() != null ? schema.getDescription() : "";
       schemas.add(new ParsedSchema(name, schema, description));
     }
 
     return schemas;
   }
 
-  /**
-   * Get the OpenAPI info section.
-   */
+  /** Get the OpenAPI info section. */
   public Map<String, Object> getInfo() {
     Map<String, Object> info = new HashMap<>();
     if (openAPI.getInfo() != null) {
@@ -534,9 +509,7 @@ public class OpenApiSpecParser {
     return info;
   }
 
-  /**
-   * Serialize a schema to JSON string.
-   */
+  /** Serialize a schema to JSON string. */
   private String serializeSchema(Schema<?> schema) {
     try {
       // Handle schema references ($ref)
@@ -566,9 +539,7 @@ public class OpenApiSpecParser {
     }
   }
 
-  /**
-   * Serialize a schema to a map representation.
-   */
+  /** Serialize a schema to a map representation. */
   private Map<String, Object> serializeSchemaToMap(Schema<?> schema) {
     Map<String, Object> schemaMap = new HashMap<>();
     if (schema.getType() != null) {
@@ -595,9 +566,7 @@ public class OpenApiSpecParser {
     return schemaMap;
   }
 
-  /**
-   * Resolve a schema reference from components.
-   */
+  /** Resolve a schema reference from components. */
   private Schema<?> resolveSchemaReference(String schemaName) {
     if (openAPI.getComponents() == null || openAPI.getComponents().getSchemas() == null) {
       return null;
@@ -605,9 +574,7 @@ public class OpenApiSpecParser {
     return openAPI.getComponents().getSchemas().get(schemaName);
   }
 
-  /**
-   * Serialize an example value to JSON string.
-   */
+  /** Serialize an example value to JSON string. */
   private String serializeExampleValue(Object value) {
     if (value == null) {
       return null;
@@ -623,9 +590,7 @@ public class OpenApiSpecParser {
     }
   }
 
-  /**
-   * Get a summary of the OpenAPI spec (info, number of operations, tags, etc.).
-   */
+  /** Get a summary of the OpenAPI spec (info, number of operations, tags, etc.). */
   public Map<String, Object> getSpecSummary() {
     Map<String, Object> summary = new HashMap<>();
     summary.put("info", getInfo());
@@ -635,4 +600,3 @@ public class OpenApiSpecParser {
     return summary;
   }
 }
-

@@ -13,6 +13,15 @@ public class StringUtility {
         .replaceAll("_+", "_"); // Collapse multiple underscores into one
   }
 
+  public static String requireNonEmpty(String... strings) {
+    for (String s : strings) {
+      if (s != null && !s.isEmpty()) {
+        return s;
+      }
+    }
+    return "[Empty]";
+  }
+
   public static String formatWithIndent(String input, int indent) {
     return formatWithIndent(input, indent, 1000);
   }

@@ -1,3 +1,15 @@
+---
+title: "Query Examples - Sales Analytics API"
+entities:
+  - Product
+  - Order
+  - Category
+  - Sales
+  - Customer
+  - Region
+author: "ACME"
+---
+
 # Query Examples - Sales Analytics API
 
 This document provides practical examples of how to use the Sales Analytics API for common business scenarios.

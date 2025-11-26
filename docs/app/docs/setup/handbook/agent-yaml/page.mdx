@@ -6,40 +6,69 @@ title: Agent.yaml
 
 This file contains the overall agent instructions and configuration.
 
-Here is an example a valid definition:
+Here is an example of a valid definition:
 
 ```yaml
 agent:
   version: 1.0.0
-
-  # Use markdown notation to describe the agent's purpose and capabilities.
-  instructions: |
-    A comprehensive data analytics API for exploring e-commerce sales data.
-    This API provides powerful querying capabilities to analyze sales performance,
-    customer behavior, product trends, and regional insights.
-
-  # Describe all entities and their relationships.
-  # As OneMCP uses Graph contextual data retrieval, expressing the entities and their relationships is crucial.
-  entities:
-    # Unique ID of the Entity, Could use a parallel of OpenAPI Tags.
-    - name: Order
-      # Use markdown notation to describe the entity's purpose and capabilities.
+  # List here all APIs that this agent can interact with.
+  apis:
+    - slug: sales-analytics-api
+      # If Slug is not provided, the name will be used to generate one.
+      name: Sales Analytics API
+      ref: sales-analytics-api.yaml
       description: |
-        Represents one order's details (items, quantity, buyer, revenue).
-      # Describe how this entity relates to other entities.
-      relationships:
-        - name: Customer
-          # Relationship type: toOne or toMany
-          type: toOne
-          # Use markdown notation to describe how the relationship works.
+        A comprehensive data analytics API for exploring e-commerce sales data.
+        This API provides powerful querying capabilities to analyze sales performance,
+        customer behavior, product trends, and regional insights.
+
+        ## Key Features
+        - **Flexible Filtering**: Filter data using field operators (equals, greater than, contains, etc.)
+        - **Field Selection**: Choose exactly which fields to include in results
+        - **Aggregations**: Calculate sums, averages, counts, min/max values
+        - **Real-time Data**: Access to live sales data with historical context
+
+      # Describe all entities and their relationships.
+      # As OneMCP uses Graph contextual data retrieval, expressing the entities and their relationships is crucial.
+      entities:
+        # Unique ID of the Entity, Could use a parallel of OpenAPI Tags.
+        - name: Category
+          # Optional list of aliases for the entity.
+          aliases:
+            - terms: [Group]
+              description: "In the context of a collection of products, Category can also be referred as Group."
+          # Optionally link with an actual OpenAPI Tag.
+          # If not provided, will assume the same name as the Entity.
+          openApiTag: Category
+          # Use markdown notation to describe the entity's purpose and capabilities.
           description: |
-            An Order will always belong to a Customer. A Customer will place and order with one or more Products on it.
-      # Describe the operations that can be performed on this entity.
-      operations:
-        # Type of the Operation according to OneMCP mapped Operations.
-        # Retrieve, Compute, Delete, Change, Write.
-        - kind: Retrieve
-          # Use markdown notation to describe the operation's purpose and capabilities.
-          description: |
-            Orders can be retrieved and combined with Product and Customer data to provide a complete view of the order.
+            A collection of products sharing attributes. *Example: Electronics, Clothing.*
+          # Describe how this entity relates to other entities.
+          relationships:
+            - name: Product
+              # Relationship type: toOne or toMany
+              type: toMany
+              # Use markdown notation to describe how the relationship works.
+              description: |
+                A category can contain multiple products.
+          # Describe the operations that can be performed on this entity.
+          operations:
+            # Type of the Operation according to OneMCP mapped Operations.
+            # Retrieve, Compute, Delete, Change, Write.
+            - kind: Retrieve
+              # Use markdown notation to describe the operation's purpose and capabilities.
+              description: |
+                Can be **RETRIEVED** (filtered/all) and combined with **Product** data.
+        - name: Product
+          aliases:
+            - terms: [Item]
+              description: "In the context of an Order, a `Product` can also be referred as an `Item`."
+          description: "The items purchased. *Example: iPad, iPhone.*"
+          relationships:
+            - name: Order
+              type: toMany
+              description: "A Product can be bought multiple times, being part of multiple Orders."
+          operations:
+            - kind: Retrieve
+              description: "Can be **RETRIEVED** (filtered/all) and combined with **Category** and **Order** data."
 ```

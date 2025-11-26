@@ -162,29 +162,15 @@ public class McpServer implements AutoCloseable {
                             } else {
                               sink = new NoOpProgressSink();
                             }
-                            String resultJson = oneMcp.orchestrator().handlePrompt(request.arguments().get("prompt").toString());
-                            
-                            // Parse the JSON response which contains content and reportPath
-                            Map<String, Object> response = new HashMap<>();
-                            try {
-                              com.fasterxml.jackson.databind.ObjectMapper mapper = JacksonUtility.getJsonMapper();
-                              com.fasterxml.jackson.databind.JsonNode jsonNode = mapper.readTree(resultJson);
-                              if (jsonNode.has("content")) {
-                                response.put("content", jsonNode.get("content").asText());
-                              } else {
-                                // If not JSON, treat as plain content
-                                response.put("content", resultJson);
-                              }
-                              if (jsonNode.has("reportPath")) {
-                                response.put("reportPath", jsonNode.get("reportPath").asText());
-                              }
-                            } catch (Exception e) {
-                              // If parsing fails, treat resultJson as plain content
-                              response.put("content", resultJson);
-                            }
-                            
+
+                            var result =
+                                oneMcp
+                                    .orchestrator()
+                                    .handlePrompt(
+                                        request.arguments().get("prompt").toString(), sink);
+
                             return new McpSchema.CallToolResult(
-                                JacksonUtility.toJson(response), false);
+                                JacksonUtility.toJson(result), false);
                           } catch (Exception e) {
                             log.error("Failed to handle MCP tool request", e);
                             return new McpSchema.CallToolResult(

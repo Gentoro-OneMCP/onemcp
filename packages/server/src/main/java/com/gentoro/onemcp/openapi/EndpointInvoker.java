@@ -69,8 +69,7 @@ public class EndpointInvoker {
     HttpClient client = HttpClient.newHttpClient();
     HttpRequest httpRequest = builder.build();
     long startTime = System.currentTimeMillis();
-    HttpResponse<String> response =
-        client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+    HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
     long duration = System.currentTimeMillis() - startTime;
 
     // Log API call if inference logger is available
@@ -85,7 +84,7 @@ public class EndpointInvoker {
           requestBodyStr != null ? requestBodyStr : "",
           responseBodyStr != null ? responseBodyStr : "");
     }
-    
+
     return HttpUtils.toJsonNode(response.body());
   }
 

@@ -61,3 +61,6 @@ src/onemcp/src/main/resources/application-dev.yaml
 
 # Docs
 docs/out/
+
+# Data dir for embedded Neo4J
+/data/

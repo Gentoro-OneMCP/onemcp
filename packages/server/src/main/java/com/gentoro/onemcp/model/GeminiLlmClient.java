@@ -53,26 +53,28 @@ public class GeminiLlmClient extends AbstractLlmClient {
 
     String modelName = configuration.getString("model", "gemini-2.5-flash");
     long start = System.currentTimeMillis();
-    TelemetrySink t = setupTelemetry(
-        "gemini",
-        modelName,
-        tools == null ? 0 : tools.size(),
-        1,
-        "generate");
-    
+    TelemetrySink t =
+        setupTelemetry("gemini", modelName, tools == null ? 0 : tools.size(), 1, "generate");
+
     GenerateContentResponse chatCompletion =
         geminiClient.models.generateContent(modelName, message, configBuilder.build());
     long end = System.currentTimeMillis();
-    long promptTokens = chatCompletion.usageMetadata()
-        .map(um -> um.promptTokenCount().map(Long::valueOf).orElse(0L))
-        .orElse(0L);
-    long completionTokens = chatCompletion.usageMetadata()
-        .map(um -> um.candidatesTokenCount().map(Long::valueOf).orElse(0L))
-        .orElse(0L);
-    Long totalTokens = chatCompletion.usageMetadata()
-        .map(um -> um.totalTokenCount().map(Long::valueOf).orElse(null))
-        .orElse(null);
-    
+    long promptTokens =
+        chatCompletion
+            .usageMetadata()
+            .map(um -> um.promptTokenCount().map(Long::valueOf).orElse(0L))
+            .orElse(0L);
+    long completionTokens =
+        chatCompletion
+            .usageMetadata()
+            .map(um -> um.candidatesTokenCount().map(Long::valueOf).orElse(0L))
+            .orElse(0L);
+    Long totalTokens =
+        chatCompletion
+            .usageMetadata()
+            .map(um -> um.totalTokenCount().map(Long::valueOf).orElse(null))
+            .orElse(null);
+
     // Extract response text
     String responseText = "";
     List<Candidate> candidates = chatCompletion.candidates().orElse(List.of());
@@ -86,9 +88,9 @@ public class GeminiLlmClient extends AbstractLlmClient {
         }
       }
     }
-    
+
     finishTelemetry(t, (end - start), promptTokens, completionTokens, totalTokens, responseText);
-    
+
     // Get the final content from candidates
     List<Candidate> finalCandidates =
         chatCompletion
@@ -159,16 +161,21 @@ public class GeminiLlmClient extends AbstractLlmClient {
       if (listener != null) listener.on(EventType.ON_COMPLETION, chatCompletions);
 
       long end = System.currentTimeMillis();
-      long promptTokens = chatCompletions.usageMetadata()
-          .map(um -> um.promptTokenCount().map(Long::valueOf).orElse(0L))
-          .orElse(0L);
-      long completionTokens = chatCompletions.usageMetadata()
-          .map(um -> um.candidatesTokenCount().map(Long::valueOf).orElse(0L))
-          .orElse(0L);
-      
+      long promptTokens =
+          chatCompletions
+              .usageMetadata()
+              .map(um -> um.promptTokenCount().map(Long::valueOf).orElse(0L))
+              .orElse(0L);
+      long completionTokens =
+          chatCompletions
+              .usageMetadata()
+              .map(um -> um.candidatesTokenCount().map(Long::valueOf).orElse(0L))
+              .orElse(0L);
+
       // Extract response text
       String responseText = "";
-      if (!chatCompletions.candidates().isEmpty() && !chatCompletions.candidates().get().isEmpty()) {
+      if (!chatCompletions.candidates().isEmpty()
+          && !chatCompletions.candidates().get().isEmpty()) {
         var candidate = chatCompletions.candidates().get().get(0);
         if (candidate.content().isPresent()) {
           var content = candidate.content().get();
@@ -181,11 +188,14 @@ public class GeminiLlmClient extends AbstractLlmClient {
           }
         }
       }
-      
+
       log.trace(
           "Gemini inference took {} ms, and a total of {} token(s).",
           (end - start),
-          chatCompletions.usageMetadata().map(um -> um.totalTokenCount().map(Long::valueOf).orElse(0L)).orElse(0L));
+          chatCompletions
+              .usageMetadata()
+              .map(um -> um.totalTokenCount().map(Long::valueOf).orElse(0L))
+              .orElse(0L));
       if (t != null) {
         chatCompletions
             .usageMetadata()
@@ -197,7 +207,7 @@ public class GeminiLlmClient extends AbstractLlmClient {
                         um.totalTokenCount().map(Long::valueOf).orElse(null)));
         t.endCurrentOk(java.util.Map.of("latencyMs", (end - start), "response", responseText));
       }
-      
+
       // Log LLM inference complete with response
       logInferenceComplete((end - start), promptTokens, completionTokens, responseText);
 
@@ -276,12 +286,12 @@ public class GeminiLlmClient extends AbstractLlmClient {
           if (listener != null) listener.on(EventType.ON_TOOL_CALL, tool);
           try {
             Map<String, Object> values = functionCall.args().get();
-            
+
             // Log tool call
             logToolCall(tool.name(), values);
-            
+
             String result = tool.execute(values);
-            
+
             // Log tool output
             logToolOutput(tool.name(), result);
 

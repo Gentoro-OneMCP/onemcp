@@ -9,6 +9,7 @@ import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.prompt.PromptTemplate;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import com.gentoro.onemcp.utility.StringUtility;
+import io.swagger.v3.oas.models.Operation;
 import java.util.List;
 import java.util.Map;
 
@@ -84,9 +85,10 @@ public class PlanGenerationService {
 
       try {
         List<String> listOfAllowedOperations =
-            context.knowledgeBase().services().stream()
-                .flatMap(s -> s.getOperations().stream())
-                .map(o -> o.getOperation())
+            context.handbook().apis().values().stream()
+                .flatMap(a -> a.getService().getOpenApi().getPaths().values().stream())
+                .flatMap(p -> p.readOperations().stream())
+                .map(Operation::getOperationId)
                 .toList();
 
         JsonNode executionPlan = JacksonUtility.getJsonMapper().readTree(jsonContent);
