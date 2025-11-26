@@ -40,6 +40,14 @@ target/
 .gradle/
 build/
 
+# Go
+packages/go-cli/onemcp
+packages/go-cli/onemcp-*
+*.test
+*.out
+go.work
+go.work.sum
+
 # Misc
 dist/
 coverage/
