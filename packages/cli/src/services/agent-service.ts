@@ -10,7 +10,6 @@ import { processManager, ProcessConfig } from './process-manager.js';
 import { configManager } from '../config/manager.js';
 import { paths } from '../config/paths.js';
 import { AgentStatus } from '../types.js';
-import fs from 'fs-extra';
 
 export interface StartOptions {
   port?: number;
@@ -25,7 +24,7 @@ export class AgentService {
   /**
    * Find the project root directory
    */
-  private findProjectRoot(): string {
+  findProjectRoot(): string {
     // Check if ONEMCP_ROOT environment variable is set
     if (process.env.ONEMCP_ROOT) {
       return process.env.ONEMCP_ROOT;
@@ -111,7 +110,7 @@ export class AgentService {
   /**
    * Resolve the built OneMCP jar path regardless of version or packaging plugin.
    */
-  private async resolveOnemcpJar(projectRoot: string): Promise<string> {
+  async resolveOnemcpJar(projectRoot: string): Promise<string> {
     const targetDir = join(projectRoot, 'packages/server/target');
 
     let artifacts: string[];
@@ -282,7 +281,7 @@ export class AgentService {
 
     // Get the expected ports from registered configs
     const portsToCheck: Array<{ name: string; port: number }> = [];
-    // We need to access all configs - this is a bit hacky but necessary for cleanup
+    // Access process manager configs for cleanup
     const configs = (processManager as unknown as { configs: Map<string, ProcessConfig> }).configs;
     for (const [name, config] of configs.entries()) {
       if (config.port) {
@@ -376,10 +375,13 @@ export class AgentService {
 
     const appConfig = processManager.getConfig('app');
     if (appConfig) {
-      // Set foundation directory
+      // Set foundation directory and handbook directory
+      // HANDBOOK_DIR is used by application.yaml to set handbook.location
+      // This ensures the server uses the actual handbook path, not a temp copy
       appConfig.env = {
         ...appConfig.env,
         FOUNDATION_DIR: handbookPath,
+        HANDBOOK_DIR: handbookPath,
       };
 
       // Set logging directory for reports

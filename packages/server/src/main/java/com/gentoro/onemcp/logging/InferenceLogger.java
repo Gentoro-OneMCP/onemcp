@@ -2,6 +2,7 @@ package com.gentoro.onemcp.logging;
 
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.context.KnowledgeBase;
+import com.gentoro.onemcp.messages.AssigmentResult;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import java.io.IOException;
@@ -122,44 +123,61 @@ public class InferenceLogger {
    *
    * <p>Priority:
    * <ol>
-   *   <li>Environment variable {@code ONEMCP_LOG_DIR}
+   *   <li>Environment variable {@code ONEMCP_LOG_DIR} (CLI mode: set to {@code {handbook}/logs})
    *   <li>Config file {@code logging.directory}
-   *   <li>If handbook mode: use {@code {handbook}/logs/}
-   *   <li>Default: {@code /var/log/onemcp}
+   *   <li>If handbook mode detected: use {@code {handbook}/logs/} (fallback for CLI mode)
+   *   <li>Default: {@code /var/log/onemcp} (production mode)
    * </ol>
+   *
+   * <p>Behavior:
+   * <ul>
+   *   <li><b>CLI mode</b>: CLI sets {@code ONEMCP_LOG_DIR} to {@code {handbook}/logs}, so reports go to
+   *       {@code {handbook}/logs/reports/}
+   *   <li><b>Production mode</b>: When {@code ONEMCP_LOG_DIR} is not set and no handbook is detected,
+   *       defaults to {@code /var/log/onemcp/reports/}
+   * </ul>
    *
    * <p>Reports are always stored in {@code {logging_dir}/reports/} subdirectory.
    */
   private Path determineReportsDirectory() {
     Path baseLogDir;
 
-    // Check environment variable
+    // Priority 1: Environment variable (CLI mode sets ONEMCP_LOG_DIR to {handbook}/logs)
     String envLogDir = System.getenv("ONEMCP_LOG_DIR");
     if (envLogDir != null && !envLogDir.isBlank()) {
       baseLogDir = Paths.get(envLogDir);
+      log.debug("Using logging directory from ONEMCP_LOG_DIR: {}", baseLogDir);
     } else {
-      // Check config file
+      // Priority 2: Config file
       Configuration config = oneMcp.configuration();
       String configLogDir = config != null ? config.getString("logging.directory", null) : null;
       if (configLogDir != null && !configLogDir.isBlank()) {
         baseLogDir = Paths.get(configLogDir);
+        log.debug("Using logging directory from config: {}", baseLogDir);
       } else {
-        // Try handbook mode
+        // Priority 3: Try handbook mode (fallback for CLI mode when ONEMCP_LOG_DIR not set)
         try {
           KnowledgeBase knowledgeBase = oneMcp.knowledgeBase();
           if (knowledgeBase != null) {
             Path handbookPath = knowledgeBase.handbookPath();
             if (handbookPath != null && Files.exists(handbookPath)) {
               baseLogDir = handbookPath.resolve("logs");
+              log.debug("Using handbook logs directory: {}", baseLogDir);
             } else {
+              // Priority 4: Default to production mode location
               baseLogDir = Paths.get("/var/log/onemcp");
+              log.debug("Using default production logging directory: {}", baseLogDir);
             }
           } else {
+            // Priority 4: Default to production mode location
             baseLogDir = Paths.get("/var/log/onemcp");
+            log.debug("Using default production logging directory: {}", baseLogDir);
           }
         } catch (Exception e) {
           log.debug("Could not determine handbook logs directory: {}", e.getMessage());
+          // Priority 4: Default to production mode location
           baseLogDir = Paths.get("/var/log/onemcp");
+          log.debug("Using default production logging directory: {}", baseLogDir);
         }
       }
     }
@@ -175,6 +193,37 @@ public class InferenceLogger {
     }
 
     return reportsDir;
+  }
+
+  /**
+   * Get the handbook location for display in reports.
+   * 
+   * @return handbook path as string, or null if not available
+   */
+  private String getHandbookLocation() {
+    // Priority 1: HANDBOOK_DIR environment variable (set by CLI)
+    String envHandbookDir = System.getenv("HANDBOOK_DIR");
+    if (envHandbookDir != null && !envHandbookDir.isBlank()) {
+      Path envHandbookPath = Paths.get(envHandbookDir);
+      if (Files.exists(envHandbookPath) && Files.isDirectory(envHandbookPath)) {
+        return envHandbookPath.toString();
+      }
+    }
+    
+    // Priority 2: KnowledgeBase handbook path
+    try {
+      KnowledgeBase knowledgeBase = oneMcp.knowledgeBase();
+      if (knowledgeBase != null) {
+        Path handbookPath = knowledgeBase.handbookPath();
+        if (handbookPath != null) {
+          return handbookPath.toString();
+        }
+      }
+    } catch (Exception e) {
+      log.debug("Could not get handbook path from KnowledgeBase: {}", e.getMessage());
+    }
+    
+    return null;
   }
 
   /**
@@ -269,6 +318,18 @@ public class InferenceLogger {
   }
 
   /**
+   * Set the execution ID in thread-local for background threads.
+   * This allows background threads to log events to the same execution.
+   *
+   * @param executionId the execution ID to set
+   */
+  public void setExecutionId(String executionId) {
+    if (executionId != null) {
+      currentExecutionId.set(executionId);
+    }
+  }
+
+  /**
    * Get the report path for the current execution (from thread-local).
    * After retrieval, the thread-local is cleared.
    *
@@ -312,6 +373,17 @@ public class InferenceLogger {
     sb.append("  Timestamp: ").append(startTimestamp).append("\n");
     sb.append("  Duration:  ").append(durationMs).append("ms (").append(durationMs / 1000.0)
         .append("s)\n");
+    
+    // Handbook location
+    try {
+      String handbookLocation = getHandbookLocation();
+      if (handbookLocation != null && !handbookLocation.isBlank()) {
+        sb.append("  Handbook:  ").append(handbookLocation).append("\n");
+      }
+    } catch (Exception e) {
+      log.debug("Could not determine handbook location for report: {}", e.getMessage());
+    }
+    
     sb.append("\n");
 
     // Combined Execution Summary
@@ -328,7 +400,8 @@ public class InferenceLogger {
     sb.append("  API Calls:           ").append(apiCalls).append("\n");
     sb.append("  Errors:              ").append(errors).append("\n");
     sb.append("\n");
-    
+
+    // LLM and API Calls
     int llmCallNum = 1;
     int apiCallNum = 1;
     long totalPromptTokens = 0;
@@ -413,6 +486,76 @@ public class InferenceLogger {
       sb.append("  No LLM or API calls recorded\n");
     }
     sb.append("\n");
+
+    // Normalized Prompt Schema (Background)
+    boolean hasNormalizedSchema = false;
+    long normalizationDuration = 0;
+    for (ExecutionEvent event : events) {
+      if ("normalized_prompt_schema".equals(event.type)) {
+        hasNormalizedSchema = true;
+        Object duration = event.data.get("durationMs");
+        if (duration instanceof Number) {
+          normalizationDuration = ((Number) duration).longValue();
+        }
+        break;
+      }
+    }
+    
+    if (hasNormalizedSchema) {
+      sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+      sb.append("│ PROMPT SCHEMA (Background)                                                   │\n");
+      sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+      sb.append("\n");
+      
+      for (ExecutionEvent event : events) {
+        if ("normalized_prompt_schema".equals(event.type)) {
+          Object schema = event.data.get("schema");
+          if (schema != null && !schema.toString().trim().isEmpty()) {
+            String schemaStr = schema.toString();
+            // Check if this is an error message (dictionary not found, etc.)
+            try {
+              com.fasterxml.jackson.databind.JsonNode jsonNode = JacksonUtility.getJsonMapper().readTree(schemaStr);
+              if (jsonNode.has("error")) {
+                // This is an error message, display it clearly
+                String error = jsonNode.get("error").asText();
+                String reason = jsonNode.has("reason") ? jsonNode.get("reason").asText() : "unknown";
+                sb.append("  Normalization skipped: ").append(error).append("\n");
+                sb.append("  Reason: ").append(reason).append("\n");
+              } else {
+                // This is a valid schema, pretty-print it
+                Object parsed = JacksonUtility.getJsonMapper().readValue(schemaStr, Object.class);
+                schemaStr = JacksonUtility.getJsonMapper().writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+                String[] lines = schemaStr.split("\n");
+                for (String line : lines) {
+                  sb.append("  ").append(line).append("\n");
+                }
+              }
+            } catch (Exception e) {
+              // Not JSON or parsing failed, use as-is
+              String[] lines = schemaStr.split("\n");
+              for (String line : lines) {
+                sb.append("  ").append(line).append("\n");
+              }
+            }
+          } else {
+            sb.append("  [No normalized schema captured]\n");
+          }
+          sb.append("\n");
+          if (normalizationDuration > 0) {
+            sb.append("  Background normalization latency: ").append(normalizationDuration).append("ms\n");
+          }
+          sb.append("\n");
+          break; // Only show first normalized schema
+        }
+      }
+    } else {
+      sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+      sb.append("│ NORMALIZED PROMPT SCHEMA (Background)                                        │\n");
+      sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+      sb.append("\n");
+      sb.append("  [No normalized prompt schema recorded]\n");
+      sb.append("\n");
+    }
 
     // LLM Interactions - each call gets its own box header
     int llmInteractionNum = 1;
@@ -769,6 +912,42 @@ public class InferenceLogger {
     }
     sb.append("\n");
 
+    // Assignment Result
+    sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+    sb.append("│ ASSIGNMENT RESULT                                                            │\n");
+    sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+    sb.append("\n");
+
+    boolean hasAssignmentResult = false;
+    for (ExecutionEvent event : events) {
+      if ("assignment_result".equals(event.type)) {
+        hasAssignmentResult = true;
+        Object assignmentResultJson = event.data.get("assignmentResult");
+        if (assignmentResultJson != null && !assignmentResultJson.toString().trim().isEmpty()) {
+          String resultStr = assignmentResultJson.toString();
+          // Try to parse and pretty-print as JSON
+          try {
+            Object parsed = JacksonUtility.getJsonMapper().readValue(resultStr, Object.class);
+            resultStr = JacksonUtility.getJsonMapper().writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+          } catch (Exception e) {
+            // Not JSON, use as-is
+          }
+          String[] lines = resultStr.split("\n");
+          for (String line : lines) {
+            sb.append("  ").append(line).append("\n");
+          }
+        } else {
+          sb.append("  [No assignment result data captured]\n");
+        }
+        sb.append("\n");
+        break; // Only show first assignment result
+      }
+    }
+    if (!hasAssignmentResult) {
+      sb.append("  [No assignment result recorded]\n");
+      sb.append("\n");
+    }
+
     // Footer
     sb.append("╔══════════════════════════════════════════════════════════════════════════════╗\n");
     sb.append("║                          END OF REPORT                                       ║\n");
@@ -1066,6 +1245,73 @@ public class InferenceLogger {
     log.debug("Final response logged");
   }
 
+  public void logNormalizedPromptSchema(String normalizedSchemaJson, long durationMs) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) return;
+    logNormalizedPromptSchemaForExecution(normalizedSchemaJson, durationMs, executionId);
+  }
+
+  public void logNormalizedPromptSchemaForExecution(String normalizedSchemaJson, long durationMs, String executionId) {
+    if (executionId == null) {
+      log.warn("Cannot log normalized prompt schema: execution ID is null");
+      return;
+    }
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("schema", normalizedSchemaJson != null ? normalizedSchemaJson : "");
+        data.put("durationMs", durationMs);
+        data.put("background", true);
+        events.add(
+            new ExecutionEvent(
+                "normalized_prompt_schema",
+                executionId,
+                Instant.now().toString(),
+                data));
+        log.debug("Normalized prompt schema logged (background, {}ms, executionId: {})", durationMs, executionId);
+      } else {
+        log.warn("Cannot log normalized prompt schema: events list is null for executionId: {}", executionId);
+      }
+    } else {
+      log.debug("Report mode disabled, skipping normalized prompt schema logging");
+    }
+  }
+
+  public void logAssigmentResult(AssigmentResult assignmentResult) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) {
+      log.warn("Cannot log AssigmentResult: execution ID is null");
+      return;
+    }
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        try {
+          // Serialize AssigmentResult to JSON
+          String assignmentResultJson = JacksonUtility.getJsonMapper().writeValueAsString(assignmentResult);
+          Map<String, Object> data = new HashMap<>();
+          data.put("assignmentResult", assignmentResultJson);
+          events.add(
+              new ExecutionEvent(
+                  "assignment_result",
+                  executionId,
+                  Instant.now().toString(),
+                  data));
+          log.debug("AssigmentResult logged (executionId: {})", executionId);
+        } catch (Exception e) {
+          log.warn("Failed to serialize AssigmentResult to JSON (executionId: {}): {}", executionId, e.getMessage());
+        }
+      } else {
+        log.warn("Cannot log AssigmentResult: events list is null for executionId: {}", executionId);
+      }
+    } else {
+      log.debug("Report mode disabled, skipping AssigmentResult logging");
+    }
+  }
+
   /** Internal data structure for execution events. */
   public static class ExecutionEvent {
     public final String type;
@@ -1081,4 +1327,3 @@ public class InferenceLogger {
     }
   }
 }
-

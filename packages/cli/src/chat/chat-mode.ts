@@ -9,6 +9,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { configManager } from '../config/manager.js';
 import { agentService } from '../services/agent-service.js';
 import { handbookManager } from '../handbook/manager.js';
+import { paths } from '../config/paths.js';
 import { ChatMessage, ModelProvider, GlobalConfig, HandbookConfig } from '../types.js';
 
 export class ChatMode {
@@ -44,7 +45,9 @@ export class ChatMode {
     console.log(chalk.bold.cyan('║    Gentoro OneMCP - Chat Mode        ║'));
     console.log(chalk.bold.cyan('╚══════════════════════════════════════╝'));
     console.log();
-    console.log(chalk.dim(`Handbook: ${this.currentHandbook}`));
+    // Show absolute path of handbook, like in the report
+    const handbookPath = paths.getHandbookPath(this.currentHandbook);
+    console.log(chalk.dim(`Handbook: ${handbookPath}`));
     console.log(chalk.dim(`Provider: ${providerName}`));
     console.log(chalk.dim(`MCP URL: ${this.mcpUrl}`));
     console.log(chalk.dim(`Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook`));
@@ -80,7 +83,6 @@ export class ChatMode {
           },
         },
       ]);
-
       const userMessage = message.trim();
 
       // Handle special commands
@@ -256,34 +258,6 @@ export class ChatMode {
     console.log();
   }
 
-  /**
-   * Show example queries tailored for the bundled Acme Analytics handbook
-   */
-  private showAcmeExamples(): void {
-    console.log(chalk.bold.yellow('💡 Acme Analytics Example Queries'));
-    console.log();
-    console.log(chalk.cyan('  > Show total sales for 2024.'));
-    console.log(chalk.cyan('  > Show me total revenue by category in 2024.'));
-    console.log(chalk.cyan('  > Show me electronics sales in California last quarter.'));
-    console.log(chalk.cyan('  > What are the top-selling products this month?'));
-    console.log(chalk.cyan('  > Show me sales data for New York vs Texas.'));
-    console.log();
-    console.log(chalk.dim('━'.repeat(60)));
-    console.log();
-  }
-
-  /**
-   * Determine if the current handbook matches the bundled Acme Analytics example
-   */
-  private isAcmeHandbook(): boolean {
-    const name = this.currentHandbook?.toLowerCase() ?? '';
-    if (name.includes('acme')) {
-      return true;
-    }
-
-    const configName = this.handbookConfig?.name?.toLowerCase() ?? '';
-    return configName.includes('acme');
-  }
 
   /**
    * Select a handbook for chatting
@@ -386,6 +360,35 @@ export class ChatMode {
     console.log(chalk.dim(`Provider: ${this.handbookConfig?.provider || 'Not configured'}`));
     console.log(chalk.dim('Chat history cleared.'));
     console.log();
+  }
+
+  /**
+   * Show example queries tailored for the bundled Acme Analytics handbook
+   */
+  private showAcmeExamples(): void {
+    console.log(chalk.bold.yellow('💡 Acme Analytics Example Queries'));
+    console.log();
+    console.log(chalk.cyan('  > Show total sales for 2024.'));
+    console.log(chalk.cyan('  > Show me total revenue by category in 2024.'));
+    console.log(chalk.cyan('  > Show me electronics sales in California last quarter.'));
+    console.log(chalk.cyan('  > What are the top-selling products this month?'));
+    console.log(chalk.cyan('  > Show me sales data for New York vs Texas.'));
+    console.log();
+    console.log(chalk.dim('━'.repeat(60)));
+    console.log();
+  }
+
+  /**
+   * Determine if the current handbook matches the bundled Acme Analytics example
+   */
+  private isAcmeHandbook(): boolean {
+    const name = this.currentHandbook?.toLowerCase() ?? '';
+    if (name.includes('acme')) {
+      return true;
+    }
+
+    const configName = this.handbookConfig?.name?.toLowerCase() ?? '';
+    return configName.includes('acme');
   }
 
   /**

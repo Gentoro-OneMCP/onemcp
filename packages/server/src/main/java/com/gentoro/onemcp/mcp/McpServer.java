@@ -162,41 +162,25 @@ public class McpServer implements AutoCloseable {
                             } else {
                               sink = new NoOpProgressSink();
                             }
-                            var result =
-                                oneMcp
-                                    .orchestrator()
-                                    .handlePrompt(
-                                        request.arguments().get("prompt").toString(), sink);
+                            String resultJson = oneMcp.orchestrator().handlePrompt(request.arguments().get("prompt").toString());
                             
-                            // Get report path if available
-                            String reportPath = oneMcp.inferenceLogger().getCurrentReportPath();
-                            
-                            // Build response with content and reportPath
+                            // Parse the JSON response which contains content and reportPath
                             Map<String, Object> response = new HashMap<>();
-                            
-                            // Extract content from result (get the first assignment's content)
-                            String content = "";
-                            if (result.parts() != null && !result.parts().isEmpty()) {
-                              var firstPart = result.parts().get(0);
-                              if (firstPart != null && firstPart.content() != null) {
-                                content = firstPart.content();
+                            try {
+                              com.fasterxml.jackson.databind.ObjectMapper mapper = JacksonUtility.getJsonMapper();
+                              com.fasterxml.jackson.databind.JsonNode jsonNode = mapper.readTree(resultJson);
+                              if (jsonNode.has("content")) {
+                                response.put("content", jsonNode.get("content").asText());
+                              } else {
+                                // If not JSON, treat as plain content
+                                response.put("content", resultJson);
                               }
-                            }
-                            // If content is still empty, try to get it from the final response
-                            if (content == null || content.isEmpty()) {
-                              // The final response should be in the last successful assignment
-                              for (var part : result.parts()) {
-                                if (part != null && part.isSupported() && !part.isError() 
-                                    && part.content() != null && !part.content().isEmpty()) {
-                                  content = part.content();
-                                  // Continue to find the last one (most recent)
-                                }
+                              if (jsonNode.has("reportPath")) {
+                                response.put("reportPath", jsonNode.get("reportPath").asText());
                               }
-                            }
-                            
-                            response.put("content", content);
-                            if (reportPath != null && !reportPath.isEmpty()) {
-                              response.put("reportPath", reportPath);
+                            } catch (Exception e) {
+                              // If parsing fails, treat resultJson as plain content
+                              response.put("content", resultJson);
                             }
                             
                             return new McpSchema.CallToolResult(

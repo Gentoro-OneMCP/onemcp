@@ -454,6 +454,130 @@ handbookCmd
   });
 
 /**
+ * Create Dictionary command
+ */
+program
+  .command('create-dict [handbook]')
+  .description('Create a prompt dictionary from OpenAPI specifications')
+  .action(async (handbookArg) => {
+    const spinner = ora('Creating dictionary...').start();
+    
+    try {
+      // Find project root and JAR
+      const projectRoot = agentService.findProjectRoot();
+      const onemcpJar = await agentService.resolveOnemcpJar(projectRoot);
+      
+      // Determine handbook path
+      let handbookPath: string;
+      if (handbookArg) {
+        // User provided a handbook name or path
+        if (await paths.handbookExists(handbookArg)) {
+          handbookPath = paths.getHandbookPath(handbookArg);
+        } else if (handbookArg.startsWith('/') || handbookArg.startsWith('~')) {
+          // Absolute path
+          handbookPath = handbookArg.startsWith('~') 
+            ? handbookArg.replace('~', process.env.HOME || '') 
+            : handbookArg;
+        } else {
+          // Relative path
+          handbookPath = handbookArg;
+        }
+      } else {
+        // Use current handbook
+        const config = await configManager.getGlobalConfig();
+        const currentHandbook = config?.currentHandbook;
+        
+        if (currentHandbook) {
+          handbookPath = paths.getHandbookPath(currentHandbook);
+        } else if (config?.handbookDir) {
+          handbookPath = config.handbookDir;
+        } else {
+          spinner.fail('No handbook specified');
+          console.log(chalk.yellow('Please specify a handbook:'));
+          console.log(chalk.cyan('  onemcp create-dict <handbook-name>'));
+          console.log(chalk.cyan('  onemcp create-dict <handbook-path>'));
+          console.log(chalk.dim('Or set a current handbook: onemcp handbook use <name>'));
+          process.exit(1);
+        }
+      }
+      
+      // Validate handbook path exists
+      if (!fs.existsSync(handbookPath)) {
+        spinner.fail('Handbook directory not found');
+        console.log(chalk.red(`Directory does not exist: ${handbookPath}`));
+        process.exit(1);
+      }
+      
+      // Get configuration for API keys and provider
+      const config = await configManager.getGlobalConfig();
+      const provider = config?.provider || 'openai';
+      const apiKeys = config?.apiKeys || {};
+      
+      // Build environment variables
+      const env = {
+        ...process.env,
+        HANDBOOK_DIR: handbookPath,
+        OPENAI_API_KEY: apiKeys.openai || '',
+        GEMINI_API_KEY: apiKeys.gemini || '',
+        ANTHROPIC_API_KEY: apiKeys.anthropic || '',
+        INFERENCE_DEFAULT_PROVIDER: provider,
+      };
+      
+      spinner.text = 'Extracting dictionary from OpenAPI specifications...';
+      
+      // Execute Java command
+      const { execa } = await import('execa');
+      const { stdout, stderr } = await execa(
+        'java',
+        [
+          '-cp',
+          onemcpJar,
+          'com.gentoro.onemcp.cache.CreateDictionaryCommand',
+          handbookPath,
+        ],
+        {
+          env,
+          cwd: projectRoot,
+          stdio: 'pipe',
+        }
+      );
+      
+      // Output results
+      if (stdout) {
+        console.log(stdout);
+      }
+      if (stderr && !stderr.includes('WARN')) {
+        console.error(chalk.yellow(stderr));
+      }
+      
+      spinner.succeed('Dictionary created successfully');
+      
+      // Show output location
+      const outputPath = `${handbookPath}/apis/dictionary.yaml`;
+      console.log(chalk.green(`Dictionary saved to: ${outputPath}`));
+      
+    } catch (error: any) {
+      spinner.fail('Failed to create dictionary');
+      
+      if (error.message?.includes('Could not find')) {
+        console.log(chalk.red('Error:'), error.message);
+        console.log(chalk.yellow('Make sure the server is built:'));
+        console.log(chalk.cyan('  cd packages/server && mvn clean package -DskipTests'));
+      } else if (error.message?.includes('No OpenAPI')) {
+        console.log(chalk.red('Error:'), error.message);
+        console.log(chalk.yellow('Make sure your handbook has OpenAPI files in the apis/ directory'));
+      } else {
+        console.error(chalk.red('Error:'), error.message);
+        if (error.stderr) {
+          console.error(chalk.dim(error.stderr));
+        }
+      }
+      
+      process.exit(1);
+    }
+  });
+
+/**
  * Provider commands
  */
 const providerCmd = program

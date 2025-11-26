@@ -2,7 +2,7 @@
  * Path management for CLI configuration and data
  */
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import fs from 'fs-extra';
 
 export class PathManager {
@@ -53,10 +53,10 @@ export class PathManager {
   }
 
   /**
-   * Get handbook directory path
+   * Get handbook directory path (absolute)
    */
   getHandbookPath(name: string): string {
-    return join(this.handbooksDir, name);
+    return resolve(this.handbooksDir, name);
   }
 
   /**
