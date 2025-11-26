@@ -1,3 +1,5 @@
 export default {
-  "handbook": "Handbook"
+  "handbook": "Handbook",
+  "regression": "Regression Tests",
+  "server": "Server"
 };

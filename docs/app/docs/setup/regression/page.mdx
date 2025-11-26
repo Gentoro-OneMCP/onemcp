@@ -1,0 +1,154 @@
+---
+title: Regression Tests
+---
+
+## Regression Tests
+
+Regression tests are a crucial part of the development process, allowing us to catch bugs early.
+
+Within OneMCP we enable developers to express collection of regressions tests, tailored for LLM model interactions.
+
+### Definition
+
+Regression tests are defined within the folder `regression/*`, and multiple suites can be grouped together using a single yaml file.
+
+```yaml
+regression:
+  # name of the regression suite
+  name: "ERP Order Logic"
+  # Definition version of regression suite
+  version: "0.1.0"
+  # Collection of tests to run
+  tests:
+    # Unique name for each test, used to reference the test in assertions
+    - display-name: total sales for fiscal year
+      # Prompt to be used at the request
+      prompt: |
+        What is the total sales in 2024?
+      # As there is no way to enforce a given format of value,
+      # we use assertions to verify the response.
+      assert: |
+        Check that the answer provides a single numerical value.
+```
+
+**Example**
+
+```yaml
+regression:
+  name: "ERP Order Logic"
+  version: "0.1.0"
+
+  tests:
+    - display-name: total sales for fiscal year
+      prompt: |
+        What is the total sales in 2024?
+      assert: |
+        Check that the answer provides a single numerical value.
+
+    - display-name: order item expansion
+      prompt: |
+        Expand the details for order ID ORD-33219.
+      assert: |
+        Ensure that the response includes a list of order line items.
+
+    - display-name: negative scenario – unknown order
+      prompt: |
+        Retrieve order information for order ID NOT-FOUND-999.
+      assert: |
+        Verify that the output clearly describes that the order does not exist.
+
+    - display-name: customer contact info
+      prompt: |
+        Provide the contact channels for customer C123.
+      assert: |
+        Check that the output includes at least one of the following: email or phone.
+```
+
+### CLI Commands
+
+#### 1) `run`
+
+To run regression tests, execute the following command:
+
+```bash
+onemcp handbook regression run
+```
+
+This command will output a summary of the results of the regression tests.
+
+```bash
+Regression Summary
+=================
+
+ERP Order Logic: 3 tests passed, 0 tests failed.
+```
+
+#### 2) `generate`
+
+OneMCP can also help developers generate a collection of regression tests based on provide OpenAPI specifications.
+
+```bash
+onemcp handbook regression generate [--api-specs my-service]
+```
+
+Optionally specify the OpenAPI specifications to generate regression tests for.
+
+This command will output the generated regression tests:
+```json
+{
+  "file": "./regression/my-service.yaml",
+  "tests": [
+    {
+      "display-name": "...",
+      "prompt": "...",
+      "assert": "..."
+    },
+    ...
+  ]
+}
+```
+
+#### 3) `list`
+
+To list all available regression suites, execute the following command:
+
+```bash
+onemcp handbook regression list
+```
+
+This command will output the existing regression suites:
+```json
+{
+  "resources": [
+    "./regression/my-service.yaml",
+    ...
+  ]
+}
+```
+
+#### 4) `get`
+
+Use this command to retrieve a specific resource from the active handbook.
+
+```bash
+onemcp handbook regression get [resource-path] [resource-path] [...]
+```
+
+This command will print the following output:
+```json
+{
+    "resources": [
+        "./regression/my-service.yaml": [
+            {
+              "display-name": "...",
+              "prompt": "...",
+              "assert": "..."
+            },
+            ...
+        ],
+        ...
+    ]
+}
+```
+
+> Note: Only files are allowed, in case directories are provided, the entry will be ignored.
