@@ -10,7 +10,13 @@ const __dirname = path.dirname(__filename);
 
 const CLI_SCRIPT = path.resolve(__dirname, '../../../scripts/onemcp');
 
-describe('Chat Mode Integration Test', () => {
+// This is a slow end-to-end integration test that depends on external services and
+// local handbook configuration. By default we skip it in the normal test run.
+// To enable it, run with:
+//   RUN_CHAT_INTEGRATION_TEST=true npm test -- src/chat/__tests__/chat-mode-integration.test.ts
+const runIntegration = process.env.RUN_CHAT_INTEGRATION_TEST === 'true';
+
+(runIntegration ? describe : describe.skip)('Chat Mode Integration Test', () => {
   const testPrompt = 'Show total sales for 2024.';
   let reportPath: string | null = null;
 
