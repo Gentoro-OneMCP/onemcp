@@ -1,0 +1,48 @@
+---
+title: Server
+---
+
+## Server
+
+OneMCP uses [MCP protocol](https://modelcontextprotocol.io/docs/getting-started/intro) to expose its capabilities to other applications.
+
+[Http Streamable](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#streamable-http) is the chosen protocol for MCP implementation, and by default the path is `/mcp`.
+
+### Configuration
+
+```yaml
+http:
+  ##############################
+  # Server Configuration
+  ##############################
+  # tcp port to listen on
+  port: ${env:SERVER_PORT:-8080}
+  # hostname to listen on
+  hostname: ${env:SERVER_HOST:-0.0.0.0}
+  # MCP Specific configuration
+  mcp:
+    # MCP relative endpoint
+    endpoint: ${env:PROTOCOL_MCP_CONFIG_MESSAGE_ENDPOINT:-/mcp}
+    # MCP Server metadata
+    server:
+      name: "onemcp-server"
+      version: "1.0.0"
+    # MCP Tool metadata
+    tool:
+      name: onemcp.run
+      description: |
+        OneMCP entry point, express your request using Natural Language.
+```
+
+
+### Testing
+
+To test the server, you can use any MCP compatible tool such as MCP Inspector, Postman and others.
+
+#### [Postman](https://www.postman.com)
+
+![Postman](/images/server/postman.webp)
+
+#### [MCP Inspector](https://github.com/modelcontextprotocol/inspector)
+
+![MCP Inspector](/images/server/mcp-inspector.webp)

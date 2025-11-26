@@ -17,11 +17,150 @@ Together, these files will be used to generate a comprehensive Graph knowledge b
 
 Here is a typical handbook folder structure:
 ```
-~/handbooks
+~/handbook
 ├── Agent.yaml
 ├── Guardrails.yaml
 ├── apis/                       # OpenAPI specifications
 ├── docs/                       # Supplementary documentation
 ├── regression/                 # Optional test definitions
 └── user-feedback/              # Optional collected feedback from users.
+```
+
+### CLI Commands
+
+#### 1) `init`
+
+By default OneMCP will be started using its internal Acme Server handbook, a collection of data and material intended to speed up your testing and development with OneMCP.
+
+But you can start using your own handbook by running the above command:
+
+##### Pre-existing handbook
+
+In case you already have a handbook folder well formatted, just run the following command to have it published to OneMCP.
+```bash
+onemcp handbook init --path=~/acme-handbook
+```
+
+##### OpenAPI Specification
+
+In case you only have an API definition to start with. Run the following command to have the initial handbook generated automatically.
+```bash
+onemcp handbook init --name=my-api-service --uri=https://petstore.swagger.io/v2/swagger.json
+```
+
+The above command will generate the following handbook structure:
+
+```
+~/handbook
+├── Agent.yaml                  # Agent definition will be auto-generated from the given OpenAPI specification
+├── Guardrails.yaml             # Guardrail definition will be auto-generated from the given OpenAPI specification
+├── apis/
+|   └── my-api-service.yaml     # Definition will be downloaed and stored here
+├── docs/                       # Documentation present at the OpenAPI definition will be saved here.
+└── regression/                 # OneMCP will use its underlying LLM model to generate regression tests automatically, based on the given OpenAPI specification.
+```
+> Note: Once the initial structure is generated and stored, developers can go through the generated resources and modify them as needed.
+
+#### 2) `init-acme`
+
+To erase current OneMCP handbook and start using the internal Acme Server handbook, run the following command:
+
+```bash
+onemcp handbook init-acme
+```
+
+
+#### 3) `reset`
+
+To reset OneMCP to its default state, where no handbook is loaded nor published, run the following command:
+
+```bash
+onemcp handbook reset
+```
+
+> Warning: This operation will affect OneMCP, that will stop serving requests right away.
+> Use it with extreme caution.
+
+
+#### 4) `list`
+
+To list current state of the active handbook, run the following command:
+
+```bash
+onemcp handbook list
+```
+
+This command will print the following output:
+```
+{
+    "resources": [
+        "./Agent.yaml",
+        "./Guardrails.yaml",
+        "./docs",
+        "./docs/my-api-service.md",
+        "./apis",
+        "./apis/my-api-service.yaml",
+        "./regression",
+        "./regression/test_operation_querySales.yaml"
+    ]
+}
+```
+
+#### 4) `get`
+
+Use this command to retrieve a specific resource from the active handbook.
+
+```bash
+onemcp handbook get [resource-path] [resource-path] [...]
+```
+
+This command will print the following output:
+```
+{
+    "resources": [
+        "./Agent.yaml": "markdown content...",
+        "./Guardrails.yaml": "markdown content...",
+        "./docs/my-api-service.md": "markdown content..."
+    ]
+}
+```
+
+> Note: Only files are allowed, in case directories are provided, the entry will be ignored.
+
+#### 5) `reload`
+
+In case of manual changes to the handbook, you can reload the resources by running the following command:
+
+```bash
+onemcp handbook reload
+```
+
+This is especially useful when developers want to publish changes without restarting OneMCP.
+
+> Note: We strongly recommend running `onemcp handbook regression run` command before publishing.
+
+
+#### 6) `validate`
+
+In case of manual changes to the handbook, you can validate all resources and confirm they are properly formatted by running the following command:
+
+```bash
+> onemcp handbook validate
+
+    🚀 Starting handbook validation...
+    📁 Foundation directory: /var/handbook
+    ============================================================
+    🔍 FOUNDATION VALIDATION REPORT
+    ============================================================
+    ✅ ✓ Agent.md found and validated
+    ✅ ✓ Documentation found: 2 file(s)
+    ✅ ✓ OpenAPI spec api.yaml is valid
+    ✅ ✓ Valid OpenAPI specification found
+    ⚠️  Consider adding API documentation in docs/
+    ------------------------------------------------------------
+    ✅ VALIDATION PASSED with 1 warnings
+    💡 Consider addressing the warnings above for optimal performance
+    ============================================================
+
+>
 ```
