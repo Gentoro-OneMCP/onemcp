@@ -162,8 +162,11 @@ public abstract class AbstractLlmClient implements LlmClient {
             .collect(Collectors.joining(", ")),
         cacheable);
     
-    // Note: Input messages will be logged by concrete implementations
-    // which have access to the actual message state during inference
+    // Log input messages for reporting
+    if (oneMcp != null && oneMcp.inferenceLogger() != null && messages != null && !messages.isEmpty()) {
+      oneMcp.inferenceLogger().logLlmInputMessages(messages);
+    }
+    
     long start = System.currentTimeMillis();
     String result = null;
     long promptTokens = 0;

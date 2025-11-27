@@ -9,9 +9,22 @@ public class OpenApiProxyImpl implements OpenApiProxy {
   private static final org.slf4j.Logger log =
       com.gentoro.onemcp.logging.LoggingService.getLogger(OpenApiProxyImpl.class);
   private final Map<String, EndpointInvoker> invokers;
+  private com.gentoro.onemcp.logging.InferenceLogger inferenceLogger;
 
   public OpenApiProxyImpl(OpenAPI openAPI, String baseUrl) {
     this.invokers = OpenApiLoader.buildInvokers(openAPI, baseUrl);
+    this.inferenceLogger = null;
+  }
+
+  public OpenApiProxyImpl(OpenAPI openAPI, String baseUrl, com.gentoro.onemcp.logging.InferenceLogger inferenceLogger) {
+    this.invokers = OpenApiLoader.buildInvokers(openAPI, baseUrl);
+    this.inferenceLogger = inferenceLogger;
+    // Set inference logger on all invokers
+    if (inferenceLogger != null) {
+      for (EndpointInvoker invoker : invokers.values()) {
+        invoker.setInferenceLogger(inferenceLogger);
+      }
+    }
   }
 
   @Override

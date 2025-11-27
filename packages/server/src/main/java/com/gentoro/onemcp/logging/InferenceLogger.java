@@ -487,6 +487,76 @@ public class InferenceLogger {
     }
     sb.append("\n");
 
+    // Cache Lookup
+    boolean hasCacheLookup = false;
+    for (ExecutionEvent event : events) {
+      if ("cache_lookup".equals(event.type)) {
+        hasCacheLookup = true;
+        Object cacheHit = event.data.get("cacheHit");
+        Object cacheKey = event.data.get("cacheKey");
+        Object duration = event.data.get("durationMs");
+        
+        boolean hit = cacheHit instanceof Boolean ? (Boolean) cacheHit : false;
+        String key = cacheKey != null ? cacheKey.toString() : "unknown";
+        String durationStr = duration instanceof Number 
+            ? String.format("%dms", ((Number) duration).longValue()) 
+            : "N/A";
+        
+        String status = hit ? "✓ CACHE HIT" : "✗ CACHE MISS";
+        sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        sb.append("│ Cache Lookup                                                                 │\n");
+        sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+        sb.append("\n");
+        sb.append("  Status:              ").append(status).append("\n");
+        sb.append("  Cache Key (PSK):     ").append(key).append("\n");
+        sb.append("  Lookup Duration:     ").append(durationStr).append("\n");
+        sb.append("\n");
+        break; // Only show first cache lookup (should be only one)
+      }
+    }
+    
+    if (hasCacheLookup) {
+      sb.append("\n");
+    }
+
+    // Plan Generation or Execution
+    boolean hasPlanEvent = false;
+    for (ExecutionEvent event : events) {
+      if ("plan_generation".equals(event.type) || "plan_execution".equals(event.type)) {
+        hasPlanEvent = true;
+        Object cacheKey = event.data.get("cacheKey");
+        Object duration = event.data.get("durationMs");
+        Object source = event.data.get("source");
+        
+        String key = cacheKey != null ? cacheKey.toString() : "unknown";
+        String durationStr = duration instanceof Number 
+            ? String.format("%dms", ((Number) duration).longValue()) 
+            : "N/A";
+        String sourceStr = source != null ? source.toString() : "unknown";
+        
+        boolean isGeneration = "plan_generation".equals(event.type);
+        String title = isGeneration ? "Plan Generation (via LLM)" : "Plan Execution (from cache)";
+        String description = isGeneration 
+            ? "Generated new execution plan using LLM" 
+            : "Executed cached plan (no LLM call)";
+        
+        sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        sb.append("│ ").append(String.format("%-76s", title)).append("│\n");
+        sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+        sb.append("\n");
+        sb.append("  Description:         ").append(description).append("\n");
+        sb.append("  Cache Key (PSK):     ").append(key).append("\n");
+        sb.append("  Duration:             ").append(durationStr).append("\n");
+        sb.append("  Source:               ").append(sourceStr).append("\n");
+        sb.append("\n");
+        break; // Only show first plan event (should be only one)
+      }
+    }
+    
+    if (hasPlanEvent) {
+      sb.append("\n");
+    }
+
     // Normalized Prompt Schema (Background)
     boolean hasNormalizedSchema = false;
     long normalizationDuration = 0;
@@ -1071,6 +1141,110 @@ public class InferenceLogger {
       log.debug("Report mode disabled, skipping tool call logging");
     }
     log.info("Tool call: {} (args: {})", toolName, arguments != null ? arguments.size() : 0);
+  }
+
+  /**
+   * Log cache hit or miss for execution plan lookup.
+   *
+   * @param cacheHit true if cache hit, false if cache miss
+   * @param cacheKey the cache key (PSK) that was looked up
+   * @param durationMs how long the cache lookup took (usually 0 for hit, N/A for miss)
+   */
+  public void logCacheLookup(boolean cacheHit, String cacheKey, long durationMs) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) {
+      log.warn("Cannot log cache lookup: execution ID is null");
+      return;
+    }
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        events.add(
+            new ExecutionEvent(
+                "cache_lookup",
+                executionId,
+                Instant.now().toString(),
+                Map.of(
+                    "cacheHit", cacheHit,
+                    "cacheKey", cacheKey != null ? cacheKey : "unknown",
+                    "durationMs", durationMs)));
+        log.debug("Cache lookup logged: {} for PSK: {} (executionId: {})", 
+            cacheHit ? "HIT" : "MISS", cacheKey, executionId);
+      } else {
+        log.warn("Cannot log cache lookup: events list is null for executionId: {}", executionId);
+      }
+    } else {
+      log.debug("Report mode disabled, skipping cache lookup logging");
+    }
+    
+    log.info("Cache {} for PSK: {}", cacheHit ? "HIT" : "MISS", cacheKey);
+  }
+
+  /**
+   * Log plan generation (cache miss - LLM call to generate new plan).
+   *
+   * @param cacheKey the cache key (PSK) for the generated plan
+   * @param durationMs how long plan generation took
+   */
+  public void logPlanGeneration(String cacheKey, long durationMs) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) {
+      log.warn("Cannot log plan generation: execution ID is null");
+      return;
+    }
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        events.add(
+            new ExecutionEvent(
+                "plan_generation",
+                executionId,
+                Instant.now().toString(),
+                Map.of(
+                    "cacheKey", cacheKey != null ? cacheKey : "unknown",
+                    "durationMs", durationMs,
+                    "source", "llm")));
+        log.debug("Plan generation logged for PSK: {} ({}ms, executionId: {})", 
+            cacheKey, durationMs, executionId);
+      }
+    }
+    
+    log.info("Plan generated for PSK: {} ({}ms)", cacheKey, durationMs);
+  }
+
+  /**
+   * Log plan execution (cache hit - executing cached plan, no LLM call).
+   *
+   * @param cacheKey the cache key (PSK) of the executed plan
+   * @param durationMs how long plan execution took
+   */
+  public void logPlanExecution(String cacheKey, long durationMs) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) {
+      log.warn("Cannot log plan execution: execution ID is null");
+      return;
+    }
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        events.add(
+            new ExecutionEvent(
+                "plan_execution",
+                executionId,
+                Instant.now().toString(),
+                Map.of(
+                    "cacheKey", cacheKey != null ? cacheKey : "unknown",
+                    "durationMs", durationMs,
+                    "source", "cache")));
+        log.debug("Plan execution logged for PSK: {} ({}ms, executionId: {})", 
+            cacheKey, durationMs, executionId);
+      }
+    }
+    
+    log.info("Plan executed from cache for PSK: {} ({}ms)", cacheKey, durationMs);
   }
 
   public void logToolOutput(String toolName, Object output) {
