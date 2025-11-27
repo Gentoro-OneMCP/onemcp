@@ -557,7 +557,7 @@ public class InferenceLogger {
       sb.append("\n");
     }
 
-    // Normalized Prompt Schema (Background)
+    // Normalized Prompt Schema
     boolean hasNormalizedSchema = false;
     long normalizationDuration = 0;
     for (ExecutionEvent event : events) {
@@ -573,7 +573,7 @@ public class InferenceLogger {
     
     if (hasNormalizedSchema) {
       sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
-      sb.append("│ PROMPT SCHEMA (Background)                                                   │\n");
+      sb.append("│ PROMPT SCHEMA                                                               │\n");
       sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
       sb.append("\n");
       
@@ -612,7 +612,7 @@ public class InferenceLogger {
           }
           sb.append("\n");
           if (normalizationDuration > 0) {
-            sb.append("  Background normalization latency: ").append(normalizationDuration).append("ms\n");
+            sb.append("  Normalization duration: ").append(normalizationDuration).append("ms\n");
           }
           sb.append("\n");
           break; // Only show first normalized schema
@@ -620,7 +620,7 @@ public class InferenceLogger {
       }
     } else {
       sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
-      sb.append("│ NORMALIZED PROMPT SCHEMA (Background)                                        │\n");
+      sb.append("│ NORMALIZED PROMPT SCHEMA                                                      │\n");
       sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
       sb.append("\n");
       sb.append("  [No normalized prompt schema recorded]\n");
@@ -900,12 +900,8 @@ public class InferenceLogger {
           curlCmd.append(" \\\n");
           // Escape single quotes in the body for shell safety
           String escapedBody = requestBody.toString().replace("'", "'\\''");
-          // Wrap long curl body lines
-          if (escapedBody.length() > 70) {
-            curlCmd.append("      -d '").append(escapedBody.substring(0, Math.min(70, escapedBody.length()))).append("...'\n");
-          } else {
-            curlCmd.append("      -d '").append(escapedBody).append("'\n");
-          }
+          // Always include full body - never truncate (curl command must be executable)
+          curlCmd.append("      -d '").append(escapedBody).append("'\n");
         } else {
           curlCmd.append("\n");
         }
@@ -1437,14 +1433,14 @@ public class InferenceLogger {
         Map<String, Object> data = new HashMap<>();
         data.put("schema", normalizedSchemaJson != null ? normalizedSchemaJson : "");
         data.put("durationMs", durationMs);
-        data.put("background", true);
+        data.put("background", false); // Normalization is now in main execution path
         events.add(
             new ExecutionEvent(
                 "normalized_prompt_schema",
                 executionId,
                 Instant.now().toString(),
                 data));
-        log.debug("Normalized prompt schema logged (background, {}ms, executionId: {})", durationMs, executionId);
+        log.debug("Normalized prompt schema logged ({}ms, executionId: {})", durationMs, executionId);
       } else {
         log.warn("Cannot log normalized prompt schema: events list is null for executionId: {}", executionId);
       }

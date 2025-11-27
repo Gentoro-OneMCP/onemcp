@@ -223,6 +223,7 @@ public class SchemaAwarePlanGenerator {
 
   /**
    * Build operation documentation string for the prompt.
+   * Includes request body schema with required fields from OpenAPI spec.
    */
   private String buildOperationDocumentation(KnowledgeBase kb) {
     if (kb == null || kb.services() == null) {
@@ -237,16 +238,99 @@ public class SchemaAwarePlanGenerator {
       
       sb.append("### Service: ").append(service.getSlug()).append("\n\n");
       
+      // Load OpenAPI spec to get request schema details
+      io.swagger.v3.oas.models.OpenAPI openAPI = null;
+      try {
+        openAPI = service.definition(kb.handbookPath());
+      } catch (Exception e) {
+        log.warn("Failed to load OpenAPI spec for service {}: {}", service.getSlug(), e.getMessage());
+      }
+      
       for (Operation op : service.getOperations()) {
         sb.append("#### `").append(op.getOperation()).append("`\n");
         if (op.getSummary() != null && !op.getSummary().isEmpty()) {
           sb.append(op.getSummary()).append("\n");
         }
+        
+        // Extract request body schema with required fields from OpenAPI spec
+        if (openAPI != null && openAPI.getPaths() != null) {
+          io.swagger.v3.oas.models.Operation openApiOp = findOperation(openAPI, op.getOperation());
+          if (openApiOp != null && openApiOp.getRequestBody() != null) {
+            io.swagger.v3.oas.models.parameters.RequestBody requestBody = openApiOp.getRequestBody();
+            if (requestBody.getContent() != null) {
+              io.swagger.v3.oas.models.media.MediaType jsonMediaType = 
+                  requestBody.getContent().get("application/json");
+              if (jsonMediaType == null && !requestBody.getContent().isEmpty()) {
+                jsonMediaType = requestBody.getContent().values().iterator().next();
+              }
+              
+              if (jsonMediaType != null && jsonMediaType.getSchema() != null) {
+                io.swagger.v3.oas.models.media.Schema<?> schema = jsonMediaType.getSchema();
+                sb.append("\n**Request Body Schema:**\n");
+                
+                // Extract required fields
+                if (schema.getRequired() != null && !schema.getRequired().isEmpty()) {
+                  sb.append("- **Required fields:** ").append(String.join(", ", schema.getRequired())).append("\n");
+                }
+                
+                // Extract properties
+                if (schema.getProperties() != null && !schema.getProperties().isEmpty()) {
+                  sb.append("- **Properties:**\n");
+                  for (Map.Entry<String, io.swagger.v3.oas.models.media.Schema> prop : 
+                      schema.getProperties().entrySet()) {
+                    String propName = prop.getKey();
+                    io.swagger.v3.oas.models.media.Schema propSchema = prop.getValue();
+                    boolean isRequired = schema.getRequired() != null && 
+                        schema.getRequired().contains(propName);
+                    sb.append("  - `").append(propName).append("`");
+                    if (propSchema.getType() != null) {
+                      sb.append(" (").append(propSchema.getType());
+                      if (propSchema.getFormat() != null) {
+                        sb.append(", ").append(propSchema.getFormat());
+                      }
+                      sb.append(")");
+                    }
+                    if (propSchema.getDescription() != null && !propSchema.getDescription().isEmpty()) {
+                      sb.append(": ").append(propSchema.getDescription());
+                    }
+                    if (isRequired) {
+                      sb.append(" **[REQUIRED]**");
+                    }
+                    sb.append("\n");
+                  }
+                }
+              }
+            }
+          }
+        }
+        
         sb.append("\n");
       }
     }
     
     return sb.length() > 0 ? sb.toString() : "No operations available.";
+  }
+  
+  /**
+   * Find an operation in the OpenAPI spec by operationId.
+   */
+  private io.swagger.v3.oas.models.Operation findOperation(
+      io.swagger.v3.oas.models.OpenAPI openAPI, String operationId) {
+    if (openAPI.getPaths() == null) {
+      return null;
+    }
+    
+    for (io.swagger.v3.oas.models.PathItem pathItem : openAPI.getPaths().values()) {
+      for (io.swagger.v3.oas.models.PathItem.HttpMethod method : 
+          io.swagger.v3.oas.models.PathItem.HttpMethod.values()) {
+        io.swagger.v3.oas.models.Operation op = pathItem.readOperationsMap().get(method);
+        if (op != null && operationId.equals(op.getOperationId())) {
+          return op;
+        }
+      }
+    }
+    
+    return null;
   }
 
   /**

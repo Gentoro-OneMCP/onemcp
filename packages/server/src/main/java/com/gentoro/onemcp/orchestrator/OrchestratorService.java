@@ -134,7 +134,7 @@ public class OrchestratorService {
       
       if (schema == null || schema.getCacheKey() == null) {
         throw new ExecutionException("Schema or cache key is null after normalization");
-      }
+        }
       
       long normalizeDuration = System.currentTimeMillis() - normalizeStart;
       StdoutUtility.printSuccessLine(oneMcp,
@@ -145,45 +145,68 @@ public class OrchestratorService {
       try {
         String schemaJson = JacksonUtility.getJsonMapper().writeValueAsString(workflow);
         oneMcp.inferenceLogger().logNormalizedPromptSchemaForExecution(schemaJson, normalizeDuration, executionId);
-      } catch (Exception e) {
+          } catch (Exception e) {
         log.debug("Failed to log normalized schema", e);
-      }
+          }
       
       // ─────────────────────────────────────────────────────────────────────
       // STEP 2: CACHE LOOKUP
       // ─────────────────────────────────────────────────────────────────────
       ExecutionPlanCache cache = new ExecutionPlanCache(handbookPath);
       long cacheLookupStart = System.currentTimeMillis();
-      java.util.Optional<ExecutionPlan> cachedPlan = cache.lookup(schema);
+      java.util.Optional<ExecutionPlanCache.CachedPlanResult> cachedResult = cache.lookupWithMetadata(schema);
       long cacheLookupDuration = System.currentTimeMillis() - cacheLookupStart;
       
-      ExecutionPlan plan;
-      boolean cacheHit = cachedPlan.isPresent();
+      ExecutionPlan plan = null;
+      boolean cacheHit = cachedResult.isPresent();
+      boolean shouldRegenerate = false;
+      int maxRetryAttempts = 3; // Maximum number of times to retry failed plans
       
       // Log cache lookup result to report
       oneMcp.inferenceLogger().logCacheLookup(cacheHit, schema.getCacheKey(), cacheLookupDuration);
       
       if (cacheHit) {
+        ExecutionPlanCache.CachedPlanResult cached = cachedResult.get();
+        if (!cached.executionSucceeded) {
+          // Cached plan previously failed - check if we should retry
+          if (cached.failedAttempts < maxRetryAttempts) {
+            log.info("Cached plan for PSK: {} previously failed ({} attempts), regenerating...", 
+                schema.getCacheKey(), cached.failedAttempts);
+            StdoutUtility.printNewLine(oneMcp, 
+                "Cached plan failed previously (attempt {}), regenerating...".formatted(cached.failedAttempts));
+            shouldRegenerate = true;
+            cacheHit = false; // Treat as cache miss for regeneration
+          } else {
+            log.warn("Cached plan for PSK: {} has failed {} times (max: {}), not retrying", 
+                schema.getCacheKey(), cached.failedAttempts, maxRetryAttempts);
+            StdoutUtility.printError(oneMcp, 
+                "Plan has failed {} times, not retrying".formatted(cached.failedAttempts), null);
+            throw new ExecutionException(
+                "Cached plan has failed " + cached.failedAttempts + " times. Last error: " + 
+                (cached.lastError != null ? cached.lastError : "Unknown error"));
+          }
+        } else {
+          // Cached plan succeeded previously - use it
+          plan = cached.plan;
+          oneMcp.inferenceLogger().logPhaseChange("cache_hit");
+          StdoutUtility.printSuccessLine(oneMcp, 
+              "✓ CACHE HIT - Reusing cached plan for: %s".formatted(schema.getCacheKey()));
+          log.info("Cache HIT for PSK: {}", schema.getCacheKey());
+        }
+      }
+      
+      if (plan == null) {
         // ─────────────────────────────────────────────────────────────────
-        // CACHE HIT - Use cached plan (NO LLM CALL)
-        // ─────────────────────────────────────────────────────────────────
-        plan = cachedPlan.get();
-        oneMcp.inferenceLogger().logPhaseChange("cache_hit");
-        StdoutUtility.printSuccessLine(oneMcp, 
-            "✓ CACHE HIT - Reusing cached plan for: %s".formatted(schema.getCacheKey()));
-        log.info("Cache HIT for PSK: {}", schema.getCacheKey());
-      } else {
-        // ─────────────────────────────────────────────────────────────────
-        // CACHE MISS - Generate new plan (LLM CALL WILL HAPPEN)
+        // CACHE MISS OR FAILED PLAN - Generate new plan (LLM CALL WILL HAPPEN)
         // ─────────────────────────────────────────────────────────────────
         oneMcp.inferenceLogger().logPhaseChange("plan");
-        StdoutUtility.printNewLine(oneMcp, "Cache miss - generating execution plan...");
+        StdoutUtility.printNewLine(oneMcp, "Generating execution plan...");
         long planStart = System.currentTimeMillis();
         
         // STEP 3: CREATE PLAN (this will trigger LLM call)
         SchemaAwarePlanGenerator generator = new SchemaAwarePlanGenerator(ctx);
         plan = generator.createPlan(prompt.trim(), schema);
-        
+            
         long planDuration = System.currentTimeMillis() - planStart;
         StdoutUtility.printSuccessLine(oneMcp,
             "Plan generation completed in (%d ms).".formatted(planDuration));
@@ -191,12 +214,6 @@ public class OrchestratorService {
         
         // Log plan generation event
         oneMcp.inferenceLogger().logPlanGeneration(schema.getCacheKey(), planDuration);
-        
-        // STEP 5: STORE PLAN (before execution, so it's cached even if execution fails)
-        cache.store(schema, plan);
-        StdoutUtility.printSuccessLine(oneMcp, 
-            "✓ Plan cached for future use: %s".formatted(schema.getCacheKey()));
-        log.info("Cached plan for PSK: {}", schema.getCacheKey());
       }
       
       // ─────────────────────────────────────────────────────────────────────
@@ -206,16 +223,46 @@ public class OrchestratorService {
       StdoutUtility.printNewLine(oneMcp, "Executing plan...");
       long executeStart = System.currentTimeMillis();
       
-      OperationRegistry registry = buildOperationRegistry(ctx);
-      result = plan.execute(schema, registry);
+      boolean executionSucceeded = false;
+      String executionError = null;
       
-      long executeDuration = System.currentTimeMillis() - executeStart;
-      StdoutUtility.printSuccessLine(oneMcp,
-          "Execution completed in (%d ms).".formatted(executeDuration));
+      try {
+        OperationRegistry registry = buildOperationRegistry(ctx);
+        result = plan.execute(schema, registry);
+        executionSucceeded = true;
+            } catch (Exception e) {
+        executionError = e.getMessage();
+        log.error("Plan execution failed for PSK: {}", schema.getCacheKey(), e);
+        // Don't re-throw yet - we need to store the failed plan first
+      } finally {
+        long executeDuration = System.currentTimeMillis() - executeStart;
+        
+        // ─────────────────────────────────────────────────────────────────────
+        // STEP 5: STORE PLAN (always store, with execution status)
+        // ─────────────────────────────────────────────────────────────────────
+        cache.store(schema, plan, executionSucceeded, executionError);
+        
+        if (executionSucceeded) {
+          StdoutUtility.printSuccessLine(oneMcp,
+              "Execution completed in (%d ms).".formatted(executeDuration));
+          StdoutUtility.printSuccessLine(oneMcp, 
+              "✓ Plan cached for future use: %s".formatted(schema.getCacheKey()));
+          log.info("Cached plan for PSK: {} after successful execution", schema.getCacheKey());
+        } else {
+          StdoutUtility.printError(oneMcp, 
+              "Execution failed in (%d ms)".formatted(executeDuration), null);
+          log.info("Cached failed plan for PSK: {} (will retry on next attempt)", schema.getCacheKey());
+        }
+        
+        // Log plan execution event (distinguish cache hit vs miss)
+        if (cacheHit && !shouldRegenerate) {
+          oneMcp.inferenceLogger().logPlanExecution(schema.getCacheKey(), executeDuration);
+        }
+      }
       
-      // Log plan execution event (distinguish cache hit vs miss)
-      if (cacheHit) {
-        oneMcp.inferenceLogger().logPlanExecution(schema.getCacheKey(), executeDuration);
+      // Re-throw exception if execution failed
+      if (!executionSucceeded) {
+        throw new ExecutionException("Plan execution failed: " + executionError);
       }
       
       // Final summary
@@ -232,7 +279,7 @@ public class OrchestratorService {
       result = "Error: " + e.getMessage();
       StdoutUtility.printError(oneMcp, "Failed to handle prompt", e);
     }
-    
+
     // Log final response
     if (result != null) {
       oneMcp.inferenceLogger().logFinalResponse(result);

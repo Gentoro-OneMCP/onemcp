@@ -75,6 +75,9 @@ activations:
       ### Operation Node
       Calls a registered operation with input parameters.
       
+      **IMPORTANT**: Check the operation documentation below for required fields.
+      All required fields from the request body schema must be included in the input.
+      
       ```json
       "query_data": {
         "operation": "querySalesData",
@@ -82,6 +85,7 @@ activations:
           "filter": [
             { "field": "date.year", "operator": "equals", "value": "{{params.year}}" }
           ],
+          "fields": ["product.category"],
           "aggregates": [
             { "field": "sale.amount", "function": "{{params.amount.aggregate}}", "alias": "total" }
           ]
@@ -135,6 +139,10 @@ activations:
       Operation names to use: {{ available_operations }}
       
       **CRITICAL**: Do NOT invent operations. Only use operations from the list above.
+      
+      **REQUIRED FIELDS**: Each operation's documentation below includes its request body
+      schema with required fields marked as **[REQUIRED]**. You MUST include all required
+      fields in the operation input. Check the operation documentation for details.
       
       ======================================================================
       ## 7. EXAMPLE
@@ -194,7 +202,70 @@ activations:
       ```
       
       ======================================================================
-      ## 8. OUTPUT REQUIREMENTS
+      ## 8. COMPARISON QUERIES (group_by with multiple values)
+      ======================================================================
+      
+      When the schema has `group_by` and the prompt implies a comparison (e.g., "vs", 
+      "compare", "show me X vs Y"), transform the grouped API response into a 
+      comparison format:
+      
+      **API Response Format:**
+      ```json
+      {
+        "data": [
+          {"customer.state": "New York", "total_sales_amount": 462581.59, ...},
+          {"customer.state": "Texas", "total_sales_amount": 427194.89, ...}
+        ]
+      }
+      ```
+      
+      **Expected Output Format:**
+      ```json
+      {
+        "message": "Total sales revenue retrieved for New York and Texas regions.",
+        "ny_total_revenue": 462581.59,
+        "tx_total_revenue": 427194.89
+      }
+      ```
+      
+      **Plan Structure for Comparisons:**
+      ```json
+      {
+        "start_node": { "route": "query_data" },
+        "query_data": {
+          "operation": "querySalesData",
+          "input": {
+            "filter": [
+              { "field": "customer.state", "operator": "in", "value": "{{params.customer_state.operand}}" }
+            ],
+            "fields": ["customer.state"],
+            "aggregates": [
+              { "field": "sale.amount", "function": "sum", "alias": "total_sales_amount" },
+              { "field": "sale.id", "function": "count", "alias": "number_of_sales" }
+            ]
+          },
+          "route": "format_comparison"
+        },
+        "format_comparison": {
+          "completed": true,
+          "vars": {
+            "message": "Total sales revenue retrieved for {{params.customer_state.operand[0]}} and {{params.customer_state.operand[1]}} regions.",
+            "ny_total_revenue": "$.['query_data'].['data'][?(@.['customer.state'] == 'New York')].[0].['total_sales_amount']",
+            "tx_total_revenue": "$.['query_data'].['data'][?(@.['customer.state'] == 'Texas')].[0].['total_sales_amount']"
+          }
+        }
+      }
+      ```
+      
+      **Rules:**
+      - For comparison queries, create state/value-specific fields in the output
+      - Use JSONPath filters `[?(@.['field'] == 'value')]` to extract values for each compared item
+      - Create abbreviated field names: "New York" → "ny", "Texas" → "tx", etc.
+      - Create a descriptive message field using placeholders for state names
+      - Extract the first element `[0]` after filtering, then access the aggregate field
+      
+      ======================================================================
+      ## 9. OUTPUT REQUIREMENTS
       ======================================================================
       
       - Output ONLY valid JSON (no markdown, no explanations)
@@ -202,6 +273,8 @@ activations:
       - Must have at least one terminal node with `completed: true`
       - All operation names must be from the available operations list
       - Use placeholders for ALL parameter values
+      - For comparison queries, transform grouped data into comparison format
+      - **Include ALL required fields from the operation's request body schema**
       
   - role: user
     activation: plan-generation-schema-aware

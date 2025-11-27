@@ -54,8 +54,20 @@ public class ExecutionPlanCache {
    *
    * @param schema the PromptSchema (uses its cacheKey)
    * @return Optional containing the plan if found, empty otherwise
+   * @deprecated Use lookupWithMetadata() instead to get execution status
    */
+  @Deprecated
   public Optional<ExecutionPlan> lookup(PromptSchema schema) {
+    return lookupWithMetadata(schema).map(result -> result.plan);
+  }
+
+  /**
+   * Look up a cached plan with execution metadata.
+   *
+   * @param schema the PromptSchema (uses its cacheKey)
+   * @return Optional containing the plan result with metadata if found, empty otherwise
+   */
+  public Optional<CachedPlanResult> lookupWithMetadata(PromptSchema schema) {
     if (schema == null || schema.getCacheKey() == null) {
       log.warn("Cannot lookup plan: schema or cacheKey is null");
       return Optional.empty();
@@ -74,8 +86,21 @@ public class ExecutionPlanCache {
       CachedPlanFile cached = mapper.readValue(content, CachedPlanFile.class);
       
       ExecutionPlan plan = ExecutionPlan.fromJson(cached.planJson);
-      log.info("Cache HIT for PSK: {} (cached at {})", cacheKey, cached.createdAt);
-      return Optional.of(plan);
+      
+      // Parse execution metadata (defaults for backward compatibility)
+      boolean executionSucceeded = "SUCCESS".equals(cached.executionStatus) || 
+          (cached.executionStatus == null && cached.failedAttempts == null); // Old format = assume success
+      String lastError = cached.lastError;
+      int failedAttempts = cached.failedAttempts != null ? cached.failedAttempts : 0;
+      
+      if (executionSucceeded) {
+        log.info("Cache HIT for PSK: {} (cached at {})", cacheKey, cached.createdAt);
+      } else {
+        log.info("Cache HIT for PSK: {} (cached at {}, FAILED - {} attempts)", 
+            cacheKey, cached.createdAt, failedAttempts);
+      }
+      
+      return Optional.of(new CachedPlanResult(plan, executionSucceeded, lastError, failedAttempts));
     } catch (Exception e) {
       log.error("Failed to load cached plan for PSK: {}", cacheKey, e);
       // Delete corrupted cache file
@@ -96,6 +121,18 @@ public class ExecutionPlanCache {
    * @param plan the ExecutionPlan to cache
    */
   public void store(PromptSchema schema, ExecutionPlan plan) {
+    store(schema, plan, true, null);
+  }
+
+  /**
+   * Store a plan in the cache with execution status.
+   *
+   * @param schema the PromptSchema (uses its cacheKey)
+   * @param plan the ExecutionPlan to cache
+   * @param executionSucceeded whether execution succeeded
+   * @param errorMessage error message if execution failed (null if succeeded)
+   */
+  public void store(PromptSchema schema, ExecutionPlan plan, boolean executionSucceeded, String errorMessage) {
     if (schema == null || schema.getCacheKey() == null) {
       log.warn("Cannot store plan: schema or cacheKey is null");
       return;
@@ -111,15 +148,45 @@ public class ExecutionPlanCache {
     try {
       ensureCacheDirectory();
 
+      // Load existing metadata to preserve failedAttempts count
+      int failedAttempts = 0;
+      if (Files.exists(planFile)) {
+        try {
+          String existingContent = Files.readString(planFile);
+          CachedPlanFile existing = mapper.readValue(existingContent, CachedPlanFile.class);
+          if (existing.failedAttempts != null) {
+            failedAttempts = existing.failedAttempts;
+          }
+        } catch (Exception e) {
+          log.debug("Could not read existing cache metadata, starting fresh", e);
+        }
+      }
+
+      // Increment failed attempts if execution failed
+      if (!executionSucceeded) {
+        failedAttempts++;
+      } else {
+        // Reset on success
+        failedAttempts = 0;
+      }
+
       CachedPlanFile cached = new CachedPlanFile();
       cached.psk = cacheKey;
       cached.createdAt = Instant.now().toString();
       cached.planJson = plan.toJson();
+      cached.executionStatus = executionSucceeded ? "SUCCESS" : "FAILED";
+      cached.lastError = errorMessage;
+      cached.failedAttempts = failedAttempts;
 
       String content = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(cached);
       Files.writeString(planFile, content);
       
-      log.info("Stored plan in cache: {} (PSK: {})", planFile.getFileName(), cacheKey);
+      if (executionSucceeded) {
+        log.info("Stored plan in cache: {} (PSK: {})", planFile.getFileName(), cacheKey);
+      } else {
+        log.info("Stored failed plan in cache: {} (PSK: {}, attempts: {})", 
+            planFile.getFileName(), cacheKey, failedAttempts);
+      }
     } catch (Exception e) {
       log.error("Failed to store plan for PSK: {}", cacheKey, e);
     }
@@ -204,6 +271,23 @@ public class ExecutionPlanCache {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
+   * Result of a cache lookup, including the plan and execution metadata.
+   */
+  public static class CachedPlanResult {
+    public final ExecutionPlan plan;
+    public final boolean executionSucceeded;
+    public final String lastError;
+    public final int failedAttempts;
+
+    public CachedPlanResult(ExecutionPlan plan, boolean executionSucceeded, String lastError, int failedAttempts) {
+      this.plan = plan;
+      this.executionSucceeded = executionSucceeded;
+      this.lastError = lastError;
+      this.failedAttempts = failedAttempts;
+    }
+  }
+
+  /**
    * Structure of a cached plan file.
    */
   static class CachedPlanFile {
@@ -215,6 +299,15 @@ public class ExecutionPlanCache {
 
     @JsonProperty("plan")
     String planJson;
+
+    @JsonProperty("execution_status")
+    String executionStatus; // "SUCCESS" or "FAILED"
+
+    @JsonProperty("last_error")
+    String lastError;
+
+    @JsonProperty("failed_attempts")
+    Integer failedAttempts; // Number of times execution failed
   }
 }
 
