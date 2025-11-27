@@ -1,5 +1,8 @@
 name: CI Checks
 
+env:
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
 on:
   push:
     branches: [ main ]
@@ -35,8 +38,6 @@ jobs:
         restore-keys: ${{ runner.os }}-m2
 
     - name: Test CLI
-      env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
         cd packages/cli
         echo "Installing CLI dependencies..."
@@ -50,8 +51,7 @@ jobs:
       with:
         name: unit-test-results
         path: |
-          packages/server/target/surefire-reports/
-          cli/coverage/
+          packages/server/target/surefire-reports/cli/coverage/
         retention-days: 7
 
     - name: Test Server

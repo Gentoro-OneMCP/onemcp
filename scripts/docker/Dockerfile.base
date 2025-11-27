@@ -1,38 +1,84 @@
-# Base image with JRE 21, Node, OpenAPI Generator CLI wrapper, OTel Collector, and supervisord
-FROM debian:trixie AS base
-
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg unzip supervisor \
-    openjdk-21-jre-headless nodejs npm \
- && rm -rf /var/lib/apt/lists/*
-
-# Install OpenAPI Generator CLI (npm wrapper uses docker by default but provides local CLI)
-RUN npm i -g @openapitools/openapi-generator-cli@2.13.7
-
-# Copy otelcol binary from official image
-FROM otel/opentelemetry-collector:latest as otel
-
+# Base image with JRE 21, Node, OpenAPI Generator CLI wrapper, OTel Collector, ArangoDB and supervisord
 FROM debian:trixie
+
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Default ArangoDB environment variables
+ENV ARANGODB_ENABLED=true
+ENV ARANGODB_HOST=localhost
+ENV ARANGODB_PORT=8529
+ENV ARANGODB_USER=root
+ENV ARANGODB_PASSWORD=test123
+
+# Install base system packages (includes gnupg for key handling)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates gnupg unzip supervisor \
     openjdk-21-jre-headless nodejs npm \
  && rm -rf /var/lib/apt/lists/*
 
-# OpenAPI generator via npm wrapper
+# ──────────────────────────────────────────────────────────────
+# LATEST ArangoDB 3.12.4.3 installation via manual DEB extraction
+# ──────────────────────────────────────────────────────────────
+ENV ARANGO_VERSION=3.12.4.3-1
+
+RUN apt-get update && apt-get install -y --no-install-recommends dpkg-dev && \
+    ARCH=$(dpkg --print-architecture) && \
+    case "${ARCH}" in \
+        amd64) DEB="arangodb3_${ARANGO_VERSION}_amd64.deb" ;; \
+        arm64) DEB="arangodb3_${ARANGO_VERSION}_arm64.deb" ;; \
+        *) echo "Unsupported: ${ARCH}" && exit 1 ;; \
+    esac && \
+    URL="https://download.arangodb.com/arangodb312/Community/Linux/${DEB}" && \
+    echo "Downloading ArangoDB ${ARANGO_VERSION} for ${ARCH}: ${URL}" && \
+    curl -fsSL -o /tmp/arangodb.deb "${URL}" && \
+    # Extract the deb without running post-install scripts
+    mkdir -p /tmp/arangodb-extract && \
+    dpkg-deb -x /tmp/arangodb.deb /tmp/arangodb-extract && \
+    # Manually copy the necessary files
+    cp -r /tmp/arangodb-extract/usr/* /usr/ && \
+    cp -r /tmp/arangodb-extract/etc/* /etc/ 2>/dev/null || true && \
+    cp -r /tmp/arangodb-extract/var/* /var/ 2>/dev/null || true && \
+    # Create arangodb user and group if they don't exist
+    if ! getent group arangodb >/dev/null; then groupadd --system arangodb; fi && \
+    if ! getent passwd arangodb >/dev/null; then useradd --system --gid arangodb --home-dir /var/lib/arangodb3 --shell /bin/false arangodb; fi && \
+    # Clean up - but keep curl for the run-arangodb.sh script
+    rm -rf /tmp/arangodb.deb /tmp/arangodb-extract && \
+    apt-get purge -y dpkg-dev && apt-get autoremove -y
+
+# Create necessary directories and set permissions
+RUN mkdir -p /var/lib/arangodb3 /var/lib/arangodb3-apps /var/log/arangodb3 /etc/arangodb3 && \
+    chown -R arangodb:arangodb /var/lib/arangodb3 /var/lib/arangodb3-apps /var/log/arangodb3 && \
+    chmod 755 /var/lib/arangodb3 /var/lib/arangodb3-apps /var/log/arangodb3
+
+# Install OpenAPI Generator CLI (npm wrapper)
 RUN npm i -g @openapitools/openapi-generator-cli@2.13.7
 
-# Bring in otelcol
-COPY --from=otel /otelcol /usr/local/bin/otelcol
+# Copy otelcol binary from the official OpenTelemetry image
+COPY --from=otel/opentelemetry-collector:latest /otelcol /usr/local/bin/otelcol
 
-# Entrypoint helpers
+# Create supervisor directories with proper permissions
+RUN mkdir -p /var/run/supervisor /var/log/supervisor && \
+    chmod 755 /var/run/supervisor /var/log/supervisor
+
+# Entrypoint helper scripts
 RUN mkdir -p /opt/bin /var/log/supervisor
-COPY scripts/docker/entrypoint.sh /opt/bin/entrypoint.sh
-COPY scripts/docker/run-otel.sh /opt/bin/run-otel.sh
-COPY scripts/docker/run-app.sh /opt/bin/run-app.sh
-COPY scripts/docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-RUN chmod +x /opt/bin/entrypoint.sh /opt/bin/run-otel.sh /opt/bin/run-app.sh
 
+COPY scripts/docker/entrypoint.sh     /opt/bin/entrypoint.sh
+COPY scripts/docker/run-otel.sh       /opt/bin/run-otel.sh
+COPY scripts/docker/run-app.sh        /opt/bin/run-app.sh
+COPY scripts/docker/run-arangodb.sh   /opt/bin/run-arangodb.sh
+COPY scripts/docker/supervisord.conf  /etc/supervisor/conf.d/supervisord.conf
+
+RUN chmod +x /opt/bin/entrypoint.sh \
+             /opt/bin/run-otel.sh \
+             /opt/bin/run-app.sh \
+             /opt/bin/run-arangodb.sh
+
+# Make scripts easily callable
 ENV PATH="/opt/bin:${PATH}"
+
+# Entrypoint
 ENTRYPOINT ["/opt/bin/entrypoint.sh"]
+
+# Expose ArangoDB port
+EXPOSE 8529

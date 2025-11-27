@@ -10,6 +10,7 @@ set -euo pipefail
 #   docker run image shell              # Start interactive shell
 #   docker run image app-only           # Start only the main app
 #   docker run image otel-only          # Start only OpenTelemetry collector
+#   docker run image arangodb-only      # Start only ArangoDB database
 #   docker run image echo "hello"       # Run custom command
 
 # Colors for output
@@ -50,6 +51,7 @@ Service management:
 Single service modes:
   docker run image app-only           # Start only the main OneMCP app
   docker run image otel-only          # Start only OpenTelemetry collector
+  docker run image arangodb-only      # Start only ArangoDB database
 
 Utility commands:
   docker run image shell              # Start interactive bash shell
@@ -64,6 +66,11 @@ Environment variables:
   APP_ARGS                            # Application arguments
   OTEL_CONFIG                         # OpenTelemetry config file path
   DISABLE_SERVICES                    # Comma-separated list of services to disable
+  ARANGODB_ENABLED                    # Enable/disable ArangoDB (default: true)
+  ARANGODB_HOST                       # ArangoDB host (default: localhost)
+  ARANGODB_PORT                       # ArangoDB port (default: 8529)
+  ARANGODB_USER                       # ArangoDB user (default: root)
+  ARANGODB_PASSWORD                   # ArangoDB password (default: test123)
 
 Process modes (via APP_ARGS):
   --process=validate                  # Validates foundation data and exits
@@ -74,7 +81,11 @@ Examples:
   docker run -e JAVA_OPTS="-Xmx1g" image app-only
   docker run -e APP_ARGS="--process=validate" image
   docker run -e APP_ARGS="--process=regression" image
+  docker run -e ARANGODB_ENABLED=false image  # Run without ArangoDB
+  docker run -e ARANGODB_PASSWORD="mypass" image
   docker run image logs app
+  docker run image logs arangodb
+  docker run image arangodb-only
   docker run image shell
 EOF
 }
@@ -85,6 +96,9 @@ show_version() {
     log_info "Java Version: $(java -version 2>&1 | head -n1)"
     log_info "Node Version: $(node --version)"
     log_info "OpenTelemetry Collector: $(otelcol --version 2>&1 | head -n1)"
+    if command -v arangod >/dev/null 2>&1; then
+        log_info "ArangoDB Version: $(arangod --version 2>&1 | head -n1)"
+    fi
     if [[ -f "/opt/app/onemcp.jar" ]]; then
         log_info "Application JAR: $(ls -la /opt/app/onemcp.jar)"
     fi
@@ -111,15 +125,35 @@ show_logs() {
                 echo
             fi
         done
-    else
-        local log_file="/var/log/supervisor/${service}.out.log"
-        if [[ -f "$log_file" ]]; then
-            log_info "Showing logs for service: $service"
-            tail -n 50 "$log_file"
-        else
-            log_error "No logs found for service: $service"
-            return 1
+        # Also show ArangoDB logs if they exist
+        if [[ -f "/var/log/arangodb3/arangod.log" ]]; then
+            echo "=== arangodb.log ==="
+            tail -n 20 "/var/log/arangodb3/arangod.log" 2>/dev/null || true
+            echo
         fi
+    else
+        case "$service" in
+            "arangodb")
+                local log_file="/var/log/arangodb3/arangod.log"
+                if [[ -f "$log_file" ]]; then
+                    log_info "Showing logs for service: $service"
+                    tail -n 50 "$log_file"
+                else
+                    log_error "No logs found for service: $service"
+                    return 1
+                fi
+                ;;
+            *)
+                local log_file="/var/log/supervisor/${service}.out.log"
+                if [[ -f "$log_file" ]]; then
+                    log_info "Showing logs for service: $service"
+                    tail -n 50 "$log_file"
+                else
+                    log_error "No logs found for service: $service"
+                    return 1
+                fi
+                ;;
+        esac
     fi
 }
 
@@ -133,6 +167,9 @@ start_single_service() {
             ;;
         "otel-only")
             exec /opt/bin/run-otel.sh
+            ;;
+        "arangodb-only")
+            exec /opt/bin/run-arangodb.sh
             ;;
         *)
             log_error "Unknown single service: $service"
@@ -154,6 +191,11 @@ start_supervisord() {
         log_info "Disabled services: $DISABLE_SERVICES"
         # This would require modifying supervisord.conf dynamically
         # For now, just log the information
+    fi
+
+    # Check if ArangoDB is enabled
+    if [[ "${ARANGODB_ENABLED:-true}" == "false" ]]; then
+        log_info "ArangoDB is disabled via environment variable"
     fi
 
     # Start supervisord in background
@@ -213,7 +255,7 @@ main() {
         "shell"|"bash"|"sh")
             start_shell
             ;;
-        "app-only"|"otel-only")
+        "app-only"|"otel-only"|"arangodb-only")
             start_single_service "$command"
             ;;
         "restart")
