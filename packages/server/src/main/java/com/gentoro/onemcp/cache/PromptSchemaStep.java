@@ -46,6 +46,3 @@ public class PromptSchemaStep {
     return "PromptSchemaStep{" + "ps=" + ps + '}';
   }
 }
-
-
-

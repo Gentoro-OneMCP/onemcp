@@ -18,8 +18,8 @@ import java.util.Map;
 /**
  * Service for extracting canonical dictionary from OpenAPI specifications.
  *
- * <p>Uses LLM to extract actions, entities, fields, operators, and aggregates
- * from API specs according to the Prompt Schema Specification.
+ * <p>Uses LLM to extract actions, entities, fields, operators, and aggregates from API specs
+ * according to the Prompt Schema Specification.
  */
 public class DictionaryExtractorService {
   private static final org.slf4j.Logger log =
@@ -40,40 +40,44 @@ public class DictionaryExtractorService {
    * @throws IOException if file operations fail
    * @throws ExecutionException if LLM extraction fails
    */
-  public PromptDictionary extractDictionary(Path handbookPath) throws IOException, ExecutionException {
+  public PromptDictionary extractDictionary(Path handbookPath)
+      throws IOException, ExecutionException {
     log.info("Extracting dictionary from handbook: {}", handbookPath);
 
     // Load OpenAPI files from apis/ directory (CLI convention)
     // Also check openapi/ directory (server convention) for backward compatibility
     Path apisDir = handbookPath.resolve("apis");
     Path openapiDir = handbookPath.resolve("openapi");
-    
+
     Path sourceDir = null;
     if (Files.exists(apisDir)) {
       sourceDir = apisDir;
     } else if (Files.exists(openapiDir)) {
       sourceDir = openapiDir;
     } else {
-      throw new IOException("APIs directory not found. Expected either 'apis/' or 'openapi/' in: " + handbookPath);
+      throw new IOException(
+          "APIs directory not found. Expected either 'apis/' or 'openapi/' in: " + handbookPath);
     }
 
     List<Map<String, String>> openapiFiles = new ArrayList<>();
     Files.walk(sourceDir)
         .filter(Files::isRegularFile)
-        .filter(p -> {
-          String name = p.getFileName().toString().toLowerCase();
-          return name.endsWith(".yaml") || name.endsWith(".yml") || name.endsWith(".json");
-        })
-        .forEach(file -> {
-          try {
-            Map<String, String> fileInfo = new HashMap<>();
-            fileInfo.put("name", file.getFileName().toString());
-            fileInfo.put("content", Files.readString(file));
-            openapiFiles.add(fileInfo);
-          } catch (Exception e) {
-            log.warn("Failed to read OpenAPI file: {}", file, e);
-          }
-        });
+        .filter(
+            p -> {
+              String name = p.getFileName().toString().toLowerCase();
+              return name.endsWith(".yaml") || name.endsWith(".yml") || name.endsWith(".json");
+            })
+        .forEach(
+            file -> {
+              try {
+                Map<String, String> fileInfo = new HashMap<>();
+                fileInfo.put("name", file.getFileName().toString());
+                fileInfo.put("content", Files.readString(file));
+                openapiFiles.add(fileInfo);
+              } catch (Exception e) {
+                log.warn("Failed to read OpenAPI file: {}", file, e);
+              }
+            });
 
     if (openapiFiles.isEmpty()) {
       throw new IOException("No OpenAPI specifications found in: " + sourceDir);
@@ -129,7 +133,8 @@ public class DictionaryExtractorService {
     // Parse JSON response
     try {
       PromptDictionary dictionary = objectMapper.readValue(jsonStr, PromptDictionary.class);
-      log.info("Successfully extracted dictionary: {} actions, {} entities, {} fields",
+      log.info(
+          "Successfully extracted dictionary: {} actions, {} entities, {} fields",
           dictionary.getActions().size(),
           dictionary.getEntities().size(),
           dictionary.getFields().size());
@@ -138,7 +143,8 @@ public class DictionaryExtractorService {
       log.error("Failed to parse dictionary from LLM response", e);
       log.debug("Extracted JSON was: {}", jsonStr);
       log.debug("Full LLM response was: {}", response);
-      throw new ExecutionException("Failed to parse dictionary from LLM response: " + e.getMessage(), e);
+      throw new ExecutionException(
+          "Failed to parse dictionary from LLM response: " + e.getMessage(), e);
     }
   }
 
@@ -154,29 +160,29 @@ public class DictionaryExtractorService {
     }
 
     String jsonStr = response.trim();
-    
+
     // Remove markdown code block markers
     if (jsonStr.startsWith("```json")) {
       jsonStr = jsonStr.substring(7).trim();
     } else if (jsonStr.startsWith("```")) {
       jsonStr = jsonStr.substring(3).trim();
     }
-    
+
     if (jsonStr.endsWith("```")) {
       jsonStr = jsonStr.substring(0, jsonStr.length() - 3).trim();
     }
-    
+
     // Try to find JSON object boundaries if response contains extra text
     int firstBrace = jsonStr.indexOf('{');
     int lastBrace = jsonStr.lastIndexOf('}');
-    
+
     if (firstBrace >= 0 && lastBrace > firstBrace) {
       jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
     } else if (firstBrace >= 0) {
       // JSON starts but doesn't end properly - might be truncated
       jsonStr = jsonStr.substring(firstBrace);
     }
-    
+
     return jsonStr.trim();
   }
 
@@ -212,16 +218,17 @@ public class DictionaryExtractorService {
     try {
       PromptDictionary dictionary =
           JacksonUtility.getYamlMapper().readValue(dictionaryPath.toFile(), PromptDictionary.class);
-      
-      log.info("Successfully loaded dictionary: {} actions, {} entities, {} fields",
+
+      log.info(
+          "Successfully loaded dictionary: {} actions, {} entities, {} fields",
           dictionary.getActions() != null ? dictionary.getActions().size() : 0,
           dictionary.getEntities() != null ? dictionary.getEntities().size() : 0,
           dictionary.getFields() != null ? dictionary.getFields().size() : 0);
-      
+
       if (dictionary.getActions() == null || dictionary.getActions().isEmpty()) {
         log.error("WARNING: Dictionary loaded but actions list is null or empty!");
       }
-      
+
       return dictionary;
     } catch (Exception e) {
       log.error("Failed to load dictionary from: {}", dictionaryPath, e);
@@ -229,4 +236,3 @@ public class DictionaryExtractorService {
     }
   }
 }
-

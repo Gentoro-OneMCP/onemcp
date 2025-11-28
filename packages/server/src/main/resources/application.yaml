@@ -70,8 +70,8 @@ graph:
     # When true, the selected driver database/collection is cleared before re-indexing
     clearOnStartup: ${env:GRAPH_V2_CLEAR_ON_STARTUP:-true}
   # Select the unified v2 GraphDriver backend.
-  # Supported values: in-memory | arangodb | neo4j
-  driver: ${env:GRAPH_V2_DRIVER:-neo4j}
+  # Supported values: in-memory | arangodb | orientdb
+  driver: ${env:GRAPH_V2_DRIVER:-orientdb}
 
   # Document chunking configuration used by HandbookGraphService
   chunking:
@@ -94,21 +94,17 @@ graph:
     # Database name prefix; final DB name is <prefix><handbookName>
     databasePrefix: ${env:GRAPH_V2_ARANGODB_DB_PREFIX:-onemcp_}
 
-  # Neo4j embedded driver configuration
-  neo4j:
-    # Root directory where embedded Neo4j stores data (one folder shared by all handbooks)
-    rootDir: ${env:GRAPH_V2_NEO4J_ROOT_DIR:-data/neo4j}
+  # OrientDB embedded driver configuration
+  orient:
+    # Root directory where embedded OrientDB stores data
+    rootDir: ${env:GRAPH_V2_ORIENT_ROOT_DIR:-data/orient}
     # Database name prefix; final DB name defaults to <databasePrefix><handbookName> when 'database' not set
-    databasePrefix: ${env:GRAPH_V2_NEO4J_DB_PREFIX:-onemcp-}
+    databasePrefix: ${env:GRAPH_V2_ORIENT_DB_PREFIX:-onemcp-}
     # Optional: Explicit database name override (useful for single DB setups)
-    database: ${env:GRAPH_V2_NEO4J_DATABASE:-}
-
-    # Deprecated (Bolt/remote) settings - no longer used with embedded Neo4j
-    # uri: ${env:GRAPH_V2_NEO4J_URI:-bolt://localhost:7687}
-    # user: ${env:GRAPH_V2_NEO4J_USER:-neo4j}
-    # password: ${env:GRAPH_V2_NEO4J_PASSWORD:-neo4j}
+    database: ${env:GRAPH_V2_ORIENT_DATABASE:-}
 
   # Usage examples:
   # - In-memory (default): GRAPH_V2_DRIVER=in-memory
   # - ArangoDB: GRAPH_V2_DRIVER=arangodb GRAPH_V2_ARANGODB_PASSWORD=... (ensure server is running)
   # - Neo4j (embedded): GRAPH_V2_DRIVER=neo4j GRAPH_V2_NEO4J_ROOT_DIR=/path/to/data GRAPH_V2_NEO4J_DB_PREFIX=onemcp_
+  # - OrientDB (embedded): GRAPH_V2_DRIVER=orientdb GRAPH_V2_ORIENT_ROOT_DIR=/path/to/orient GRAPH_V2_ORIENT_DB_PREFIX=onemcp-

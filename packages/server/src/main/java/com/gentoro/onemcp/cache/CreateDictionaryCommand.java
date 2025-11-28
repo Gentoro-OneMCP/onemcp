@@ -1,8 +1,6 @@
 package com.gentoro.onemcp.cache;
 
 import com.gentoro.onemcp.OneMcp;
-import com.gentoro.onemcp.StartupParameters;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -30,7 +28,8 @@ public class CreateDictionaryCommand {
         System.exit(1);
       }
 
-      // Create openapi/ directory if apis/ exists but openapi/ doesn't (for KnowledgeBase compatibility)
+      // Create openapi/ directory if apis/ exists but openapi/ doesn't (for KnowledgeBase
+      // compatibility)
       // KnowledgeBase expects openapi/ directory, but CLI uses apis/
       Path apisDir = handbookPath.resolve("apis");
       Path openapiDir = handbookPath.resolve("openapi");
@@ -46,7 +45,8 @@ public class CreateDictionaryCommand {
         }
       }
 
-      // Create instructions.md if Agent.md exists but instructions.md doesn't (for KnowledgeBase compatibility)
+      // Create instructions.md if Agent.md exists but instructions.md doesn't (for KnowledgeBase
+      // compatibility)
       // KnowledgeBase expects instructions.md, but CLI uses Agent.md
       Path agentMd = handbookPath.resolve("Agent.md");
       Path instructionsMd = handbookPath.resolve("instructions.md");
@@ -71,34 +71,35 @@ public class CreateDictionaryCommand {
         // should set this before invoking the command. For standalone use, we'll rely
         // on the command-line argument being passed correctly.
         // The configuration will use the system property or we can override via config
-        
+
         // For now, we'll pass the handbook path directly to the extractor
         // without full OneMcp initialization to avoid server startup overhead
         // Actually, we need OneMcp for LLM client and prompt repository, so let's initialize it
-        
+
         // Set system property as fallback (though env var is preferred)
         System.setProperty("handbook.location", handbookPath.toString());
-        
-        String[] appArgs = new String[] {
-            "--config", "classpath:application.yaml",
-            "--mode", "server" // Use server mode to avoid interactive prompts
-        };
-        
+
+        String[] appArgs =
+            new String[] {
+              "--config", "classpath:application.yaml",
+              "--mode", "server" // Use server mode to avoid interactive prompts
+            };
+
         OneMcp oneMcp = new OneMcp(appArgs);
         oneMcp.initialize();
 
-      // Extract dictionary
-      DictionaryExtractorService extractor = new DictionaryExtractorService(oneMcp);
-      PromptDictionary dictionary = extractor.extractDictionary(handbookPath);
+        // Extract dictionary
+        DictionaryExtractorService extractor = new DictionaryExtractorService(oneMcp);
+        PromptDictionary dictionary = extractor.extractDictionary(handbookPath);
 
-      // Save to apis/dictionary.yaml
-      Path outputPath = handbookPath.resolve("apis").resolve("dictionary.yaml");
-      extractor.saveDictionary(dictionary, outputPath);
+        // Save to apis/dictionary.yaml
+        Path outputPath = handbookPath.resolve("apis").resolve("dictionary.yaml");
+        extractor.saveDictionary(dictionary, outputPath);
 
-      System.out.println("Dictionary extracted and saved to: " + outputPath);
-      System.out.println("Actions: " + dictionary.getActions().size());
-      System.out.println("Entities: " + dictionary.getEntities().size());
-      System.out.println("Fields: " + dictionary.getFields().size());
+        System.out.println("Dictionary extracted and saved to: " + outputPath);
+        System.out.println("Actions: " + dictionary.getActions().size());
+        System.out.println("Entities: " + dictionary.getEntities().size());
+        System.out.println("Fields: " + dictionary.getFields().size());
 
         oneMcp.shutdown();
         System.exit(0);
@@ -117,4 +118,3 @@ public class CreateDictionaryCommand {
     }
   }
 }
-

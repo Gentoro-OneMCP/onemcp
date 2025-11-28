@@ -23,42 +23,66 @@ activations:
           | **Update** | Modify, Change, Edit, Append | Alters an existing entity. **(Generally Unsupported by this API)** | Update my address to XYZ. |
           | **Delete** | Remove, Erase, Drop | Permanently deletes an entity. **(Generally Unsupported by this API)** | Delete all my sales records. |
           
-        2) API Overview
-        
-          A comprehensive data analytics API for exploring e-commerce sales data.
-          This API provides powerful querying capabilities to analyze sales performance,
-          customer behavior, product trends, and regional insights.
+        2) APIs Overview
+          Here is the comprehensive list of available API(s):
           
-          **Key Analytical Capabilities:**
-          - **Flexible Filtering**: Filter data using field operators (equals, greater than, contains, etc.)
-          - **Field Selection**: Choose exactly which fields to include in results
-          - **Aggregations**: Calculate **sums, averages, counts, min/max** values (**Compute** operation)
-          - **Real-time Data**: Access to live sales data with historical context
+      {% for api in agent.apis %}
+          2.{{ loop.index + 1 }}) - `{{ api.slug }}`
+
+      {{ ident( api.description, 6) | raw }}
       
+      {% if api.entities is not empty %}    
+            ## 🧩 Entities
+      
+              The available entities handled by the API are:
+              
+      {% for entity in api.entities %}
+              - `{{ entity.name }}`
+      
+                **Description:**
+      
+      {{ ident( entity.description, 12) | raw }}
+      
+      {% if entity.relationships is not empty %}
+      
+                **Relationships:**
+      
+                  The relationships are essential for retrieving combined data (joins).
+      
+      {% for rel in entity.relationships %}
+                  - {{ rel.name }}
+      
+      {{ ident( rel.description, 14) | raw }}
+      
+      {% endfor %}
+      {% endif %}
+      {% if entity.operations is not empty %}
+      
+                **Operations:**
+      
+                  Here is the collection of supported operations.
+      
+      {% for op in entity.operations %}
+                  - `{{ op.kind | raw }}`: A(n) **{{ entity.name | raw }}** {{ op.description | raw }}
+      
+      {% endfor %}
+      {% endif %}
+      {% endfor %}          
+      {% endif %}
+      {% endfor %}
+      
+      {% if agent.guardrails.contextualPolicies is not empty %}
       ---
-      ## 🧩 Entities
+      ## 📝 Guardrails      
+      {% for policy in agent.guardrails.contextualPolicies %}
       
-        The available entities handled by the API are:
-        
-        * **Category**: A collection of products sharing attributes. *Example: Electronics, Clothing.*
-        * **Product**: The items purchased. *Example: iPad, iPhone.*
-        * **Customer**: The buyers placing orders. Contains personal info, addresses, and region.
-        * **Order**: Represents one order's details (items, quantity, buyer, revenue).
-        * **Region**: A geographical location from a customer's address. *Example: CA, San Francisco.*
-        
-        1) Entity Relationships
-          The relationships are essential for retrieving combined data (joins).
-          - **Customer** (1) $\longleftrightarrow$ (N) **Order**
-          - **Product** (1) $\longleftrightarrow$ (N) **Order**
-          - **Customer** (N) $\longleftrightarrow$ (1) **Region**
-          - **Category** (1) $\longleftrightarrow$ (N) **Product**
-        
-        2) Supported Entity Operations (Retrieve & Compute Focus)
-        
-          1.  **Customer**: Can be **RETRIEVED** (filtered/all) and combined with **Region** and **Order** data.
-          2.  **Order**: Can be **RETRIEVED** (filtered/all) and combined with **Customer** and **Product** data.
-          3.  **Product**: Can be **RETRIEVED** (filtered/all) and combined with **Category** and **Order** data.
-          4.  **Category**: Can be **RETRIEVED** (filtered/all) and combined with **Product** data.
+        - `{{ policy.id | raw }}`
+      
+      {{ ident( policy.description, 4) | raw }}
+      
+      
+      {% endfor %}
+      {% endif %}
       
       ---
       ## 📝 Task Instructions

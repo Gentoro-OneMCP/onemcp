@@ -12,6 +12,7 @@ import java.util.Objects;
  * Prompt Schema (PS) - Canonical, deterministic representation of a natural-language prompt.
  *
  * <p>A Prompt Schema contains:
+ *
  * <ul>
  *   <li>action: Canonical verb from dictionary.actions
  *   <li>entities: List of canonical nouns from dictionary.entities
@@ -19,8 +20,9 @@ import java.util.Objects;
  *   <li>params: Map of field → parameter values (literals, operators, aggregates, etc.)
  * </ul>
  *
- * <p>The PSK (Prompt Schema Key) is generated from (action, sorted(entities), sorted(params.keys()), group_by),
- * where group_by is in declared order. Param values are excluded for cache reuse.
+ * <p>The PSK (Prompt Schema Key) is generated from (action, sorted(entities),
+ * sorted(params.keys()), group_by), where group_by is in declared order. Param values are excluded
+ * for cache reuse.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class PromptSchema {
@@ -88,10 +90,9 @@ public class PromptSchema {
   }
 
   /**
-   * Generate and set the cache key for this schema.
-   * The cache key is derived from (action, sorted(entities), sorted(params.keys()), group_by),
-   * where group_by is in declared order (not sorted).
-   * Param values are excluded for cache reuse across different parameter values.
+   * Generate and set the cache key for this schema. The cache key is derived from (action,
+   * sorted(entities), sorted(params.keys()), group_by), where group_by is in declared order (not
+   * sorted). Param values are excluded for cache reuse across different parameter values.
    */
   public void generateCacheKey() {
     PromptSchemaKey psk = new PromptSchemaKey(this);
@@ -99,8 +100,8 @@ public class PromptSchema {
   }
 
   /**
-   * Validate that cache key components are in the dictionary.
-   * Cache key is generated from: (action, sorted(entities), sorted(params.keys()), group_by)
+   * Validate that cache key components are in the dictionary. Cache key is generated from: (action,
+   * sorted(entities), sorted(params.keys()), group_by)
    *
    * @param dictionary the dictionary to validate against
    * @return list of validation errors (empty if valid)
@@ -176,6 +177,3 @@ public class PromptSchema {
         + '}';
   }
 }
-
-
-

@@ -8,10 +8,20 @@ import java.util.Objects;
 public class Agent {
   private List<Release> releases;
   private List<Api> apis;
+  private Guardrails guardrails;
 
   public Agent() {
     this.releases = new ArrayList<>(List.of(new Release()));
     this.apis = new ArrayList<>();
+    this.guardrails = new Guardrails();
+  }
+
+  public Guardrails getGuardrails() {
+    return guardrails;
+  }
+
+  public void setGuardrails(Guardrails guardrails) {
+    this.guardrails = guardrails;
   }
 
   public List<Release> getReleases() {

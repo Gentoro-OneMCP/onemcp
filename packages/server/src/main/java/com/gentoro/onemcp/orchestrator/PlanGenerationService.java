@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.gentoro.onemcp.engine.ExecutionPlanValidator;
 import com.gentoro.onemcp.exception.ExceptionUtil;
 import com.gentoro.onemcp.exception.ExecutionException;
+import com.gentoro.onemcp.indexing.ContextDecorator;
 import com.gentoro.onemcp.messages.AssignmentContext;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.prompt.PromptTemplate;
@@ -22,7 +23,8 @@ public class PlanGenerationService {
     this.context = context;
   }
 
-  public JsonNode generatePlan(AssignmentContext assignmentContext) {
+  public JsonNode generatePlan(
+      AssignmentContext assignmentContext, List<Map<String, Object>> contextualData) {
     int attempts = 0;
     TelemetryTracer.Span parentSpan = context.tracer().startChild("plan_generation");
     PromptTemplate.PromptSession promptSession =
@@ -35,6 +37,10 @@ public class PlanGenerationService {
                 Map.of(
                     "assignment",
                     assignmentContext.getRefinedAssignment(),
+                    "agent",
+                    context.handbook().agent(),
+                    "context",
+                    new ContextDecorator(contextualData),
                     "error_reported",
                     false));
     while (++attempts <= 3) {

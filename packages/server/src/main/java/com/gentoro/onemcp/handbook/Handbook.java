@@ -3,7 +3,6 @@ package com.gentoro.onemcp.handbook;
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.handbook.model.agent.Agent;
 import com.gentoro.onemcp.handbook.model.agent.Api;
-import com.gentoro.onemcp.handbook.model.guardrails.Guardrails;
 import com.gentoro.onemcp.handbook.model.regression.RegressionSuite;
 import java.nio.file.Path;
 import java.util.Map;
@@ -49,21 +48,6 @@ public interface Handbook {
    * @return a map of all APIs defined in the current Agent.
    */
   Map<String, Api> apis();
-
-  /**
-   * Returns an Optional containing the guardrails associated with the current agent, if available.
-   *
-   * @return an Optional containing the guardrails if present, otherwise an empty Optional.
-   */
-  Optional<Guardrails> optionalGuardrails();
-
-  /**
-   * Returns the guardrails associated with the current agent. Throws an exception if no guardrails
-   * are defined.
-   *
-   * @return the guardrails instance.
-   */
-  Guardrails guardrails();
 
   /**
    * Returns a map of regression suites where the keys are the suite identifiers and the values are

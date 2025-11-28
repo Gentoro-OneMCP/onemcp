@@ -3,8 +3,8 @@ package com.gentoro.onemcp.cache;
 import com.gentoro.onemcp.exception.ExecutionException;
 
 /**
- * Exception thrown when prompt normalization fails, potentially containing the raw JSON
- * that failed to parse.
+ * Exception thrown when prompt normalization fails, potentially containing the raw JSON that failed
+ * to parse.
  */
 public class PromptNormalizationException extends ExecutionException {
   private final String rawJson;

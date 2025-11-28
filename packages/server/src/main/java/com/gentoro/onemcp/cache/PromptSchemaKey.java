@@ -11,13 +11,14 @@ import java.util.Objects;
 /**
  * Prompt Schema Key (PSK) - Deterministic cache key generated from a Prompt Schema.
  *
- * <p>The PSK is generated from: (action, sorted(entities), sorted(params.keys()), group_by)
- * where group_by is in declared order (not sorted).
+ * <p>The PSK is generated from: (action, sorted(entities), sorted(params.keys()), group_by) where
+ * group_by is in declared order (not sorted).
  *
  * <p>Note: param values are NOT included in the PSK, allowing cache reuse across different
  * parameter values for the same schema structure.
  *
  * <p>The key can be represented as:
+ *
  * <ul>
  *   <li>Human-readable string format: "action:entity1,entity2:field1,field2:group1,group2"
  *   <li>SHA-256 hash for storage efficiency
@@ -73,10 +74,9 @@ public class PromptSchemaKey {
     this.hashKey = generateHashKey();
   }
 
-  /**
-   * Create a PSK from explicit components (for testing or manual construction).
-   */
-  public PromptSchemaKey(String action, List<String> entities, List<String> fields, List<String> groupBy) {
+  /** Create a PSK from explicit components (for testing or manual construction). */
+  public PromptSchemaKey(
+      String action, List<String> entities, List<String> fields, List<String> groupBy) {
     this.action = action != null ? action : "";
 
     List<String> sortedEntities = new ArrayList<>();
@@ -110,22 +110,22 @@ public class PromptSchemaKey {
     // This is filename-safe on all platforms and avoids ambiguity with field names
     StringBuilder sb = new StringBuilder();
     sb.append(action != null ? action : "");
-    
+
     if (!entities.isEmpty()) {
       sb.append("-");
       sb.append(String.join("_", entities));
     }
-    
+
     if (!fields.isEmpty()) {
       sb.append("-");
       sb.append(String.join("_", fields));
     }
-    
+
     if (!groupBy.isEmpty()) {
       sb.append("-group_");
       sb.append(String.join("_", groupBy));
     }
-    
+
     return sb.toString();
   }
 
@@ -163,23 +163,17 @@ public class PromptSchemaKey {
     return groupBy;
   }
 
-  /**
-   * Get the human-readable string representation of the key.
-   */
+  /** Get the human-readable string representation of the key. */
   public String getStringKey() {
     return stringKey;
   }
 
-  /**
-   * Get the SHA-256 hash representation of the key (for storage efficiency).
-   */
+  /** Get the SHA-256 hash representation of the key (for storage efficiency). */
   public String getHashKey() {
     return hashKey;
   }
 
-  /**
-   * Get the key to use for cache storage (defaults to hash for efficiency).
-   */
+  /** Get the key to use for cache storage (defaults to hash for efficiency). */
   public String getCacheKey() {
     return hashKey;
   }
@@ -212,6 +206,3 @@ public class PromptSchemaKey {
         + '}';
   }
 }
-
-
-

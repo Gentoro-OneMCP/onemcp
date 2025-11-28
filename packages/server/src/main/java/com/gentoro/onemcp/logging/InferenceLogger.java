@@ -1,8 +1,8 @@
 package com.gentoro.onemcp.logging;
 
 import com.gentoro.onemcp.OneMcp;
-import com.gentoro.onemcp.messages.AssigmentResult;
 import com.gentoro.onemcp.handbook.Handbook;
+import com.gentoro.onemcp.messages.AssigmentResult;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import java.io.IOException;
@@ -16,7 +16,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.configuration2.Configuration;
 import org.slf4j.Logger;
@@ -77,6 +76,7 @@ public class InferenceLogger {
    * Detect if report mode should be enabled.
    *
    * <p>Priority:
+   *
    * <ol>
    *   <li>Environment variable {@code ONEMCP_REPORTS_ENABLED}
    *   <li>Config file {@code reports.enabled}
@@ -131,11 +131,12 @@ public class InferenceLogger {
    * </ol>
    *
    * <p>Behavior:
+   *
    * <ul>
-   *   <li><b>CLI mode</b>: CLI sets {@code ONEMCP_LOG_DIR} to {@code {handbook}/logs}, so reports go to
-   *       {@code {handbook}/logs/reports/}
-   *   <li><b>Production mode</b>: When {@code ONEMCP_LOG_DIR} is not set and no handbook is detected,
-   *       defaults to {@code /var/log/onemcp/reports/}
+   *   <li><b>CLI mode</b>: CLI sets {@code ONEMCP_LOG_DIR} to {@code {handbook}/logs}, so reports
+   *       go to {@code {handbook}/logs/reports/}
+   *   <li><b>Production mode</b>: When {@code ONEMCP_LOG_DIR} is not set and no handbook is
+   *       detected, defaults to {@code /var/log/onemcp/reports/}
    * </ul>
    *
    * <p>Reports are always stored in {@code {logging_dir}/reports/} subdirectory.
@@ -319,8 +320,8 @@ public class InferenceLogger {
   }
 
   /**
-   * Set the execution ID in thread-local for background threads.
-   * This allows background threads to log events to the same execution.
+   * Set the execution ID in thread-local for background threads. This allows background threads to
+   * log events to the same execution.
    *
    * @param executionId the execution ID to set
    */
@@ -516,9 +517,12 @@ public class InferenceLogger {
     }
 
     if (hasNormalizedSchema) {
-      sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
-      sb.append("│ PROMPT SCHEMA (Background)                                                   │\n");
-      sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+      sb.append(
+          "┌──────────────────────────────────────────────────────────────────────────────┐\n");
+      sb.append(
+          "│ PROMPT SCHEMA (Background)                                                   │\n");
+      sb.append(
+          "└──────────────────────────────────────────────────────────────────────────────┘\n");
       sb.append("\n");
 
       for (ExecutionEvent event : events) {
@@ -528,17 +532,22 @@ public class InferenceLogger {
             String schemaStr = schema.toString();
             // Check if this is an error message (dictionary not found, etc.)
             try {
-              com.fasterxml.jackson.databind.JsonNode jsonNode = JacksonUtility.getJsonMapper().readTree(schemaStr);
+              com.fasterxml.jackson.databind.JsonNode jsonNode =
+                  JacksonUtility.getJsonMapper().readTree(schemaStr);
               if (jsonNode.has("error")) {
                 // This is an error message, display it clearly
                 String error = jsonNode.get("error").asText();
-                String reason = jsonNode.has("reason") ? jsonNode.get("reason").asText() : "unknown";
+                String reason =
+                    jsonNode.has("reason") ? jsonNode.get("reason").asText() : "unknown";
                 sb.append("  Normalization skipped: ").append(error).append("\n");
                 sb.append("  Reason: ").append(reason).append("\n");
               } else {
                 // This is a valid schema, pretty-print it
                 Object parsed = JacksonUtility.getJsonMapper().readValue(schemaStr, Object.class);
-                schemaStr = JacksonUtility.getJsonMapper().writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+                schemaStr =
+                    JacksonUtility.getJsonMapper()
+                        .writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(parsed);
                 String[] lines = schemaStr.split("\n");
                 for (String line : lines) {
                   sb.append("  ").append(line).append("\n");
@@ -556,16 +565,21 @@ public class InferenceLogger {
           }
           sb.append("\n");
           if (normalizationDuration > 0) {
-            sb.append("  Background normalization latency: ").append(normalizationDuration).append("ms\n");
+            sb.append("  Background normalization latency: ")
+                .append(normalizationDuration)
+                .append("ms\n");
           }
           sb.append("\n");
           break; // Only show first normalized schema
         }
       }
     } else {
-      sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
-      sb.append("│ NORMALIZED PROMPT SCHEMA (Background)                                        │\n");
-      sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+      sb.append(
+          "┌──────────────────────────────────────────────────────────────────────────────┐\n");
+      sb.append(
+          "│ NORMALIZED PROMPT SCHEMA (Background)                                        │\n");
+      sb.append(
+          "└──────────────────────────────────────────────────────────────────────────────┘\n");
       sb.append("\n");
       sb.append("  [No normalized prompt schema recorded]\n");
       sb.append("\n");
@@ -655,11 +669,13 @@ public class InferenceLogger {
         if (foundInput && currentInputMessages != null) {
           // Check if input is the same as previous
           if (currentInputMessages.equals(previousInputMessages)) {
-            sb.append("┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
+            sb.append(
+                "┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
             sb.append("│ [Same as previous LLM call]\n");
             sb.append("\n");
           } else {
-            sb.append("┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
+            sb.append(
+                "┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
             String messagesStr = currentInputMessages;
             // Format messages nicely - they should already be formatted with [role] prefix
             String[] lines = messagesStr.split("\n");
@@ -975,7 +991,10 @@ public class InferenceLogger {
           // Try to parse and pretty-print as JSON
           try {
             Object parsed = JacksonUtility.getJsonMapper().readValue(resultStr, Object.class);
-            resultStr = JacksonUtility.getJsonMapper().writerWithDefaultPrettyPrinter().writeValueAsString(parsed);
+            resultStr =
+                JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
           } catch (Exception e) {
             // Not JSON, use as-is
           }
@@ -1117,12 +1136,13 @@ public class InferenceLogger {
                 executionId,
                 Instant.now().toString(),
                 Map.of(
-                    "toolName", toolName != null ? toolName : "unknown",
-                    "arguments", argsJson)));
+                    "toolName", toolName != null ? toolName : "unknown", "arguments", argsJson)));
         log.debug("Tool call logged: {} (executionId: {})", toolName, executionId);
       } else {
-        log.warn("Cannot log tool call: events list is null for executionId: {} (tool: {})",
-            executionId, toolName);
+        log.warn(
+            "Cannot log tool call: events list is null for executionId: {} (tool: {})",
+            executionId,
+            toolName);
       }
     } else {
       log.debug("Report mode disabled, skipping tool call logging");
@@ -1210,7 +1230,8 @@ public class InferenceLogger {
         data.put("method", method != null ? method : "UNKNOWN");
         data.put("url", url != null ? url : "");
         data.put("error", error != null ? error : "");
-        events.add(new ExecutionEvent("api_call_error", executionId, Instant.now().toString(), data));
+        events.add(
+            new ExecutionEvent("api_call_error", executionId, Instant.now().toString(), data));
       }
     }
 
@@ -1322,7 +1343,8 @@ public class InferenceLogger {
     logNormalizedPromptSchemaForExecution(normalizedSchemaJson, durationMs, executionId);
   }
 
-  public void logNormalizedPromptSchemaForExecution(String normalizedSchemaJson, long durationMs, String executionId) {
+  public void logNormalizedPromptSchemaForExecution(
+      String normalizedSchemaJson, long durationMs, String executionId) {
     if (executionId == null) {
       log.warn("Cannot log normalized prompt schema: execution ID is null");
       return;
@@ -1337,13 +1359,15 @@ public class InferenceLogger {
         data.put("background", true);
         events.add(
             new ExecutionEvent(
-                "normalized_prompt_schema",
-                executionId,
-                Instant.now().toString(),
-                data));
-        log.debug("Normalized prompt schema logged (background, {}ms, executionId: {})", durationMs, executionId);
+                "normalized_prompt_schema", executionId, Instant.now().toString(), data));
+        log.debug(
+            "Normalized prompt schema logged (background, {}ms, executionId: {})",
+            durationMs,
+            executionId);
       } else {
-        log.warn("Cannot log normalized prompt schema: events list is null for executionId: {}", executionId);
+        log.warn(
+            "Cannot log normalized prompt schema: events list is null for executionId: {}",
+            executionId);
       }
     } else {
       log.debug("Report mode disabled, skipping normalized prompt schema logging");
@@ -1362,21 +1386,22 @@ public class InferenceLogger {
       if (events != null) {
         try {
           // Serialize AssigmentResult to JSON
-          String assignmentResultJson = JacksonUtility.getJsonMapper().writeValueAsString(assignmentResult);
+          String assignmentResultJson =
+              JacksonUtility.getJsonMapper().writeValueAsString(assignmentResult);
           Map<String, Object> data = new HashMap<>();
           data.put("assignmentResult", assignmentResultJson);
           events.add(
-              new ExecutionEvent(
-                  "assignment_result",
-                  executionId,
-                  Instant.now().toString(),
-                  data));
+              new ExecutionEvent("assignment_result", executionId, Instant.now().toString(), data));
           log.debug("AssigmentResult logged (executionId: {})", executionId);
         } catch (Exception e) {
-          log.warn("Failed to serialize AssigmentResult to JSON (executionId: {}): {}", executionId, e.getMessage());
+          log.warn(
+              "Failed to serialize AssigmentResult to JSON (executionId: {}): {}",
+              executionId,
+              e.getMessage());
         }
       } else {
-        log.warn("Cannot log AssigmentResult: events list is null for executionId: {}", executionId);
+        log.warn(
+            "Cannot log AssigmentResult: events list is null for executionId: {}", executionId);
       }
     } else {
       log.debug("Report mode disabled, skipping AssigmentResult logging");

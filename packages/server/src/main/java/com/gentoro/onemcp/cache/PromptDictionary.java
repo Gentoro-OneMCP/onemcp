@@ -8,8 +8,8 @@ import java.util.List;
 /**
  * Canonical dictionary for Prompt Schema normalization.
  *
- * <p>Contains the allowed vocabulary extracted from API specifications:
- * actions, entities, fields, operators, and aggregation functions.
+ * <p>Contains the allowed vocabulary extracted from API specifications: actions, entities, fields,
+ * operators, and aggregation functions.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class PromptDictionary {
@@ -70,39 +70,28 @@ public class PromptDictionary {
     this.aggregates = aggregates != null ? aggregates : new ArrayList<>();
   }
 
-  /**
-   * Check if an action is in the dictionary.
-   */
+  /** Check if an action is in the dictionary. */
   public boolean hasAction(String action) {
     return actions.contains(action);
   }
 
-  /**
-   * Check if an entity is in the dictionary.
-   */
+  /** Check if an entity is in the dictionary. */
   public boolean hasEntity(String entity) {
     return entities.contains(entity);
   }
 
-  /**
-   * Check if a field is in the dictionary.
-   */
+  /** Check if a field is in the dictionary. */
   public boolean hasField(String field) {
     return fields.contains(field);
   }
 
-  /**
-   * Check if an operator is in the dictionary.
-   */
+  /** Check if an operator is in the dictionary. */
   public boolean hasOperator(String operator) {
     return operators.contains(operator);
   }
 
-  /**
-   * Check if an aggregate function is in the dictionary.
-   */
+  /** Check if an aggregate function is in the dictionary. */
   public boolean hasAggregate(String aggregate) {
     return aggregates.contains(aggregate);
   }
 }
-

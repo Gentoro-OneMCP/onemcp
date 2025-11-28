@@ -2,18 +2,24 @@ package com.gentoro.onemcp;
 
 import com.gentoro.onemcp.exception.ConfigException;
 import com.gentoro.onemcp.exception.SerializationException;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.InputStream;
-import java.io.StringReader;
+import java.io.*;
 import java.net.URI;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.apache.commons.configuration2.Configuration;
 import org.apache.commons.configuration2.YAMLConfiguration;
 import org.apache.commons.configuration2.builder.FileBasedConfigurationBuilder;
 import org.apache.commons.configuration2.builder.fluent.Parameters;
 import org.apache.commons.configuration2.ex.ConfigurationException;
+import org.apache.commons.configuration2.interpol.ConfigurationInterpolator;
+import org.apache.commons.configuration2.interpol.Lookup;
 
 /**
  * Loads YAML configuration and exposes an Apache Commons Configuration instance.
@@ -49,7 +55,7 @@ public final class ConfigurationProvider {
     URL resourceUrl = Thread.currentThread().getContextClassLoader().getResource(resourceName);
     if (resourceUrl == null) {
       // Fallback to empty YAML config if not found; avoids NPEs and allows defaults.
-      return new YAMLConfiguration();
+      return addOns(new YAMLConfiguration());
     }
     log.info("Loading configuration from classpath resource: {}", resourceName);
     try (InputStream input =
@@ -60,7 +66,7 @@ public final class ConfigurationProvider {
       String yamlContent = new String(input.readAllBytes(), StandardCharsets.UTF_8);
       YAMLConfiguration config = new YAMLConfiguration();
       config.read(new StringReader(yamlContent));
-      return config;
+      return addOns(config);
     } catch (Exception e) {
       throw new SerializationException(
           "Failed to read YAML from classpath resource: " + resourceName, e);
@@ -73,7 +79,7 @@ public final class ConfigurationProvider {
       FileBasedConfigurationBuilder<YAMLConfiguration> builder =
           new FileBasedConfigurationBuilder<>(YAMLConfiguration.class)
               .configure(params.fileBased().setFile(file));
-      return builder.getConfiguration();
+      return addOns(builder.getConfiguration());
     } catch (ConfigurationException e) {
       throw new ConfigException("Failed to load YAML file: " + file, e);
     }
@@ -99,5 +105,90 @@ public final class ConfigurationProvider {
     }
     // Treat as file system path (relative or absolute)
     return loadYamlFromFile(new File(loc));
+  }
+
+  private static Configuration addOns(Configuration config) {
+    ConfigurationInterpolator interpolator = config.getInterpolator();
+    interpolator.registerLookup("env", new FallbackEnvLookup());
+    return config;
+  }
+
+  private static class FallbackEnvLookup implements Lookup {
+    private Map<String, String> fallback = null;
+
+    public FallbackEnvLookup() {}
+
+    @Override
+    public Object lookup(String key) {
+      // 1. Real environment value
+      String val = System.getenv(key);
+      if (val != null && !val.isEmpty()) {
+        return val;
+      }
+
+      if (fallback == null) {
+        synchronized (this) {
+          if (fallback == null) {
+            Path path = findEnvFile();
+            if (path == null) {
+              log.warn(
+                  "Could not locate .env.local anywhere, skipping environment variables auto-detection.");
+              this.fallback = new HashMap<>();
+            } else {
+              this.fallback = readKeyValueFile(path);
+            }
+          }
+        }
+      }
+
+      // 2. Fallback (your own env map)
+      return fallback.get(key);
+    }
+
+    private Path findEnvFile() {
+      // 1) CWD
+      Path p1 = Paths.get(".env.local");
+      if (Files.exists(p1)) {
+        return p1;
+      } else {
+        log.info("No .env.local found in CWD {}", p1.toAbsolutePath());
+      }
+      // 2) Module-relative when running from repo root
+      Path p2 = Paths.get("packages/server/.env.local");
+      if (Files.exists(p2)) {
+        return p2;
+      } else {
+        log.info("No .env.local found in CWD {}", p2.toAbsolutePath());
+      }
+      return null;
+    }
+
+    private Map<String, String> readKeyValueFile(Path path) {
+      log.info("Reading .env.local file: {}", path.toAbsolutePath());
+      try (BufferedReader br = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+        return br.lines()
+            .map(String::trim)
+            .filter(line -> !line.isEmpty())
+            .filter(line -> !line.startsWith("#"))
+            .map(this::parseLine)
+            .filter(e -> e.getKey() != null && !e.getKey().isEmpty())
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> b));
+      } catch (IOException e) {
+        return Collections.emptyMap();
+      }
+    }
+
+    private Map.Entry<String, String> parseLine(String line) {
+      int idx = line.indexOf('=');
+      if (idx <= 0) return Map.entry("", "");
+      String key = line.substring(0, idx).trim();
+      String rawVal = line.substring(idx + 1).trim();
+      String val = rawVal;
+      if ((val.startsWith("\"") && val.endsWith("\""))
+          || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.substring(1, val.length() - 1);
+      }
+      return Map.entry(key, val);
+    }
   }
 }

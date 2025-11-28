@@ -6,7 +6,6 @@ import com.gentoro.onemcp.exception.ExceptionUtil;
 import com.gentoro.onemcp.exception.IoException;
 import com.gentoro.onemcp.exception.NotFoundException;
 import com.gentoro.onemcp.handbook.model.agent.*;
-import com.gentoro.onemcp.handbook.model.guardrails.Guardrails;
 import com.gentoro.onemcp.handbook.model.regression.RegressionSuite;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import com.google.common.hash.Hashing;
@@ -24,7 +23,6 @@ public class HandbookImpl implements Handbook {
   private final Path location;
 
   private Agent agent = null;
-  private Guardrails guardrails = null;
   private final Map<String, RegressionSuite> regressionSuites = new HashMap<>();
   private final Map<String, String> documentation = new HashMap<>();
 
@@ -36,7 +34,6 @@ public class HandbookImpl implements Handbook {
 
   private void initialize() {
     this.agent = loadYaml(Agent.class, "Agent.yaml");
-    this.guardrails = loadYaml(Guardrails.class, "Guardrails.yaml");
     this.loadRegressionSuites();
     this.loadServices(this.agent);
     this.loadDocumentation();
@@ -210,16 +207,6 @@ public class HandbookImpl implements Handbook {
   @Override
   public Agent agent() {
     return agent;
-  }
-
-  @Override
-  public Optional<Guardrails> optionalGuardrails() {
-    return Optional.ofNullable(guardrails);
-  }
-
-  @Override
-  public Guardrails guardrails() {
-    return optionalGuardrails().orElseThrow(() -> new NotFoundException("Guardrails not defined"));
   }
 
   @Override

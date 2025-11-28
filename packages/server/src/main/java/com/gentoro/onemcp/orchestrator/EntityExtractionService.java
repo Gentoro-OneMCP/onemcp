@@ -27,7 +27,15 @@ public class EntityExtractionService {
             .prompts()
             .get("/entity_extraction")
             .newSession()
-            .enableOnly("assignment", Map.of("assignment", assignment, "error_reported", false));
+            .enableOnly(
+                "assignment",
+                Map.of(
+                    "assignment",
+                    assignment,
+                    "agent",
+                    context.handbook().agent(),
+                    "error_reported",
+                    false));
     while (++attempts <= 3) {
       long start = System.currentTimeMillis();
       String result;

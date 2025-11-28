@@ -165,6 +165,7 @@ public class HandbookGraphService implements AutoCloseable {
   private static GraphDriver resolveDriver(OneMcp oneMcp) {
     String handbookName = resolveHandbookName(oneMcp);
     String desired = oneMcp.configuration().getString("graph.driver", "in-memory");
+    log.trace("Resolving graph driver for handbook '{}' (desired '{}')", handbookName, desired);
     try {
       // Discover providers via ServiceLoader
       java.util.ServiceLoader<com.gentoro.onemcp.indexing.driver.spi.GraphDriverProvider> loader =

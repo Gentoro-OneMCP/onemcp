@@ -1,3 +1,3 @@
 com.gentoro.onemcp.indexing.driver.providers.InMemoryGraphDriverProvider
 com.gentoro.onemcp.indexing.driver.providers.ArangoGraphDriverProvider
-com.gentoro.onemcp.indexing.driver.providers.Neo4jGraphDriverProvider
+com.gentoro.onemcp.indexing.driver.providers.OrientGraphDriverProvider

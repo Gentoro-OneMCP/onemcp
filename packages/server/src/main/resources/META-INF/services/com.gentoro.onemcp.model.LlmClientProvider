@@ -1,3 +1,4 @@
 com.gentoro.onemcp.model.AnthropicLlmClientProvider
 com.gentoro.onemcp.model.GeminiLlmClientProvider
 com.gentoro.onemcp.model.OpenAiLlmClientProvider
+com.gentoro.onemcp.model.OllamaLlmClientProvider

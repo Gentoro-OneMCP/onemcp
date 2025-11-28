@@ -2,10 +2,6 @@ package com.gentoro.onemcp.orchestrator;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.gentoro.onemcp.OneMcp;
-import com.gentoro.onemcp.cache.DictionaryExtractorService;
-import com.gentoro.onemcp.cache.PromptDictionary;
-import com.gentoro.onemcp.cache.PromptSchemaNormalizer;
-import com.gentoro.onemcp.cache.PromptSchemaWorkflow;
 import com.gentoro.onemcp.engine.ExecutionPlanEngine;
 import com.gentoro.onemcp.engine.ExecutionPlanException;
 import com.gentoro.onemcp.engine.OperationRegistry;
@@ -18,19 +14,10 @@ import com.gentoro.onemcp.messages.AssigmentResult;
 import com.gentoro.onemcp.messages.AssignmentContext;
 import com.gentoro.onemcp.orchestrator.progress.NoOpProgressSink;
 import com.gentoro.onemcp.orchestrator.progress.ProgressSink;
-import com.gentoro.onemcp.memory.ValueStore;
-import com.gentoro.onemcp.openapi.OpenApiLoader;
-import com.gentoro.onemcp.openapi.OpenApiProxy;
-import com.gentoro.onemcp.openapi.OpenApiProxyImpl;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import com.gentoro.onemcp.utility.StdoutUtility;
 import com.gentoro.onemcp.utility.StringUtility;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 public class OrchestratorService {
   private static final org.slf4j.Logger log =
@@ -138,7 +125,8 @@ public class OrchestratorService {
       // Plan generation stage
       progress.beginStage("plan", "Generating execution plan", 1);
       StdoutUtility.printNewLine(oneMcp, "Generating execution plan.");
-      JsonNode plan = new PlanGenerationService(ctx).generatePlan(assignmentContext);
+      JsonNode plan =
+          new PlanGenerationService(ctx).generatePlan(assignmentContext, retrievedContextualData);
       String planJson = JacksonUtility.toJson(plan);
       StdoutUtility.printSuccessLine(
           oneMcp, "Generated plan:\n%s".formatted(StringUtility.formatWithIndent(planJson, 4)));

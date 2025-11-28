@@ -92,17 +92,6 @@ class HandbookGraphServiceTest {
       }
 
       @Override
-      public java.util.Optional<com.gentoro.onemcp.handbook.model.guardrails.Guardrails>
-          optionalGuardrails() {
-        return java.util.Optional.empty();
-      }
-
-      @Override
-      public com.gentoro.onemcp.handbook.model.guardrails.Guardrails guardrails() {
-        throw new UnsupportedOperationException();
-      }
-
-      @Override
       public Map<String, com.gentoro.onemcp.handbook.model.regression.RegressionSuite>
           regressionSuites() {
         return Map.of();

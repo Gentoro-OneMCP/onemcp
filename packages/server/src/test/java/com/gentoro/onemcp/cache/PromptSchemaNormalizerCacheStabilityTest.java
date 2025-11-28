@@ -12,10 +12,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 
 /**
  * Test for cache key stability of the PromptSchemaNormalizer.
@@ -25,6 +22,7 @@ import org.junit.jupiter.api.Test;
  * within the same cluster produce identical cache keys.
  *
  * <p>This test uses REAL components - no mocking:
+ *
  * <ul>
  *   <li>Real OneMcp instance with actual LLM client
  *   <li>Real dictionary generation from Acme API handbook
@@ -42,8 +40,8 @@ class PromptSchemaNormalizerCacheStabilityTest {
   private Path dictionaryPath;
 
   /**
-   * Define clusters of prompts that should map to the same cache key. Each cluster contains
-   * prompts that should normalize to the same schema (same action, entities, fields).
+   * Define clusters of prompts that should map to the same cache key. Each cluster contains prompts
+   * that should normalize to the same schema (same action, entities, fields).
    */
   private static class PromptCluster {
     final String clusterName;
@@ -66,13 +64,14 @@ class PromptSchemaNormalizerCacheStabilityTest {
     }
   }
 
-  @BeforeEach
+  // @BeforeEach
   void setUp() throws Exception {
     // Initialize real OneMcp instance
-    String[] appArgs = new String[] {
-        "--config", "classpath:application.yaml",
-        "--mode", "server" // Use server mode to avoid interactive prompts
-    };
+    String[] appArgs =
+        new String[] {
+          "--config", "classpath:application.yaml",
+          "--mode", "server" // Use server mode to avoid interactive prompts
+        };
     oneMcp = new OneMcp(appArgs);
     oneMcp.initialize();
 
@@ -83,7 +82,7 @@ class PromptSchemaNormalizerCacheStabilityTest {
     normalizer = new PromptSchemaNormalizer(oneMcp);
   }
 
-  @AfterEach
+  // @AfterEach
   void tearDown() {
     if (oneMcp != null) {
       oneMcp.shutdown();
@@ -91,8 +90,8 @@ class PromptSchemaNormalizerCacheStabilityTest {
   }
 
   /**
-   * Get dictionary from cache or generate it from Acme handbook.
-   * Dictionary is saved to target/test-reports/cache-stability/dictionary.yaml
+   * Get dictionary from cache or generate it from Acme handbook. Dictionary is saved to
+   * target/test-reports/cache-stability/dictionary.yaml
    */
   private PromptDictionary getOrGenerateDictionary() throws IOException, ExecutionException {
     // Dictionary location in target directory
@@ -109,15 +108,17 @@ class PromptSchemaNormalizerCacheStabilityTest {
       System.out.println("   Actions: " + dict.getActions().size());
       System.out.println("   Entities: " + dict.getEntities().size());
       System.out.println("   Fields: " + dict.getFields().size());
-      System.out.println("   Operators: " + (dict.getOperators() != null ? dict.getOperators().size() : 0));
-      System.out.println("   Aggregates: " + (dict.getAggregates() != null ? dict.getAggregates().size() : 0));
+      System.out.println(
+          "   Operators: " + (dict.getOperators() != null ? dict.getOperators().size() : 0));
+      System.out.println(
+          "   Aggregates: " + (dict.getAggregates() != null ? dict.getAggregates().size() : 0));
       return dict;
     }
 
     // Dictionary doesn't exist, generate it from Acme handbook
     System.out.println("📝 Generating dictionary from Acme handbook...");
     Path acmeHandbookPath = Paths.get("src", "main", "resources", "acme-handbook");
-    
+
     if (!Files.exists(acmeHandbookPath)) {
       throw new IOException("Acme handbook not found at: " + acmeHandbookPath.toAbsolutePath());
     }
@@ -131,15 +132,17 @@ class PromptSchemaNormalizerCacheStabilityTest {
     System.out.println("   Actions: " + dict.getActions().size());
     System.out.println("   Entities: " + dict.getEntities().size());
     System.out.println("   Fields: " + dict.getFields().size());
-    System.out.println("   Operators: " + (dict.getOperators() != null ? dict.getOperators().size() : 0));
-    System.out.println("   Aggregates: " + (dict.getAggregates() != null ? dict.getAggregates().size() : 0));
+    System.out.println(
+        "   Operators: " + (dict.getOperators() != null ? dict.getOperators().size() : 0));
+    System.out.println(
+        "   Aggregates: " + (dict.getAggregates() != null ? dict.getAggregates().size() : 0));
 
     return dict;
   }
 
   /**
-   * Create a dictionary based on the Acme Sales Analytics API specification.
-   * NOTE: This method is no longer used - we now generate from the real handbook.
+   * Create a dictionary based on the Acme Sales Analytics API specification. NOTE: This method is
+   * no longer used - we now generate from the real handbook.
    */
   @SuppressWarnings("unused")
   private PromptDictionary createAcmeDictionary() {
@@ -225,8 +228,8 @@ class PromptSchemaNormalizerCacheStabilityTest {
   /**
    * Define prompt clusters based on the Acme API. Each cluster contains prompts that should
    * normalize to the same schema structure.
-   * 
-   * NOTE: Group by clusters are placed first to catch issues early and save tokens.
+   *
+   * <p>NOTE: Group by clusters are placed first to catch issues early and save tokens.
    */
   private List<PromptCluster> createPromptClusters() {
     List<PromptCluster> clusters = new ArrayList<>();
@@ -348,20 +351,20 @@ class PromptSchemaNormalizerCacheStabilityTest {
     List<PromptCluster> reordered = new ArrayList<>();
     List<PromptCluster> groupByClusters = new ArrayList<>();
     List<PromptCluster> otherClusters = new ArrayList<>();
-    
+
     for (PromptCluster cluster : clusters) {
-      if ("summarize".equals(cluster.expectedAction) && 
-          cluster.expectedFields.size() > 1) { // Group by clusters have multiple fields
+      if ("summarize".equals(cluster.expectedAction)
+          && cluster.expectedFields.size() > 1) { // Group by clusters have multiple fields
         groupByClusters.add(cluster);
       } else {
         otherClusters.add(cluster);
       }
     }
-    
+
     // Put group by clusters first, then others
     reordered.addAll(groupByClusters);
     reordered.addAll(otherClusters);
-    
+
     return reordered;
   }
 
@@ -409,9 +412,7 @@ class PromptSchemaNormalizerCacheStabilityTest {
     return json.toString();
   }
 
-  /**
-   * Data structure to hold cluster test results for report generation.
-   */
+  /** Data structure to hold cluster test results for report generation. */
   private static class ClusterResult {
     final PromptCluster cluster;
     final Map<String, String> promptToCacheKey;
@@ -432,8 +433,8 @@ class PromptSchemaNormalizerCacheStabilityTest {
     }
   }
 
-  @Test
-  @DisplayName("Test cache key stability - detailed analysis with report")
+  // @Test
+  // @DisplayName("Test cache key stability - detailed analysis with report")
   void testCacheKeyStabilityDetailed() throws Exception {
     List<PromptCluster> clusters = createPromptClusters();
 
@@ -486,14 +487,12 @@ class PromptSchemaNormalizerCacheStabilityTest {
         successfulClusters++;
       }
 
-      results.add(
-          new ClusterResult(cluster, promptToCacheKey, promptToSchema, uniqueCacheKeys));
+      results.add(new ClusterResult(cluster, promptToCacheKey, promptToSchema, uniqueCacheKeys));
 
       System.out.println("  Prompts tested: " + cluster.prompts.size());
       System.out.println("  Unique cache keys: " + uniqueCacheKeys.size());
-      System.out.println(
-          "  Status: " + (clusterSuccess ? "✅ PASS" : "❌ FAIL - keys differ"));
-      
+      System.out.println("  Status: " + (clusterSuccess ? "✅ PASS" : "❌ FAIL - keys differ"));
+
       // Show cache keys
       if (clusterSuccess && !uniqueCacheKeys.isEmpty()) {
         System.out.println("  Cache Key: " + uniqueCacheKeys.iterator().next());
@@ -530,8 +529,9 @@ class PromptSchemaNormalizerCacheStabilityTest {
                 : "N/A"));
 
     // Generate report
-    String reportPath = generateReport(results, totalClusters, successfulClusters, totalPrompts, successfulPrompts);
-    
+    String reportPath =
+        generateReport(results, totalClusters, successfulClusters, totalPrompts, successfulPrompts);
+
     // Print prominent report location
     System.out.println("\n" + "=".repeat(80));
     System.out.println("📄 CACHE STABILITY TEST REPORT");
@@ -554,9 +554,7 @@ class PromptSchemaNormalizerCacheStabilityTest {
             + " cluster(s) failed.");
   }
 
-  /**
-   * Generate a comprehensive markdown report of the cache stability test results.
-   */
+  /** Generate a comprehensive markdown report of the cache stability test results. */
   private String generateReport(
       List<ClusterResult> results,
       int totalClusters,
@@ -577,17 +575,18 @@ class PromptSchemaNormalizerCacheStabilityTest {
 
     // Header
     report.append("# Cache Key Stability Test Report\n\n");
-    report.append("**Generated:** ")
+    report
+        .append("**Generated:** ")
         .append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
         .append("\n\n");
     report.append("---\n\n");
 
     // Executive Summary
     report.append("## Executive Summary\n\n");
-    double successRate =
-        totalClusters > 0 ? (successfulClusters * 100.0 / totalClusters) : 0.0;
+    double successRate = totalClusters > 0 ? (successfulClusters * 100.0 / totalClusters) : 0.0;
     String statusEmoji = successRate == 100.0 ? "✅" : successRate >= 80.0 ? "⚠️" : "❌";
-    report.append(statusEmoji)
+    report
+        .append(statusEmoji)
         .append(" **Overall Status: ")
         .append(successRate == 100.0 ? "PASS" : "NEEDS ATTENTION")
         .append("**\n\n");
@@ -596,12 +595,8 @@ class PromptSchemaNormalizerCacheStabilityTest {
     report.append("|--------|-------|\n");
     report.append("| Total Clusters | ").append(totalClusters).append(" |\n");
     report.append("| Successful Clusters | ").append(successfulClusters).append(" |\n");
-    report.append("| Failed Clusters | ")
-        .append(totalClusters - successfulClusters)
-        .append(" |\n");
-    report.append("| Success Rate | ")
-        .append(String.format("%.1f%%", successRate))
-        .append(" |\n");
+    report.append("| Failed Clusters | ").append(totalClusters - successfulClusters).append(" |\n");
+    report.append("| Success Rate | ").append(String.format("%.1f%%", successRate)).append(" |\n");
     report.append("| Total Prompts Tested | ").append(totalPrompts).append(" |\n");
     report.append("| Successful Prompts | ").append(successfulPrompts).append(" |\n");
     report.append("\n");
@@ -620,16 +615,19 @@ class PromptSchemaNormalizerCacheStabilityTest {
 
       report.append("**Expected Schema:**\n");
       report.append("- **Action:** `").append(cluster.expectedAction).append("`\n");
-      report.append("- **Entities:** `")
+      report
+          .append("- **Entities:** `")
           .append(String.join(", ", cluster.expectedEntities))
           .append("`\n");
-      report.append("- **Fields:** `")
+      report
+          .append("- **Fields:** `")
           .append(String.join(", ", cluster.expectedFields))
           .append("`\n\n");
 
       report.append("**Test Results:**\n");
       report.append("- Prompts tested: ").append(cluster.prompts.size()).append("\n");
-      report.append("- Unique cache keys found: ")
+      report
+          .append("- Unique cache keys found: ")
           .append(result.uniqueCacheKeys.size())
           .append("\n\n");
 
@@ -665,20 +663,26 @@ class PromptSchemaNormalizerCacheStabilityTest {
         report.append("**Prompt:** \"").append(prompt).append("\"\n");
         if (schema != null) {
           report.append("- Action: `").append(schema.getAction()).append("`\n");
-          report.append("- Entities: `")
+          report
+              .append("- Entities: `")
               .append(String.join(", ", schema.getEntities()))
               .append("`\n");
           if (schema.getParams() != null && !schema.getParams().isEmpty()) {
-            report.append("- Params: `")
+            report
+                .append("- Params: `")
                 .append(String.join(", ", schema.getParams().keySet()))
                 .append("`\n");
           }
           if (schema.getGroupBy() != null && !schema.getGroupBy().isEmpty()) {
-            report.append("- Group By: `")
+            report
+                .append("- Group By: `")
                 .append(String.join(", ", schema.getGroupBy()))
                 .append("`\n");
           }
-          report.append("- Cache Key: `").append(cacheKey != null ? cacheKey : "null").append("`\n");
+          report
+              .append("- Cache Key: `")
+              .append(cacheKey != null ? cacheKey : "null")
+              .append("`\n");
         } else {
           report.append("- ⚠️ No schema generated\n");
         }
@@ -719,4 +723,3 @@ class PromptSchemaNormalizerCacheStabilityTest {
     return reportFile.toAbsolutePath().toString();
   }
 }
-

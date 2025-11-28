@@ -99,23 +99,26 @@
             <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
-        <!-- Neo4j Embedded (Indexing/Query drivers) -->
         <dependency>
-            <groupId>org.neo4j</groupId>
-            <artifactId>neo4j</artifactId>
-            <version>5.23.0</version>
+            <groupId>com.orientechnologies</groupId>
+            <artifactId>orientdb-core</artifactId>
+            <version>3.2.46</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.graalvm.sdk</groupId>
+                    <artifactId>graal-sdk</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.graalvm.js</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
+
         <dependency>
-            <groupId>org.neo4j</groupId>
-            <artifactId>neo4j-dbms</artifactId>
-            <version>5.23.0</version>
-        </dependency>
-        <!-- Neo4j test harness for unit/integration tests -->
-        <dependency>
-            <groupId>org.neo4j.test</groupId>
-            <artifactId>neo4j-harness</artifactId>
-            <version>5.23.0</version>
-            <scope>test</scope>
+            <groupId>com.orientechnologies</groupId>
+            <artifactId>orientdb-graphdb</artifactId>
+            <version>3.2.46</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.openai/openai-java -->
         <dependency>
@@ -206,9 +209,9 @@
                 <artifactId>maven-assembly-plugin</artifactId>
                 <version>3.6.0</version>
                 <configuration>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
+                    <descriptors>
+                        <descriptor>src/assembly/complete.xml</descriptor>
+                    </descriptors>
                     <archive>
                         <manifest>
                             <addClasspath>true</addClasspath>

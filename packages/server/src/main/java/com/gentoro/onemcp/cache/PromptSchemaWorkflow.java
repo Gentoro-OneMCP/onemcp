@@ -9,8 +9,8 @@ import java.util.Objects;
 /**
  * Prompt Schema Workflow (PSW) - A sequence of Prompt Schemas.
  *
- * <p>Represents prompts that decompose into multiple sequential steps.
- * Example: "Find flights to NYC, pick the cheapest one, and book it."
+ * <p>Represents prompts that decompose into multiple sequential steps. Example: "Find flights to
+ * NYC, pick the cheapest one, and book it."
  *
  * <p>Currently supports "sequential" workflow type.
  */
@@ -103,6 +103,3 @@ public class PromptSchemaWorkflow {
         + '}';
   }
 }
-
-
-

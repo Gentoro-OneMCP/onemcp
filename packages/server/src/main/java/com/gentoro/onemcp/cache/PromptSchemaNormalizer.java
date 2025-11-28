@@ -16,9 +16,9 @@ import java.util.Map;
 /**
  * Service for normalizing natural-language prompts into Prompt Schema Workflows.
  *
- * <p>Uses LLM to convert user prompts into structured Prompt Schemas according
- * to the Prompt Schema Specification. The normalizer validates against a
- * dictionary to ensure only canonical vocabulary is used.
+ * <p>Uses LLM to convert user prompts into structured Prompt Schemas according to the Prompt Schema
+ * Specification. The normalizer validates against a dictionary to ensure only canonical vocabulary
+ * is used.
  */
 public class PromptSchemaNormalizer {
   private static final org.slf4j.Logger log =
@@ -54,7 +54,7 @@ public class PromptSchemaNormalizer {
     if (dictionary == null) {
       throw new IllegalArgumentException("Dictionary cannot be null");
     }
-    
+
     // Validate dictionary has required components
     if (dictionary.getActions() == null || dictionary.getActions().isEmpty()) {
       log.warn("Dictionary has no actions");
@@ -72,8 +72,9 @@ public class PromptSchemaNormalizer {
     // Serialize dictionary to JSON string for better LLM consumption
     String dictionaryJson = serializeDictionaryToJson(dictionary);
     context.put("dictionary", dictionaryJson);
-    
-    log.debug("Dictionary summary - Actions: {}, Entities: {}, Fields: {}, Operators: {}, Aggregates: {}", 
+
+    log.debug(
+        "Dictionary summary - Actions: {}, Entities: {}, Fields: {}, Operators: {}, Aggregates: {}",
         dictionary.getActions() != null ? dictionary.getActions().size() : 0,
         dictionary.getEntities() != null ? dictionary.getEntities().size() : 0,
         dictionary.getFields() != null ? dictionary.getFields().size() : 0,
@@ -96,16 +97,16 @@ public class PromptSchemaNormalizer {
     if (llmClient == null) {
       throw new ExecutionException("LLM client not available");
     }
-    
+
     // Retry loop with validation feedback
     PromptSchemaWorkflow workflow = null;
     int maxAttempts = 3;
     int attempt = 0;
     List<String> previousErrors = new ArrayList<>();
-    
+
     while (attempt < maxAttempts) {
       attempt++;
-      
+
       // Add validation feedback from previous attempt if retrying
       List<LlmClient.Message> messagesToSend = new ArrayList<>(messages);
       if (attempt > 1 && !previousErrors.isEmpty()) {
@@ -114,97 +115,113 @@ public class PromptSchemaNormalizer {
         for (String error : previousErrors) {
           feedback.append("❌ ").append(error).append("\n");
         }
-        feedback.append("\nCRITICAL: You MUST use ONLY values from the Dictionary provided above.\n");
+        feedback.append(
+            "\nCRITICAL: You MUST use ONLY values from the Dictionary provided above.\n");
         feedback.append("Please correct your response and try again.\n");
         feedback.append("Remember:\n");
         feedback.append("- Action MUST be in Dictionary.actions\n");
         feedback.append("- Entities MUST be in Dictionary.entities\n");
-        feedback.append("- Field names in params MUST be in Dictionary.fields (use underscores, not dots)\n");
+        feedback.append(
+            "- Field names in params MUST be in Dictionary.fields (use underscores, not dots)\n");
         feedback.append("- Do NOT use 'query' unless it's in Dictionary.actions\n");
-        
+
         messagesToSend.add(new LlmClient.Message(LlmClient.Role.USER, feedback.toString()));
-        log.warn("Retrying normalization (attempt {}/{}) with validation feedback", attempt, maxAttempts);
+        log.warn(
+            "Retrying normalization (attempt {}/{}) with validation feedback",
+            attempt,
+            maxAttempts);
       }
-      
+
       long inferenceStart = System.currentTimeMillis();
-      
+
       // Create telemetry sink to capture token usage and set phase for logging
       final long[] tokenCounts = new long[3]; // [promptTokens, completionTokens, totalTokens]
       final Map<String, Object> sinkAttributes = new HashMap<>();
       sinkAttributes.put("phase", "normalize"); // Set phase so LLM client detects it correctly
-      
-      LlmClient.TelemetrySink tokenSink = new LlmClient.TelemetrySink() {
-        @Override
-        public void startChild(String name) {}
-        
-        @Override
-        public void endCurrentOk(java.util.Map<String, Object> attrs) {}
-        
-        @Override
-        public void endCurrentError(java.util.Map<String, Object> attrs) {}
-        
-        @Override
-        public void addUsage(Long promptTokens, Long completionTokens, Long totalTokens) {
-          if (promptTokens != null) tokenCounts[0] = promptTokens;
-          if (completionTokens != null) tokenCounts[1] = completionTokens;
-          if (totalTokens != null) tokenCounts[2] = totalTokens;
-        }
-        
-        @Override
-        public java.util.Map<String, Object> currentAttributes() {
-          return sinkAttributes;
-        }
-      };
-      
+
+      LlmClient.TelemetrySink tokenSink =
+          new LlmClient.TelemetrySink() {
+            @Override
+            public void startChild(String name) {}
+
+            @Override
+            public void endCurrentOk(java.util.Map<String, Object> attrs) {}
+
+            @Override
+            public void endCurrentError(java.util.Map<String, Object> attrs) {}
+
+            @Override
+            public void addUsage(Long promptTokens, Long completionTokens, Long totalTokens) {
+              if (promptTokens != null) tokenCounts[0] = promptTokens;
+              if (completionTokens != null) tokenCounts[1] = completionTokens;
+              if (totalTokens != null) tokenCounts[2] = totalTokens;
+            }
+
+            @Override
+            public java.util.Map<String, Object> currentAttributes() {
+              return sinkAttributes;
+            }
+          };
+
       String response;
       try (LlmClient.TelemetryScope ignored = llmClient.withTelemetry(tokenSink)) {
         // LLM client will automatically log input messages and inference complete
         // with phase detected from telemetry sink attributes
         response = llmClient.chat(messagesToSend, Collections.emptyList(), false, null);
       }
-      
-      // Log token usage
-      log.debug("Token usage - prompt: {}, completion: {}, total: {}", 
-          tokenCounts[0], tokenCounts[1], tokenCounts[2]);
 
-    // Extract JSON from response (may be wrapped in markdown code blocks)
-    String jsonStr = extractJsonFromResponse(response);
-    if (jsonStr == null || jsonStr.trim().isEmpty()) {
-      log.error("No JSON content found in LLM response");
-      log.debug("LLM response was: {}", response);
+      // Log token usage
+      log.debug(
+          "Token usage - prompt: {}, completion: {}, total: {}",
+          tokenCounts[0],
+          tokenCounts[1],
+          tokenCounts[2]);
+
+      // Extract JSON from response (may be wrapped in markdown code blocks)
+      String jsonStr = extractJsonFromResponse(response);
+      if (jsonStr == null || jsonStr.trim().isEmpty()) {
+        log.error("No JSON content found in LLM response");
+        log.debug("LLM response was: {}", response);
         if (attempt < maxAttempts) {
           previousErrors.clear();
           previousErrors.add("No JSON content found in response");
           continue;
         }
-      throw new ExecutionException("No JSON content found in LLM response");
-    }
+        throw new ExecutionException("No JSON content found in LLM response");
+      }
 
       // Clean JSON: remove trailing commas and fix common issues
       jsonStr = cleanJson(jsonStr);
 
-    // Log the extracted JSON for debugging
-    log.debug("Extracted JSON from LLM response (first 500 chars): {}", 
-        jsonStr.length() > 500 ? jsonStr.substring(0, 500) + "..." : jsonStr);
+      // Log the extracted JSON for debugging
+      log.debug(
+          "Extracted JSON from LLM response (first 500 chars): {}",
+          jsonStr.length() > 500 ? jsonStr.substring(0, 500) + "..." : jsonStr);
 
-    // Parse JSON response
-    try {
-      workflow = objectMapper.readValue(jsonStr, PromptSchemaWorkflow.class);
-      
-      // Generate cache keys for all prompt schemas in the workflow
-      if (workflow != null && workflow.getSteps() != null) {
-        for (PromptSchemaStep step : workflow.getSteps()) {
-          if (step != null && step.getPs() != null) {
-            step.getPs().generateCacheKey();
-            log.debug("Generated cache key for schema: {}", step.getPs().getCacheKey());
+      // Parse JSON response
+      try {
+        workflow = objectMapper.readValue(jsonStr, PromptSchemaWorkflow.class);
+
+        // Generate cache keys for all prompt schemas in the workflow
+        if (workflow != null && workflow.getSteps() != null) {
+          for (PromptSchemaStep step : workflow.getSteps()) {
+            if (step != null && step.getPs() != null) {
+              step.getPs().generateCacheKey();
+              log.debug("Generated cache key for schema: {}", step.getPs().getCacheKey());
+            }
           }
         }
-      }
-    } catch (Exception parseError) {
-        log.error("Failed to parse Prompt Schema Workflow from LLM response (attempt {})", attempt, parseError);
-        log.error("Extracted JSON (first 1000 chars): {}", 
-            jsonStr != null && jsonStr.length() > 1000 ? jsonStr.substring(0, 1000) + "..." : jsonStr);
-      
+      } catch (Exception parseError) {
+        log.error(
+            "Failed to parse Prompt Schema Workflow from LLM response (attempt {})",
+            attempt,
+            parseError);
+        log.error(
+            "Extracted JSON (first 1000 chars): {}",
+            jsonStr != null && jsonStr.length() > 1000
+                ? jsonStr.substring(0, 1000) + "..."
+                : jsonStr);
+
         // Try to extract error location from exception message
         String errorLocation = null;
         if (parseError.getMessage() != null && parseError.getMessage().contains("column:")) {
@@ -221,7 +238,10 @@ public class PromptSchemaNormalizer {
                   int columnNum = Integer.parseInt(columnPart.substring(8, columnEnd).trim());
                   int start = Math.max(0, columnNum - 100);
                   int end = Math.min(jsonStr.length(), columnNum + 100);
-                  log.error("JSON context around error (column {}): ...{}...", columnNum, jsonStr.substring(start, end));
+                  log.error(
+                      "JSON context around error (column {}): ...{}...",
+                      columnNum,
+                      jsonStr.substring(start, end));
                 } catch (NumberFormatException e) {
                   // Ignore
                 }
@@ -231,18 +251,21 @@ public class PromptSchemaNormalizer {
             // Ignore
           }
         }
-        
+
         // If we have retries left, retry with parse error feedback
         if (attempt < maxAttempts) {
           previousErrors.clear();
-          
+
           // Provide specific feedback based on error type
           String errorMsg = parseError.getMessage();
           if (errorMsg != null) {
-            if (errorMsg.contains("Unexpected") || errorMsg.contains("expected") || errorMsg.contains("close marker")) {
+            if (errorMsg.contains("Unexpected")
+                || errorMsg.contains("expected")
+                || errorMsg.contains("close marker")) {
               previousErrors.add("❌ JSON SYNTAX ERROR: " + errorMsg);
               previousErrors.add("Your JSON has a syntax error. Common issues:");
-              previousErrors.add("  - Trailing commas before closing brackets/braces (e.g., \"field\": \"value\", })");
+              previousErrors.add(
+                  "  - Trailing commas before closing brackets/braces (e.g., \"field\": \"value\", })");
               previousErrors.add("  - Mismatched brackets [ ] or braces { }");
               previousErrors.add("  - Missing quotes around string values");
               previousErrors.add("  - Invalid characters in JSON");
@@ -255,16 +278,19 @@ public class PromptSchemaNormalizer {
               previousErrors.add("        \"ps\": {");
               previousErrors.add("          \"action\": \"summarize\",");
               previousErrors.add("          \"entities\": [\"sale\"],");
-              previousErrors.add("          \"group_by\": [\"customer_state\"],  // OPTIONAL - NO trailing comma if last field");
+              previousErrors.add(
+                  "          \"group_by\": [\"customer_state\"],  // OPTIONAL - NO trailing comma if last field");
               previousErrors.add("          \"params\": {");
-              previousErrors.add("            \"sale_amount\": { \"aggregate\": \"sum\" }  // NO trailing comma");
+              previousErrors.add(
+                  "            \"sale_amount\": { \"aggregate\": \"sum\" }  // NO trailing comma");
               previousErrors.add("          }");
               previousErrors.add("        }");
               previousErrors.add("      }");
               previousErrors.add("    ]");
               previousErrors.add("  }");
               previousErrors.add("");
-              previousErrors.add("IMPORTANT: Do NOT put a comma after the last item in arrays or objects!");
+              previousErrors.add(
+                  "IMPORTANT: Do NOT put a comma after the last item in arrays or objects!");
               // Try to find the problematic location
               if (errorMsg.contains("column:")) {
                 try {
@@ -292,64 +318,82 @@ public class PromptSchemaNormalizer {
           } else {
             previousErrors.add("Failed to parse JSON - invalid structure");
           }
-          
+
           // Add the actual JSON snippet to help debug (show more context around error)
-          String jsonSnippet = jsonStr.length() > 1500 ? jsonStr.substring(0, 1500) + "..." : jsonStr;
+          String jsonSnippet =
+              jsonStr.length() > 1500 ? jsonStr.substring(0, 1500) + "..." : jsonStr;
           previousErrors.add("");
           previousErrors.add("Your JSON (first 1500 chars):");
           previousErrors.add(jsonSnippet);
           previousErrors.add("");
           previousErrors.add("Please fix the JSON syntax. Check for:");
           previousErrors.add("  1. Trailing commas (remove commas before } or ])");
-          previousErrors.add("  2. Mismatched brackets/braces (every { needs } and every [ needs ])");
-          previousErrors.add("  3. Proper string quoting (all string values must be in double quotes)");
-          
+          previousErrors.add(
+              "  2. Mismatched brackets/braces (every { needs } and every [ needs ])");
+          previousErrors.add(
+              "  3. Proper string quoting (all string values must be in double quotes)");
+
           continue; // Retry with feedback
         }
-        
+
         // If we've exhausted retries, throw
-        throw new PromptNormalizationException("Failed to parse Prompt Schema Workflow after " + maxAttempts + 
-            " attempts: " + parseError.getMessage() + 
-            ". Check the JSON syntax - ensure all brackets, braces, and commas are correct.", parseError, jsonStr);
+        throw new PromptNormalizationException(
+            "Failed to parse Prompt Schema Workflow after "
+                + maxAttempts
+                + " attempts: "
+                + parseError.getMessage()
+                + ". Check the JSON syntax - ensure all brackets, braces, and commas are correct.",
+            parseError,
+            jsonStr);
       }
-      
+
       // Validate the normalized workflow (but don't fail parsing if validation fails)
       List<String> validationErrors = new ArrayList<>();
       if (workflow != null) {
         validationErrors.addAll(workflow.validate(dictionary));
-        
+
         // No additional validation needed - workflow.validate() already checks against dictionary
-      
-      if (!validationErrors.isEmpty()) {
-          log.warn("Normalized workflow has validation errors (attempt {}): {}", attempt, validationErrors);
-          
+
+        if (!validationErrors.isEmpty()) {
+          log.warn(
+              "Normalized workflow has validation errors (attempt {}): {}",
+              attempt,
+              validationErrors);
+
           // If we have retries left, retry with feedback
           if (attempt < maxAttempts) {
             previousErrors = validationErrors;
             continue; // Retry with feedback
           }
-          
+
           // If we've exhausted retries, log but still return (for now)
-          log.error("Validation failed after {} attempts. Errors: {}", maxAttempts, validationErrors);
-        log.warn("Returning workflow with validation errors - PSW is not used for execution, so continuing");
-        return workflow; // Return even with validation errors - never throw for validation failures
-      }
+          log.error(
+              "Validation failed after {} attempts. Errors: {}", maxAttempts, validationErrors);
+          log.warn(
+              "Returning workflow with validation errors - PSW is not used for execution, so continuing");
+          return workflow; // Return even with validation errors - never throw for validation
+          // failures
+        }
 
         // Validation passed!
-        log.debug("Successfully normalized prompt to workflow with {} step(s) (attempt {})", 
-            workflow.getSteps().size(), attempt);
-      return workflow;
+        log.debug(
+            "Successfully normalized prompt to workflow with {} step(s) (attempt {})",
+            workflow.getSteps().size(),
+            attempt);
+        return workflow;
       }
     }
-    
+
     // This should never be reached, but handle null workflow case
-    throw new ExecutionException("Failed to normalize prompt: workflow is null after " + maxAttempts + " attempts");
+    throw new ExecutionException(
+        "Failed to normalize prompt: workflow is null after " + maxAttempts + " attempts");
   }
 
   /**
    * Serialize dictionary to JSON string for inclusion in the prompt.
-   * 
+   *
    * <p>JSON is preferred over YAML for LLMs because:
+   *
    * <ul>
    *   <li>More explicit structure - less ambiguity
    *   <li>Better training data coverage - LLMs see more JSON
@@ -364,14 +408,19 @@ public class PromptSchemaNormalizer {
   private String serializeDictionaryToJson(PromptDictionary dictionary) {
     try {
       Map<String, Object> dictMap = new HashMap<>();
-      
+
       // Ensure we always have lists (even if empty) to avoid null issues
-      List<String> actions = dictionary.getActions() != null ? dictionary.getActions() : new ArrayList<>();
-      List<String> entities = dictionary.getEntities() != null ? dictionary.getEntities() : new ArrayList<>();
-      List<String> fields = dictionary.getFields() != null ? dictionary.getFields() : new ArrayList<>();
-      List<String> operators = dictionary.getOperators() != null ? dictionary.getOperators() : new ArrayList<>();
-      List<String> aggregates = dictionary.getAggregates() != null ? dictionary.getAggregates() : new ArrayList<>();
-      
+      List<String> actions =
+          dictionary.getActions() != null ? dictionary.getActions() : new ArrayList<>();
+      List<String> entities =
+          dictionary.getEntities() != null ? dictionary.getEntities() : new ArrayList<>();
+      List<String> fields =
+          dictionary.getFields() != null ? dictionary.getFields() : new ArrayList<>();
+      List<String> operators =
+          dictionary.getOperators() != null ? dictionary.getOperators() : new ArrayList<>();
+      List<String> aggregates =
+          dictionary.getAggregates() != null ? dictionary.getAggregates() : new ArrayList<>();
+
       // Log if critical arrays are empty
       if (actions.isEmpty()) {
         log.error("CRITICAL: Dictionary has NO actions! This will cause normalization to fail.");
@@ -382,30 +431,32 @@ public class PromptSchemaNormalizer {
       if (fields.isEmpty()) {
         log.error("CRITICAL: Dictionary has NO fields! This will cause normalization to fail.");
       }
-      
-      
+
       dictMap.put("actions", actions);
       dictMap.put("entities", entities);
       dictMap.put("fields", fields);
       dictMap.put("operators", operators);
       dictMap.put("aggregates", aggregates);
-      
-      
+
       // Pretty-print JSON for better LLM readability
       String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(dictMap);
-      
+
       // Verify actions are in the JSON
       if (!json.contains("\"actions\"")) {
         log.error("Serialized JSON does not contain 'actions' key");
-      } else if (json.contains("\"actions\" : [ ]") || json.contains("\"actions\" : []") || json.contains("\"actions\":[]")) {
+      } else if (json.contains("\"actions\" : [ ]")
+          || json.contains("\"actions\" : []")
+          || json.contains("\"actions\":[]")) {
         log.error("Serialized JSON has empty actions array");
       }
-      
+
       return json;
     } catch (Exception e) {
       log.error("Failed to serialize dictionary to JSON", e);
       // Fallback to basic string representation
-      return "{\"error\": \"Failed to serialize dictionary\", \"message\": \"" + e.getMessage() + "\"}";
+      return "{\"error\": \"Failed to serialize dictionary\", \"message\": \""
+          + e.getMessage()
+          + "\"}";
     }
   }
 
@@ -461,7 +512,7 @@ public class PromptSchemaNormalizer {
     // Remove trailing commas before closing brackets/braces
     // Pattern: ,\s*[}\]]
     json = json.replaceAll(",\\s*([}\\]])", "$1");
-    
+
     // Remove trailing commas in arrays/objects
     // Pattern: ,\s*] or ,\s*}
     json = json.replaceAll(",\\s*\\]", "]");
@@ -475,8 +526,8 @@ public class PromptSchemaNormalizer {
   }
 
   /**
-   * Remove extra trailing brackets and braces that LLMs sometimes add.
-   * Finds the last complete JSON object by matching braces from the end.
+   * Remove extra trailing brackets and braces that LLMs sometimes add. Finds the last complete JSON
+   * object by matching braces from the end.
    *
    * @param json the JSON string to clean
    * @return cleaned JSON string with trailing extras removed
@@ -490,7 +541,7 @@ public class PromptSchemaNormalizer {
     int openBraces = 0;
     int openBrackets = 0;
     int validEnd = json.length();
-    
+
     // Work backwards from the end
     for (int i = json.length() - 1; i >= 0; i--) {
       char c = json.charAt(i);
@@ -508,7 +559,7 @@ public class PromptSchemaNormalizer {
       } else if (c == '[') {
         openBrackets--;
       }
-      
+
       // If we've closed all braces and brackets, we found the end
       if (openBraces == 0 && openBrackets == 0 && i < json.length() - 1) {
         validEnd = i + 1;
@@ -520,7 +571,7 @@ public class PromptSchemaNormalizer {
         }
       }
     }
-    
+
     // If we found a valid end point, use it
     if (validEnd < json.length()) {
       String trimmed = json.substring(0, validEnd).trim();
@@ -530,8 +581,7 @@ public class PromptSchemaNormalizer {
         return trimmed;
       }
     }
-    
+
     return json;
   }
 }
-
