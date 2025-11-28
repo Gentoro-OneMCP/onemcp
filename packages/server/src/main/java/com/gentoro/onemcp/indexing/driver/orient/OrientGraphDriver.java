@@ -25,7 +25,7 @@ public class OrientGraphDriver implements GraphDriver {
   private final AtomicBoolean initialized = new AtomicBoolean(false);
 
   private OrientDB orient;
-  private ODatabaseSession db;
+  private ODatabasePool orientDbPool;
 
   private String database;
   private File dbRoot;
@@ -75,12 +75,9 @@ public class OrientGraphDriver implements GraphDriver {
         }
       }
 
-      // admin/admin ALWAYS works when DB folder is correct
-      db = orient.open(database, "admin", "admin");
-
+      this.orientDbPool = new ODatabasePool(orient, database, "admin", "admin");
       setupSchema();
       initialized.set(true);
-
     } catch (Exception e) {
       throw new HandbookException("Failed to initialize OrientGraphDriver", e);
     }
@@ -127,35 +124,37 @@ public class OrientGraphDriver implements GraphDriver {
   }
 
   private void setupSchema() {
-    OSchema schema = db.getMetadata().getSchema();
+    try (ODatabaseSession db = this.orientDbPool.acquire()) {
+      OSchema schema = db.getMetadata().getSchema();
 
-    // === Vertex Classes ===
-    OClass kn = ensureVertexClass(schema, "KnowledgeNode");
-    OClass entity = ensureVertexClass(schema, "Entity");
-    OClass op = ensureVertexClass(schema, "Operation");
+      // === Vertex Classes ===
+      OClass kn = ensureVertexClass(schema, "KnowledgeNode");
+      OClass entity = ensureVertexClass(schema, "Entity");
+      OClass op = ensureVertexClass(schema, "Operation");
 
-    // === Properties ===
-    ensureProperty(entity, "name", OType.STRING);
-    ensureProperty(op, "name", OType.STRING);
+      // === Properties ===
+      ensureProperty(entity, "name", OType.STRING);
+      ensureProperty(op, "name", OType.STRING);
 
-    ensureUniqueIndex(entity, "Entity.name.unique", "name");
-    ensureUniqueIndex(op, "Operation.name.unique", "name");
+      ensureUniqueIndex(entity, "Entity.name.unique", "name");
+      ensureUniqueIndex(op, "Operation.name.unique", "name");
 
-    ensureProperty(kn, "key", OType.STRING);
-    ensureProperty(kn, "nodeType", OType.STRING);
-    ensureProperty(kn, "apiSlug", OType.STRING);
-    ensureProperty(kn, "operationId", OType.STRING);
-    ensureProperty(kn, "content", OType.STRING);
-    ensureProperty(kn, "contentFormat", OType.STRING);
-    ensureProperty(kn, "docPath", OType.STRING);
-    ensureProperty(kn, "title", OType.STRING);
-    ensureProperty(kn, "summary", OType.STRING);
+      ensureProperty(kn, "key", OType.STRING);
+      ensureProperty(kn, "nodeType", OType.STRING);
+      ensureProperty(kn, "apiSlug", OType.STRING);
+      ensureProperty(kn, "operationId", OType.STRING);
+      ensureProperty(kn, "content", OType.STRING);
+      ensureProperty(kn, "contentFormat", OType.STRING);
+      ensureProperty(kn, "docPath", OType.STRING);
+      ensureProperty(kn, "title", OType.STRING);
+      ensureProperty(kn, "summary", OType.STRING);
 
-    ensureUniqueIndex(kn, "KnowledgeNode.key.unique", "key");
+      ensureUniqueIndex(kn, "KnowledgeNode.key.unique", "key");
 
-    // === Edges ===
-    ensureEdgeClass(schema, "HasEntity");
-    ensureEdgeClass(schema, "HasOperation");
+      // === Edges ===
+      ensureEdgeClass(schema, "HasEntity");
+      ensureEdgeClass(schema, "HasOperation");
+    }
   }
 
   @Override
@@ -165,63 +164,65 @@ public class OrientGraphDriver implements GraphDriver {
 
   @Override
   public void upsertNodes(List<GraphNodeRecord> nodes) {
-    if (nodes == null || nodes.isEmpty()) return;
+    try (ODatabaseSession db = this.orientDbPool.acquire()) {
+      if (nodes == null || nodes.isEmpty()) return;
 
-    for (GraphNodeRecord rec : nodes) {
-      Map<String, Object> m = rec.toMap();
+      for (GraphNodeRecord rec : nodes) {
+        Map<String, Object> m = rec.toMap();
 
-      String key = (String) m.get("key");
+        String key = (String) m.get("key");
 
-      OResult existing =
-          db.query("SELECT FROM KnowledgeNode WHERE key = ?", key).stream()
-              .findFirst()
-              .orElse(null);
+        OResult existing =
+            db.query("SELECT FROM KnowledgeNode WHERE key = ?", key).stream()
+                .findFirst()
+                .orElse(null);
 
-      ODocument node =
-          existing != null ? (ODocument) existing.toElement() : new ODocument("KnowledgeNode");
+        ODocument node =
+            existing != null ? (ODocument) existing.toElement() : new ODocument("KnowledgeNode");
 
-      node.field("key", key);
-      node.field("nodeType", m.get("nodeType"));
-      node.field("apiSlug", m.get("apiSlug"));
-      node.field("operationId", m.get("operationId"));
-      node.field("content", m.get("content"));
-      node.field("contentFormat", m.get("contentFormat"));
-      node.field("docPath", m.get("docPath"));
-      node.field("title", m.get("title"));
-      node.field("summary", m.get("summary"));
+        node.field("key", key);
+        node.field("nodeType", m.get("nodeType"));
+        node.field("apiSlug", m.get("apiSlug"));
+        node.field("operationId", m.get("operationId"));
+        node.field("content", m.get("content"));
+        node.field("contentFormat", m.get("contentFormat"));
+        node.field("docPath", m.get("docPath"));
+        node.field("title", m.get("title"));
+        node.field("summary", m.get("summary"));
 
-      node.save();
+        node.save();
 
-      db.command("DELETE EDGE HasEntity WHERE out = ?", node.getIdentity());
-      db.command("DELETE EDGE HasOperation WHERE out = ?", node.getIdentity());
+        db.command("DELETE EDGE HasEntity WHERE out = ?", node.getIdentity());
+        db.command("DELETE EDGE HasOperation WHERE out = ?", node.getIdentity());
 
-      // Support both v2 canonical field "entities" (list) and legacy single "entity"
-      Object ents = m.get("entities");
-      if (ents instanceof Collection<?> c) {
-        for (Object eo : c) {
-          String en = Objects.toString(eo, null);
-          if (en == null || en.isBlank()) continue;
-          ODocument e = getOrCreateVertex("Entity", "name", en);
-          createEdge(node, e, "HasEntity");
+        // Support both v2 canonical field "entities" (list) and legacy single "entity"
+        Object ents = m.get("entities");
+        if (ents instanceof Collection<?> c) {
+          for (Object eo : c) {
+            String en = Objects.toString(eo, null);
+            if (en == null || en.isBlank()) continue;
+            ODocument e = getOrCreateVertex(db, "Entity", "name", en);
+            createEdge(db, node, e, "HasEntity");
+          }
+        } else {
+          String entity = (String) m.get("entity");
+          if (entity != null) {
+            ODocument e = getOrCreateVertex(db, "Entity", "name", entity);
+            createEdge(db, node, e, "HasEntity");
+          }
         }
-      } else {
-        String entity = (String) m.get("entity");
-        if (entity != null) {
-          ODocument e = getOrCreateVertex("Entity", "name", entity);
-          createEdge(node, e, "HasEntity");
-        }
-      }
 
-      @SuppressWarnings("unchecked")
-      List<String> ops = (List<String>) m.getOrDefault("operations", List.of());
-      for (String opName : ops) {
-        ODocument op = getOrCreateVertex("Operation", "name", opName);
-        createEdge(node, op, "HasOperation");
+        @SuppressWarnings("unchecked")
+        List<String> ops = (List<String>) m.getOrDefault("operations", List.of());
+        for (String opName : ops) {
+          ODocument op = getOrCreateVertex(db, "Operation", "name", opName);
+          createEdge(db, node, op, "HasOperation");
+        }
       }
     }
   }
 
-  private ODocument getOrCreateVertex(String cls, String field, String value) {
+  private ODocument getOrCreateVertex(ODatabaseSession db, String cls, String field, String value) {
     OResult r =
         db.query("SELECT FROM " + cls + " WHERE " + field + " = ?", value).stream()
             .findFirst()
@@ -234,99 +235,105 @@ public class OrientGraphDriver implements GraphDriver {
     return doc;
   }
 
-  private void createEdge(ODocument out, ODocument in, String edgeClass) {
+  private void createEdge(ODatabaseSession db, ODocument out, ODocument in, String edgeClass) {
     db.command("CREATE EDGE " + edgeClass + " FROM ? TO ?", out.getIdentity(), in.getIdentity());
   }
 
   @Override
   public List<Map<String, Object>> queryByContext(List<GraphContextTuple> tuples) {
-    if (tuples == null || tuples.isEmpty()) {
-      List<Map<String, Object>> all = new ArrayList<>();
-      for (OResult r : db.query("SELECT FROM KnowledgeNode").stream().toList()) {
-        all.add(((ODocument) r.toElement()).toMap());
+    try (ODatabaseSession db = this.orientDbPool.acquire()) {
+      if (tuples == null || tuples.isEmpty()) {
+        List<Map<String, Object>> all = new ArrayList<>();
+        for (OResult r : db.query("SELECT FROM KnowledgeNode").stream().toList()) {
+          all.add(((ODocument) r.toElement()).toMap());
+        }
+        return all;
       }
-      return all;
-    }
 
-    Map<String, Set<String>> opsByEntity = new HashMap<>();
-    Set<String> allEntities = new HashSet<>();
+      Map<String, Set<String>> opsByEntity = new HashMap<>();
+      Set<String> allEntities = new HashSet<>();
 
-    for (GraphContextTuple t : tuples) {
-      allEntities.add(t.getEntity());
-      opsByEntity.computeIfAbsent(t.getEntity(), k -> new HashSet<>()).addAll(t.getOperations());
-    }
+      for (GraphContextTuple t : tuples) {
+        allEntities.add(t.getEntity());
+        opsByEntity.computeIfAbsent(t.getEntity(), k -> new HashSet<>()).addAll(t.getOperations());
+      }
 
-    List<Map<String, Object>> results = new ArrayList<>();
+      List<Map<String, Object>> results = new ArrayList<>();
 
-    for (String entity : allEntities) {
-      String sql =
-          """
-                SELECT expand(kn) FROM (
-                  MATCH {
-                      class: Entity, as:e, where:(name = :entity)
-                  }.in('HasEntity') {
-                      as: kn
-                  }
-                  RETURN DISTINCT kn
-                )
-            """;
+      for (String entity : allEntities) {
+        String sql =
+            """
+                    SELECT expand(kn) FROM (
+                      MATCH {
+                          class: Entity, as:e, where:(name = :entity)
+                      }.in('HasEntity') {
+                          as: kn
+                      }
+                      RETURN DISTINCT kn
+                    )
+                """;
 
-      List<ODocument> knodes = new ArrayList<>();
-      for (OResult r : db.query(sql, Map.of("entity", entity)).stream().toList()) {
-        // After expand(kn), results should be full records; still guard and load if needed
-        OElement el = r.toElement();
-        if (el instanceof ODocument doc) {
-          knodes.add(doc);
-        } else if (r.getIdentity().isPresent()) {
-          knodes.add(db.load(r.getIdentity().get()));
+        List<ODocument> knodes = new ArrayList<>();
+        for (OResult r : db.query(sql, Map.of("entity", entity)).stream().toList()) {
+          // After expand(kn), results should be full records; still guard and load if needed
+          OElement el = r.toElement();
+          if (el instanceof ODocument doc) {
+            knodes.add(doc);
+          } else if (r.getIdentity().isPresent()) {
+            knodes.add(db.load(r.getIdentity().get()));
+          }
+        }
+
+        Set<String> requestedOps = opsByEntity.getOrDefault(entity, Set.of());
+
+        for (ODocument kn : knodes) {
+
+          List<String> nodeOps = new ArrayList<>();
+          for (OResult r :
+              db
+                  .query(
+                      "SELECT name FROM (SELECT expand(out('HasOperation')) FROM ?)",
+                      kn.getIdentity())
+                  .stream()
+                  .toList()) {
+            nodeOps.add(r.getProperty("name"));
+          }
+
+          if (requestedOps.isEmpty() || nodeOps.isEmpty()) {
+            results.add(kn.toMap());
+            continue;
+          }
+
+          boolean ok = nodeOps.stream().anyMatch(requestedOps::contains);
+          if (ok) results.add(kn.toMap());
         }
       }
 
-      Set<String> requestedOps = opsByEntity.getOrDefault(entity, Set.of());
-
-      for (ODocument kn : knodes) {
-
-        List<String> nodeOps = new ArrayList<>();
-        for (OResult r :
-            db
-                .query(
-                    "SELECT name FROM (SELECT expand(out('HasOperation')) FROM ?)",
-                    kn.getIdentity())
-                .stream()
-                .toList()) {
-          nodeOps.add(r.getProperty("name"));
-        }
-
-        if (requestedOps.isEmpty() || nodeOps.isEmpty()) {
-          results.add(kn.toMap());
-          continue;
-        }
-
-        boolean ok = nodeOps.stream().anyMatch(requestedOps::contains);
-        if (ok) results.add(kn.toMap());
-      }
+      return results;
     }
-
-    return results;
   }
 
   @Override
   public void deleteNodesByKeys(List<String> keys) {
-    db.command("DELETE FROM KnowledgeNode WHERE key IN ?", keys);
+    try (ODatabaseSession db = this.orientDbPool.acquire()) {
+      db.command("DELETE FROM KnowledgeNode WHERE key IN ?", keys);
+    }
   }
 
   @Override
   public void clearAll() {
-    db.command("DELETE VERTEX KnowledgeNode");
-    db.command("DELETE VERTEX Entity");
-    db.command("DELETE VERTEX Operation");
+    try (ODatabaseSession db = this.orientDbPool.acquire()) {
+      db.command("DELETE VERTEX KnowledgeNode");
+      db.command("DELETE VERTEX Entity");
+      db.command("DELETE VERTEX Operation");
+    }
   }
 
   @Override
   public void shutdown() {
     initialized.set(false);
     try {
-      if (db != null) db.close();
+      if (orientDbPool != null) orientDbPool.close();
       if (orient != null) orient.close();
     } catch (Exception ignore) {
     }

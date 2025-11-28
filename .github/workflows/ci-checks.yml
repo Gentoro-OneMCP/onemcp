@@ -4,7 +4,7 @@ env:
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
 on:
-  # push:
+  #push:
   #  branches: [ main ]
   pull_request:
     types: [opened, synchronize, reopened]
