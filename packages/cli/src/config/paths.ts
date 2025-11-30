@@ -15,15 +15,18 @@ export class PathManager {
   readonly logDir: string;
   readonly stateDir: string;
   readonly cacheDir: string;
+  readonly homeDir: string;
 
   private constructor() {
-    this.configRoot = join(homedir(), '.onemcp');
+    // Use ONEMCP_HOME_DIR if set, otherwise default to ~/.onemcp
+    this.homeDir = process.env.ONEMCP_HOME_DIR || join(homedir(), '.onemcp');
+    this.configRoot = this.homeDir;
     this.configFile = join(this.configRoot, 'config.yaml');
     this.servicesDir = join(this.configRoot, 'services');
     this.handbooksDir = join(homedir(), 'handbooks');
-    this.logDir = join(this.configRoot, 'logs');
+    this.logDir = join(this.homeDir, 'logs');
     this.stateDir = join(this.configRoot, 'state');
-    this.cacheDir = join(this.configRoot, 'cache');
+    this.cacheDir = join(this.homeDir, 'cache');
   }
 
   static getInstance(): PathManager {

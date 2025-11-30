@@ -66,6 +66,7 @@ llm:
     provider: gemini
   cache:
     enabled: false
+    location: ${env:ONEMCP_CACHE_DIR:-${env:ONEMCP_HOME_DIR:-cache}/cache}
 
 graph:
   indexing:

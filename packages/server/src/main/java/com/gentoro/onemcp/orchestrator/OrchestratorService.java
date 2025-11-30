@@ -244,12 +244,9 @@ public class OrchestratorService {
               true, prompt, true, ExceptionUtil.formatCompactStackTrace(e)));
       success = false;
       throw e;
-    } finally {
-      // Complete execution tracking
-      long totalTimeMs = System.currentTimeMillis() - start;
-      oneMcp.inferenceLogger().completeExecution(executionId, totalTimeMs, success);
     }
 
+    // Build the result before completing execution so we can log it
     long totalTimeMs = System.currentTimeMillis() - start;
     AssigmentResult.Statistics stats =
         new AssigmentResult.Statistics(
@@ -271,6 +268,14 @@ public class OrchestratorService {
             ctx.tracer().completionTokens(),
             "totalTokens",
             ctx.tracer().totalTokens()));
-    return new AssigmentResult(assignmentParts, stats, assignmentContext);
+    AssigmentResult result = new AssigmentResult(assignmentParts, stats, assignmentContext);
+    
+    // Log the assignment result for the report (before completing execution)
+    oneMcp.inferenceLogger().logAssigmentResult(result);
+    
+    // Complete execution tracking (this generates the report)
+    oneMcp.inferenceLogger().completeExecution(executionId, totalTimeMs, success);
+    
+    return result;
   }
 }

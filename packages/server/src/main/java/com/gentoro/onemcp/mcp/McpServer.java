@@ -14,6 +14,7 @@ import io.modelcontextprotocol.server.transport.HttpServletStreamableServerTrans
 import io.modelcontextprotocol.spec.McpSchema;
 import java.time.Duration;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -168,8 +169,45 @@ public class McpServer implements AutoCloseable {
                                     .handlePrompt(
                                         request.arguments().get("prompt").toString(), sink);
 
+                            // Get report path if available
+                            String reportPath = oneMcp.inferenceLogger().getCurrentReportPath();
+                            
+                            // Build response with content and report path
+                            Map<String, Object> response = new HashMap<>();
+                            try {
+                              // Serialize result to JSON string first
+                              String resultJson = JacksonUtility.toJson(result);
+                              // Parse it to extract content if it's a structured response
+                              com.fasterxml.jackson.databind.ObjectMapper mapper = JacksonUtility.getJsonMapper();
+                              com.fasterxml.jackson.databind.JsonNode jsonNode = mapper.readTree(resultJson);
+                              
+                              // Check if result has a "content" field (from AssigmentResult)
+                              if (jsonNode.has("parts") && jsonNode.get("parts").isArray() && jsonNode.get("parts").size() > 0) {
+                                // Extract content from the last assignment part
+                                com.fasterxml.jackson.databind.JsonNode lastPart = jsonNode.get("parts").get(jsonNode.get("parts").size() - 1);
+                                if (lastPart.has("content") && !lastPart.get("content").isNull()) {
+                                  response.put("content", lastPart.get("content").asText());
+                                } else {
+                                  response.put("content", resultJson);
+                                }
+                              } else {
+                                // If not structured, use the whole JSON as content
+                                response.put("content", resultJson);
+                              }
+                              
+                              if (reportPath != null) {
+                                response.put("reportPath", reportPath);
+                              }
+                            } catch (Exception e) {
+                              // Fallback: just serialize the result
+                              response.put("content", JacksonUtility.toJson(result));
+                              if (reportPath != null) {
+                                response.put("reportPath", reportPath);
+                              }
+                            }
+
                             return new McpSchema.CallToolResult(
-                                JacksonUtility.toJson(result), false);
+                                JacksonUtility.toJson(response), false);
                           } catch (Exception e) {
                             log.error("Failed to handle MCP tool request", e);
                             return new McpSchema.CallToolResult(

@@ -9,8 +9,11 @@ public class OneMcpApp {
     try {
       OneMcp app = new OneMcp(args);
       app.initialize();
+      // Keep the server running until shutdown signal
+      app.waitShutdownSignal();
     } catch (Exception e) {
       log.error("Application failed to start", e);
+      System.exit(1);
     }
   }
 }

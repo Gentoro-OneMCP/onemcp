@@ -1,7 +1,7 @@
 /**
  * OneMCP service manager
  */
-import { dirname, join } from 'path';
+import { dirname, join, delimiter } from 'path';
 import fs from 'fs-extra';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
@@ -81,9 +81,10 @@ export class AgentService {
     // Find project root
     const projectRoot = this.findProjectRoot();
 
-    const onemcpJar = await this.resolveOnemcpJar(projectRoot);
+    // CLI always runs from repo, so use compiled classes (no JAR needed)
+    await this.ensureServerCompiled(projectRoot);
     const activeProfile = this.resolveActiveProfile(config?.provider);
-    const javaArgs = this.buildJavaArgs(onemcpJar, activeProfile, port);
+    const javaArgs = await this.buildJavaArgs(projectRoot, activeProfile, port);
 
     const initialEnv = {
       SERVER_PORT: port.toString(),
@@ -93,6 +94,10 @@ export class AgentService {
       ANTHROPIC_API_KEY: config?.apiKeys?.anthropic || '',
       INFERENCE_DEFAULT_PROVIDER: config?.provider || 'openai',
       LLM_ACTIVE_PROFILE: activeProfile,
+      ONEMCP_HOME_DIR: paths.homeDir,
+      ONEMCP_CACHE_DIR: paths.cacheDir,
+      // Set OrientDB root directory to ONEMCP_HOME_DIR/orient
+      GRAPH_V2_ORIENT_ROOT_DIR: join(paths.homeDir, 'orient'),
     };
 
     processManager.register({
@@ -100,6 +105,7 @@ export class AgentService {
       command: 'java',
       args: javaArgs,
       env: initialEnv,
+      cwd: projectRoot, // Set working directory to project root, not handbook directory
       port,
       healthCheckUrl: `http://localhost:${port}/mcp`,
     });
@@ -108,37 +114,19 @@ export class AgentService {
   }
 
   /**
-   * Resolve the built OneMCP jar path regardless of version or packaging plugin.
+   * Check if server classes are compiled.
+   * CLI always runs from repo, so we use compiled classes instead of JAR.
    */
-  async resolveOnemcpJar(projectRoot: string): Promise<string> {
-    const targetDir = join(projectRoot, 'packages/server/target');
+  async ensureServerCompiled(projectRoot: string): Promise<void> {
+    const serverDir = join(projectRoot, 'packages/server');
+    const classesDir = join(serverDir, 'target/classes');
+    const mainClass = join(classesDir, 'com/gentoro/onemcp/OneMcpApp.class');
 
-    let artifacts: string[];
-    try {
-      artifacts = await fs.readdir(targetDir);
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
+    if (!(await fs.pathExists(mainClass))) {
       throw new Error(
-        `Could not read ${targetDir}: ${message}. Ensure the Java build step completed successfully.`
+        `Server classes not found. Run "mvn compile" in packages/server first.`
       );
     }
-
-    const patterns = [
-      /^onemcp-.*-jar-with-dependencies\.jar$/,
-      /^onemcp-.*\.jar$/,
-    ];
-
-    for (const pattern of patterns) {
-      const match = artifacts.find((file) => pattern.test(file));
-      if (match) {
-        return join(targetDir, match);
-      }
-    }
-
-    throw new Error(
-      `Could not find a OneMCP jar in ${targetDir}. Run "mvn clean package -DskipTests" and try again.`
-    );
   }
 
   /**
@@ -180,16 +168,26 @@ export class AgentService {
     // Clean up any stale processes that might be using our ports
     await this.cleanupStaleProcesses();
 
+    // Show log file location
+    const logPath = paths.getLogPath('app');
+    console.log(chalk.dim(`  • Logs: ${logPath}`));
+
     console.log(chalk.dim('  • Starting OneMCP core service...'));
     try {
+      // Log position is captured in processManager.start() BEFORE spawn
       await processManager.start('app');
       console.log(chalk.dim('    ✓ OneMCP started, waiting for health check...'));
 
       // Wait for OneMCP to be fully healthy
       const appConfig = processManager.getConfig('app');
+      
       if (appConfig?.healthCheckUrl) {
         try {
-          await this.waitForServiceHealthy('app', appConfig, 60000);
+          // Use the log position captured when "Starting One MCP service..." was printed
+          // This is the earliest possible capture point
+          const logStartPosition = processManager.getLogStartPosition('app');
+          
+          await this.waitForServiceHealthy('app', appConfig, 60000, logStartPosition);
           console.log(chalk.dim('    ✓ OneMCP ready'));
         } catch (error: unknown) {
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -326,35 +324,80 @@ export class AgentService {
   /**
    * Wait for a service to become healthy
    */
-  private async waitForServiceHealthy(serviceName: string, config: ProcessConfig, timeoutMs: number): Promise<void> {
+  private async waitForServiceHealthy(serviceName: string, config: ProcessConfig, timeoutMs: number, logStartPosition: number = 0): Promise<void> {
     if (!config.healthCheckUrl) {
       throw new Error(`Service ${serviceName} has no health check URL configured`);
     }
 
     const startTime = Date.now();
-    const interval = 1000; // Check every 1 second
+    const healthCheckInterval = 1000; // Check health every 1 second
+    const logCheckInterval = 500; // Check for new logs every 500ms
+    
+    let lastLogPosition = logStartPosition;
+    let lastLogCheckTime = 0; // Start at 0 to check immediately
+    let lastHealthCheckTime = 0; // Start at 0 to check immediately
+    let hasDisplayedLogs = false;
 
     while (Date.now() - startTime < timeoutMs) {
-      try {
-        const axios = (await import('axios')).default;
-        const response = await axios.get(config.healthCheckUrl, {
-          timeout: 5000,
-          validateStatus: () => true, // Accept any status code
-          maxRedirects: 0,
-        });
-
-        // For health endpoints, any response (even error) means the service is responding
-        if (response.status >= 200 && response.status < 500) {
-          return; // Service is healthy
+      const currentTime = Date.now();
+      
+      // Check for new logs every 500ms (no initial delay - start immediately)
+      if (currentTime - lastLogCheckTime >= logCheckInterval) {
+        try {
+          // Get new log entries since last check
+          const { content, newPosition } = await processManager.getLogsSince(serviceName, lastLogPosition);
+          
+          // If position changed, there's new content (even if it's just whitespace)
+          if (newPosition !== lastLogPosition) {
+            if (!hasDisplayedLogs) {
+              // First time displaying logs - show from the start position
+              console.log(chalk.dim('\n--- Server logs (from startup) ---'));
+              hasDisplayedLogs = true;
+            }
+            
+            // Display new content immediately (preserve original formatting, including whitespace)
+            if (content) {
+              process.stdout.write(content);
+            }
+            
+            // Always update position, even if content is empty/whitespace
+            lastLogPosition = newPosition;
+          }
+          lastLogCheckTime = currentTime;
+        } catch (error) {
+          // Silently continue on error - log file might not exist yet
+          lastLogCheckTime = currentTime;
         }
-      } catch (error) {
-        // Connection failed, service not ready yet
       }
 
-      // Wait before next check
-      await new Promise(resolve => setTimeout(resolve, interval));
-    }
+      // Check health every 1 second
+      if (currentTime - lastHealthCheckTime >= healthCheckInterval) {
+        try {
+          const axios = (await import('axios')).default;
+          const response = await axios.get(config.healthCheckUrl, {
+            timeout: 5000,
+            validateStatus: () => true, // Accept any status code
+            maxRedirects: 0,
+          });
 
+          // For health endpoints, any response (even error) means the service is responding
+          if (response.status >= 200 && response.status < 500) {
+            // Server is healthy - stop tailing logs
+            if (hasDisplayedLogs) {
+              console.log(chalk.dim('\n--- Server logs end ---\n'));
+            }
+            return; // Service is healthy
+          }
+          lastHealthCheckTime = currentTime;
+        } catch (error) {
+          // Connection failed, service not ready yet - continue waiting
+          lastHealthCheckTime = currentTime;
+        }
+      }
+
+      // Wait a short time before next iteration (100ms for responsive tailing)
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     throw new Error(`Service ${serviceName} failed to become healthy within ${timeoutMs}ms`);
   }
 
@@ -384,12 +427,19 @@ export class AgentService {
         HANDBOOK_DIR: handbookPath,
       };
 
-      // Set logging directory for reports
-      const initialLogsDir = join(handbookPath, 'logs');
-      await fs.ensureDir(initialLogsDir);
+      // Set logging directory for reports to ONEMCP_HOME_DIR/logs
+      const logsDir = paths.logDir;
+      const cacheDir = paths.cacheDir;
+      await fs.ensureDir(logsDir);
+      await fs.ensureDir(cacheDir);
       appConfig.env = {
         ...appConfig.env,
-        ONEMCP_LOG_DIR: initialLogsDir,
+        ONEMCP_LOG_DIR: logsDir,
+        ONEMCP_CACHE_DIR: cacheDir,
+        // Ensure ONEMCP_HOME_DIR is set
+        ONEMCP_HOME_DIR: paths.homeDir,
+        // Set OrientDB root directory to ONEMCP_HOME_DIR/orient
+        GRAPH_V2_ORIENT_ROOT_DIR: join(paths.homeDir, 'orient'),
       };
 
       // Set API keys and provider from handbook config
@@ -406,10 +456,10 @@ export class AgentService {
           INFERENCE_DEFAULT_PROVIDER: provider,
           LLM_ACTIVE_PROFILE: activeProfile,
         };
-        this.applyActiveProfileArgs(appConfig, activeProfile);
+        await this.applyActiveProfileArgs(appConfig, activeProfile);
       } else {
         const fallbackProfile = this.resolveActiveProfile(config?.provider);
-        this.applyActiveProfileArgs(appConfig, fallbackProfile);
+        await this.applyActiveProfileArgs(appConfig, fallbackProfile);
       }
     }
   }
@@ -422,9 +472,18 @@ export class AgentService {
 
     // This would update the registered process configs with new environment variables
     // For now, we'll need to re-register with updated configs
-    if (options.port) {
-      const appConfig = processManager.getConfig('app');
-      if (appConfig) {
+    const appConfig = processManager.getConfig('app');
+    if (appConfig) {
+      // Always ensure ONEMCP_HOME_DIR and related directories are set
+      appConfig.env = {
+        ...appConfig.env,
+        ONEMCP_HOME_DIR: paths.homeDir,
+        GRAPH_V2_ORIENT_ROOT_DIR: join(paths.homeDir, 'orient'),
+        ONEMCP_LOG_DIR: paths.logDir,
+        ONEMCP_CACHE_DIR: paths.cacheDir,
+      };
+
+      if (options.port) {
         appConfig.env = {
           ...appConfig.env,
           SERVER_PORT: options.port.toString(),
@@ -437,7 +496,7 @@ export class AgentService {
           config?.provider ||
           'openai';
         const activeProfile = this.resolveActiveProfile(provider);
-        this.applyActiveProfileArgs(appConfig, activeProfile);
+        await this.applyActiveProfileArgs(appConfig, activeProfile);
       }
     }
 
@@ -468,7 +527,7 @@ export class AgentService {
           INFERENCE_DEFAULT_PROVIDER: options.provider,
           LLM_ACTIVE_PROFILE: activeProfile,
         };
-        this.applyActiveProfileArgs(appConfig, activeProfile);
+        await this.applyActiveProfileArgs(appConfig, activeProfile);
       }
     }
   }
@@ -485,38 +544,104 @@ export class AgentService {
     }
   }
 
-  private buildJavaArgs(jarPath: string, activeProfile: string, port: number): string[] {
-    return [
-      '-jar',
-      jarPath,
+  private async buildJavaArgs(projectRoot: string, activeProfile: string, port: number): Promise<string[]> {
+    const serverDir = join(projectRoot, 'packages/server');
+    const classesDir = join(serverDir, 'target/classes');
+    
+    // Get Maven classpath (dependencies)
+    let mavenClasspath = '';
+    try {
+      const { execa } = await import('execa');
+      // Use -Dmdep.outputFile to get classpath in a file, then read it
+      // This is more reliable than parsing stdout which may have other output
+      const tempClasspathFile = join(serverDir, 'target', '.classpath.tmp');
+      await execa('mvn', [
+        'dependency:build-classpath',
+        `-Dmdep.outputFile=${tempClasspathFile}`,
+        '-q'
+      ], {
+        cwd: serverDir,
+        stdio: 'pipe',
+      });
+      
+      // Read the classpath from the file
+      if (await fs.pathExists(tempClasspathFile)) {
+        mavenClasspath = (await fs.readFile(tempClasspathFile, 'utf-8')).trim();
+        // Clean up temp file
+        await fs.remove(tempClasspathFile);
+        
+        // Verify classpath contains SLF4J (critical dependency)
+        if (!mavenClasspath.includes('slf4j-api')) {
+          throw new Error(`Maven classpath is missing SLF4J. Classpath preview: ${mavenClasspath.substring(0, 200)}`);
+        }
+      } else {
+        throw new Error(`Maven classpath file was not created at ${tempClasspathFile}`);
+      }
+      
+      if (!mavenClasspath) {
+        throw new Error('Maven classpath is empty. Run "mvn dependency:resolve" first.');
+      }
+    } catch (error) {
+      throw new Error(
+        'Failed to build Maven classpath. Make sure Maven is installed and dependencies are resolved. ' +
+        'Run "mvn dependency:resolve" in packages/server first. ' +
+        `Error: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    
+    // Build full classpath: classes (which already includes resources) + Maven dependencies
+    // Note: Maven copies resources to target/classes during compilation, so we don't need src/main/resources
+    // Use platform-specific path delimiter (':' on Unix, ';' on Windows)
+    const classpath = [
+      classesDir,
+      mavenClasspath,
+    ].filter(Boolean).join(delimiter);
+    
+    // Verify classpath is not empty and contains required entries
+    if (!classpath || classpath.trim().length === 0) {
+      throw new Error('Classpath is empty. Cannot start server.');
+    }
+    
+    const classpathEntries = classpath.split(delimiter);
+    if (classpathEntries.length < 2) {
+      throw new Error(`Classpath has too few entries (${classpathEntries.length}). Expected at least classes and dependencies.`);
+    }
+    
+    // Log the actual command that will be run (for debugging)
+    const javaCommand = [
+      'java',
+      '-cp',
+      classpath,
+      'com.gentoro.onemcp.OneMcpApp',
       '--mode',
       'server',
     ];
+    
+    // Verify classpath is actually set
+    if (!classpath || classpath.trim().length === 0) {
+      throw new Error('FATAL: Classpath is empty! Cannot start server.');
+    }
+    
+    // Check if SLF4J is in classpath
+    if (!classpath.includes('slf4j-api')) {
+      throw new Error(`FATAL: SLF4J not found in classpath! Classpath entries: ${classpath.split(delimiter).slice(0, 5).join(', ')}...`);
+    }
+    
+    return javaCommand.slice(1); // Return args without 'java' command
   }
 
-  private applyActiveProfileArgs(appConfig: ProcessConfig, activeProfile: string): void {
+  private async applyActiveProfileArgs(appConfig: ProcessConfig, activeProfile: string): Promise<void> {
     if (!appConfig.args || appConfig.args.length === 0) {
       return;
     }
 
-    let jarPath: string | undefined;
-    const jarFlagIndex = appConfig.args.findIndex((arg) => arg === '-jar');
-    if (jarFlagIndex >= 0 && jarFlagIndex + 1 < appConfig.args.length) {
-      jarPath = appConfig.args[jarFlagIndex + 1];
-    } else {
-      jarPath = appConfig.args[appConfig.args.length - 1];
-    }
-
-    if (!jarPath) {
-      return;
-    }
-
+    const projectRoot = this.findProjectRoot();
     const port =
       typeof appConfig.port === 'number'
         ? appConfig.port
         : parseInt(appConfig.env?.SERVER_PORT ?? '', 10) || 8080;
 
-    appConfig.args = this.buildJavaArgs(jarPath, activeProfile, port);
+    appConfig.args = await this.buildJavaArgs(projectRoot, activeProfile, port);
   }
 
   /**
@@ -544,23 +669,12 @@ export class AgentService {
       const handbookName = currentHandbook ? `handbook '${currentHandbook}'` : 'configured handbook directory';
       throw new Error(
         `Handbook directory not found: ${handbookPath}\n` +
-        `Please ensure the ${handbookName} exists and contains the required Agent.md file.\n` +
+        `Please ensure the ${handbookName} exists.\n` +
         'Try running the setup wizard again: onemcp setup'
       );
     }
 
-    // Check for required Agent.md file
-    const agentMdPath = `${handbookPath}/Agent.md`;
-    if (!fs.existsSync(agentMdPath)) {
-      const handbookName = currentHandbook ? `handbook '${currentHandbook}'` : 'handbook directory';
-      throw new Error(
-        `Required Agent.md file not found in ${handbookName}: ${handbookPath}\n` +
-        'The handbook must contain an Agent.md file with agent instructions.\n' +
-        'Try running the setup wizard again: onemcp setup'
-      );
-    }
-
-    // Additional validation could be added here for other required files/directories
+    // Let the server validate Agent.md - don't check here
   }
 
   /**

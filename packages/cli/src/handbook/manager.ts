@@ -86,9 +86,9 @@ This handbook contains the configuration and documentation for your OneMCP.
     }
 
     // Check required files
-    const agentMdPath = `${dir}/Agent.md`;
-    if (!(await fs.pathExists(agentMdPath))) {
-      errors.push('Missing required file: Agent.md');
+    const agentYamlPath = `${dir}/Agent.yaml`;
+    if (!(await fs.pathExists(agentYamlPath))) {
+      errors.push('Missing required file: Agent.yaml');
     }
 
     // Check required directories

@@ -116,6 +116,25 @@ program
         console.log(chalk.dim('Starting One MCP service...'));
         console.log();
 
+        // Capture log file size at the earliest possible moment (when "Starting One MCP service..." is printed)
+        const { paths } = await import('./config/paths.js');
+        const fs = (await import('fs-extra')).default;
+        const logPath = paths.getLogPath('app');
+        let logStartPosition = 0;
+        
+        // Always check the file size, even if it doesn't exist yet (will be 0)
+        try {
+          if (await fs.pathExists(logPath)) {
+            const stats = await fs.stat(logPath);
+            logStartPosition = stats.size;
+          }
+        } catch (error) {
+          logStartPosition = 0;
+        }
+        
+        // Store it for use in agentService.start() and tailing
+        process.env.ONEMCP_LOG_START_POSITION = logStartPosition.toString();
+
         // Start services with logging
         console.log(chalk.dim('🔄 Starting service...'));
 
@@ -463,9 +482,30 @@ program
     const spinner = ora('Creating dictionary...').start();
     
     try {
-      // Find project root and JAR
+      // Find project root
       const projectRoot = agentService.findProjectRoot();
-      const onemcpJar = await agentService.resolveOnemcpJar(projectRoot);
+      
+      // Ensure server is compiled
+      await agentService.ensureServerCompiled(projectRoot);
+      
+      // Build classpath for running CreateDictionaryCommand
+      const { join } = await import('path');
+      const serverDir = join(projectRoot, 'packages/server');
+      const classesDir = join(serverDir, 'target/classes');
+      const resourcesDir = join(serverDir, 'src/main/resources');
+      
+      // Get Maven classpath
+      const { execa } = await import('execa');
+      const { stdout: mavenClasspath } = await execa('mvn', ['dependency:build-classpath', '-q'], {
+        cwd: serverDir,
+        stdio: 'pipe',
+      });
+      
+      const classpath = [
+        classesDir,
+        resourcesDir,
+        mavenClasspath.trim(),
+      ].filter(Boolean).join(':');
       
       // Determine handbook path
       let handbookPath: string;
@@ -525,13 +565,12 @@ program
       
       spinner.text = 'Extracting dictionary from OpenAPI specifications...';
       
-      // Execute Java command
-      const { execa } = await import('execa');
+      // Execute Java command using classpath
       const { stdout, stderr } = await execa(
         'java',
         [
           '-cp',
-          onemcpJar,
+          classpath,
           'com.gentoro.onemcp.cache.CreateDictionaryCommand',
           handbookPath,
         ],

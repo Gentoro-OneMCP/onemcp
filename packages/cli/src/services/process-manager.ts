@@ -24,6 +24,7 @@ export class ProcessManager extends EventEmitter {
   private processes = new Map<string, ChildProcess>();
   private configs = new Map<string, ProcessConfig>();
   private startTimes = new Map<string, Date>();
+  private logStartPositions = new Map<string, number>();
 
   constructor() {
     super();
@@ -79,6 +80,37 @@ export class ProcessManager extends EventEmitter {
       ...config.env,
     };
 
+    // Setup logging with unbuffered writes
+    const logPath = paths.getLogPath(name);
+    
+    // CRITICAL: Capture log file size BEFORE spawning the process
+    // Use position captured earlier if available (from when "Starting One MCP service..." was printed)
+    // Otherwise capture it now
+    let logStartPosition = 0;
+    if (name === 'app' && process.env.ONEMCP_LOG_START_POSITION) {
+      // Use position captured at the earliest moment
+      logStartPosition = parseInt(process.env.ONEMCP_LOG_START_POSITION, 10) || 0;
+      // Clear it so it's not reused
+      delete process.env.ONEMCP_LOG_START_POSITION;
+    } else {
+      // Capture it now (for other services or if not set)
+      try {
+        if (await fs.pathExists(logPath)) {
+          const stats = await fs.stat(logPath);
+          logStartPosition = stats.size;
+        }
+      } catch {
+        // If we can't read the file, start from 0
+        logStartPosition = 0;
+      }
+    }
+    this.logStartPositions.set(name, logStartPosition);
+    
+    const logStream = fs.createWriteStream(logPath, {
+      flags: 'a',
+      highWaterMark: 0 // Disable buffering
+    });
+
     // Start process (detached so parent can exit)
     const proc = spawn(config.command, config.args, {
       env,
@@ -91,13 +123,7 @@ export class ProcessManager extends EventEmitter {
     // Unref so parent process can exit
     proc.unref();
 
-    // Setup logging with unbuffered writes
-    const logPath = paths.getLogPath(name);
-    const logStream = fs.createWriteStream(logPath, {
-      flags: 'a',
-      highWaterMark: 0 // Disable buffering
-    });
-
+    // Pipe stdout/stderr to log file (after process is spawned)
     proc.stdout?.pipe(logStream);
     proc.stderr?.pipe(logStream);
 
@@ -124,6 +150,7 @@ export class ProcessManager extends EventEmitter {
       // Clean up for any service
       this.processes.delete(name);
       this.startTimes.delete(name);
+      this.logStartPositions.delete(name);
       const pidPath = paths.getPidFilePath(name);
       fs.remove(pidPath).catch(() => {});
     });
@@ -131,6 +158,7 @@ export class ProcessManager extends EventEmitter {
     proc.on('exit', (code, signal) => {
       this.processes.delete(name);
       this.startTimes.delete(name);
+      this.logStartPositions.delete(name);
       this.emit('exit', { name, code, signal });
       logStream.end();
     });
@@ -147,10 +175,8 @@ export class ProcessManager extends EventEmitter {
 
     this.emit('start', { name, pid: proc.pid });
 
-    // Wait for health check if configured
-    if (config.healthCheckUrl) {
-      await this.waitForHealthy(config);
-    }
+    // DO NOT wait for health check here - let the caller handle it with log tailing
+    // The caller (AgentService) will call waitForServiceHealthy with log tailing
   }
 
   /**
@@ -348,6 +374,13 @@ export class ProcessManager extends EventEmitter {
   }
 
   /**
+   * Get the log file position when the service started
+   */
+  getLogStartPosition(name: string): number {
+    return this.logStartPositions.get(name) || 0;
+  }
+
+  /**
    * Stop all processes
    */
   async stopAll(): Promise<void> {
@@ -472,6 +505,36 @@ export class ProcessManager extends EventEmitter {
       return lastLines.join('\n');
     } catch (error) {
       return `Error reading logs: ${error}`;
+    }
+  }
+
+  /**
+   * Get new log lines since a specific byte position
+   * Returns the new content and the new byte position
+   */
+  async getLogsSince(name: string, bytePosition: number): Promise<{ content: string; newPosition: number }> {
+    const logPath = paths.getLogPath(name);
+    
+    if (!(await fs.pathExists(logPath))) {
+      return { content: '', newPosition: 0 };
+    }
+
+    try {
+      const stats = await fs.stat(logPath);
+      const fileSize = stats.size;
+
+      if (fileSize <= bytePosition) {
+        return { content: '', newPosition: bytePosition };
+      }
+
+      // Read file as buffer to handle byte positions correctly
+      const buffer = await fs.readFile(logPath);
+      const newBuffer = buffer.slice(bytePosition);
+      const newContent = newBuffer.toString('utf-8');
+      
+      return { content: newContent, newPosition: fileSize };
+    } catch (error) {
+      return { content: '', newPosition: bytePosition };
     }
   }
 

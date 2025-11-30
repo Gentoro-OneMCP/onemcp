@@ -124,7 +124,7 @@ public class InferenceLogger {
    * <p>Priority:
    *
    * <ol>
-   *   <li>Environment variable {@code ONEMCP_LOG_DIR} (CLI mode: set to {@code {handbook}/logs})
+   *   <li>Environment variable {@code ONEMCP_LOG_DIR} (CLI mode: set to {@code ONEMCP_HOME_DIR/logs})
    *   <li>Config file {@code logging.directory}
    *   <li>If handbook mode detected: use {@code {handbook}/logs/} (fallback for CLI mode)
    *   <li>Default: {@code /var/log/onemcp} (production mode)
@@ -133,8 +133,8 @@ public class InferenceLogger {
    * <p>Behavior:
    *
    * <ul>
-   *   <li><b>CLI mode</b>: CLI sets {@code ONEMCP_LOG_DIR} to {@code {handbook}/logs}, so reports
-   *       go to {@code {handbook}/logs/reports/}
+   *   <li><b>CLI mode</b>: CLI sets {@code ONEMCP_LOG_DIR} to {@code ONEMCP_HOME_DIR/logs}, so reports
+   *       go to {@code ONEMCP_HOME_DIR/logs/reports/}
    *   <li><b>Production mode</b>: When {@code ONEMCP_LOG_DIR} is not set and no handbook is
    *       detected, defaults to {@code /var/log/onemcp/reports/}
    * </ul>
@@ -144,48 +144,95 @@ public class InferenceLogger {
   private Path determineReportsDirectory() {
     Path baseLogDir;
 
-    // Priority 1: Environment variable (CLI mode sets ONEMCP_LOG_DIR to {handbook}/logs)
+    // Priority 1: Environment variable (CLI mode sets ONEMCP_LOG_DIR to ONEMCP_HOME_DIR/logs)
     String envLogDir = System.getenv("ONEMCP_LOG_DIR");
     if (envLogDir != null && !envLogDir.isBlank()) {
       baseLogDir = Paths.get(envLogDir);
       log.debug("Using logging directory from ONEMCP_LOG_DIR: {}", baseLogDir);
     } else {
-      // Priority 2: Config file
-      Configuration config = oneMcp.configuration();
-      String configLogDir = config != null ? config.getString("logging.directory", null) : null;
-      if (configLogDir != null && !configLogDir.isBlank()) {
-        baseLogDir = Paths.get(configLogDir);
-        log.debug("Using logging directory from config: {}", baseLogDir);
+      // Priority 2: Try ONEMCP_HOME_DIR/logs (CLI mode fallback)
+      String homeDir = System.getenv("ONEMCP_HOME_DIR");
+      if (homeDir != null && !homeDir.isBlank()) {
+        baseLogDir = Paths.get(homeDir, "logs");
+        log.debug("Using logging directory from ONEMCP_HOME_DIR: {}", baseLogDir);
       } else {
-        // Priority 3: Try handbook mode (fallback for CLI mode when ONEMCP_LOG_DIR not set)
-        try {
-          Handbook handbook = oneMcp.handbook();
-          if (handbook != null) {
-            Path handbookPath = handbook.location();
-            if (handbookPath != null && Files.exists(handbookPath)) {
-              baseLogDir = handbookPath.resolve("logs");
-              log.debug("Using handbook logs directory: {}", baseLogDir);
-            } else {
-              // Priority 4: Default to production mode location
-              baseLogDir = Paths.get("/var/log/onemcp");
-              log.debug("Using default production logging directory: {}", baseLogDir);
-            }
-          } else {
-            // Priority 4: Default to production mode location
-            baseLogDir = Paths.get("/var/log/onemcp");
-            log.debug("Using default production logging directory: {}", baseLogDir);
-          }
-        } catch (Exception e) {
-          log.debug("Could not determine handbook logs directory: {}", e.getMessage());
-          // Priority 4: Default to production mode location
+        // Priority 3: Config file
+        Configuration config = oneMcp.configuration();
+        String configLogDir = config != null ? config.getString("logging.directory", null) : null;
+        if (configLogDir != null && !configLogDir.isBlank()) {
+          baseLogDir = Paths.get(configLogDir);
+          log.debug("Using logging directory from config: {}", baseLogDir);
+        } else {
+          // Priority 4: Default to production mode location (never use handbook/logs)
           baseLogDir = Paths.get("/var/log/onemcp");
           log.debug("Using default production logging directory: {}", baseLogDir);
         }
       }
     }
 
+    // Safety check: Never create logs in handbook directory
+    // If baseLogDir is within the handbook directory, redirect to ONEMCP_HOME_DIR/logs
+    try {
+      Handbook handbook = oneMcp.handbook();
+      if (handbook != null) {
+        Path handbookPath = handbook.location();
+        if (handbookPath != null && Files.exists(handbookPath)) {
+          Path normalizedHandbook = handbookPath.normalize().toAbsolutePath();
+          Path normalizedLogDir = baseLogDir.normalize().toAbsolutePath();
+          
+          // Check if log directory is within or equal to handbook directory
+          if (normalizedLogDir.startsWith(normalizedHandbook) || normalizedLogDir.equals(normalizedHandbook)) {
+            log.warn(
+                "Detected attempt to create logs in handbook directory ({}), redirecting to ONEMCP_HOME_DIR/logs",
+                baseLogDir);
+            // Redirect to ONEMCP_HOME_DIR/logs
+            String homeDir = System.getenv("ONEMCP_HOME_DIR");
+            if (homeDir != null && !homeDir.isBlank()) {
+              baseLogDir = Paths.get(homeDir, "logs");
+            } else {
+              baseLogDir = Paths.get("/var/log/onemcp");
+            }
+            log.info("Using redirected logging directory: {}", baseLogDir);
+          }
+        }
+      }
+    } catch (Exception e) {
+      log.debug("Could not check handbook path for log directory safety: {}", e.getMessage());
+    }
+
     // Reports go in {baseLogDir}/reports/
     Path reportsDir = baseLogDir.resolve("reports");
+
+    // FINAL safety check: Never create reports in handbook directory
+    // This check runs AFTER all other logic to catch any edge cases
+    try {
+      Handbook handbook = oneMcp.handbook();
+      if (handbook != null) {
+        Path handbookPath = handbook.location();
+        if (handbookPath != null && Files.exists(handbookPath)) {
+          Path normalizedHandbook = handbookPath.normalize().toAbsolutePath();
+          Path normalizedReports = reportsDir.normalize().toAbsolutePath();
+          
+          // Check if reports directory is within or equal to handbook directory
+          if (normalizedReports.startsWith(normalizedHandbook) || normalizedReports.equals(normalizedHandbook)) {
+            log.error(
+                "CRITICAL: Reports directory ({}) is within handbook directory ({}). Redirecting immediately!",
+                reportsDir,
+                handbookPath);
+            // Force redirect to ONEMCP_HOME_DIR/logs/reports
+            String homeDir = System.getenv("ONEMCP_HOME_DIR");
+            if (homeDir != null && !homeDir.isBlank()) {
+              reportsDir = Paths.get(homeDir, "logs", "reports");
+            } else {
+              reportsDir = Paths.get("/var/log/onemcp/reports");
+            }
+            log.warn("CRITICAL: Redirected reports directory to: {}", reportsDir);
+          }
+        }
+      }
+    } catch (Exception e) {
+      log.debug("Could not perform final reports directory safety check: {}", e.getMessage());
+    }
 
     // Ensure directory exists
     try {
@@ -502,88 +549,7 @@ public class InferenceLogger {
     }
     sb.append("\n");
 
-    // Normalized Prompt Schema (Background)
-    boolean hasNormalizedSchema = false;
-    long normalizationDuration = 0;
-    for (ExecutionEvent event : events) {
-      if ("normalized_prompt_schema".equals(event.type)) {
-        hasNormalizedSchema = true;
-        Object duration = event.data.get("durationMs");
-        if (duration instanceof Number) {
-          normalizationDuration = ((Number) duration).longValue();
-        }
-        break;
-      }
-    }
-
-    if (hasNormalizedSchema) {
-      sb.append(
-          "┌──────────────────────────────────────────────────────────────────────────────┐\n");
-      sb.append(
-          "│ PROMPT SCHEMA (Background)                                                   │\n");
-      sb.append(
-          "└──────────────────────────────────────────────────────────────────────────────┘\n");
-      sb.append("\n");
-
-      for (ExecutionEvent event : events) {
-        if ("normalized_prompt_schema".equals(event.type)) {
-          Object schema = event.data.get("schema");
-          if (schema != null && !schema.toString().trim().isEmpty()) {
-            String schemaStr = schema.toString();
-            // Check if this is an error message (dictionary not found, etc.)
-            try {
-              com.fasterxml.jackson.databind.JsonNode jsonNode =
-                  JacksonUtility.getJsonMapper().readTree(schemaStr);
-              if (jsonNode.has("error")) {
-                // This is an error message, display it clearly
-                String error = jsonNode.get("error").asText();
-                String reason =
-                    jsonNode.has("reason") ? jsonNode.get("reason").asText() : "unknown";
-                sb.append("  Normalization skipped: ").append(error).append("\n");
-                sb.append("  Reason: ").append(reason).append("\n");
-              } else {
-                // This is a valid schema, pretty-print it
-                Object parsed = JacksonUtility.getJsonMapper().readValue(schemaStr, Object.class);
-                schemaStr =
-                    JacksonUtility.getJsonMapper()
-                        .writerWithDefaultPrettyPrinter()
-                        .writeValueAsString(parsed);
-                String[] lines = schemaStr.split("\n");
-                for (String line : lines) {
-                  sb.append("  ").append(line).append("\n");
-                }
-              }
-            } catch (Exception e) {
-              // Not JSON or parsing failed, use as-is
-              String[] lines = schemaStr.split("\n");
-              for (String line : lines) {
-                sb.append("  ").append(line).append("\n");
-              }
-            }
-          } else {
-            sb.append("  [No normalized schema captured]\n");
-          }
-          sb.append("\n");
-          if (normalizationDuration > 0) {
-            sb.append("  Background normalization latency: ")
-                .append(normalizationDuration)
-                .append("ms\n");
-          }
-          sb.append("\n");
-          break; // Only show first normalized schema
-        }
-      }
-    } else {
-      sb.append(
-          "┌──────────────────────────────────────────────────────────────────────────────┐\n");
-      sb.append(
-          "│ NORMALIZED PROMPT SCHEMA (Background)                                        │\n");
-      sb.append(
-          "└──────────────────────────────────────────────────────────────────────────────┘\n");
-      sb.append("\n");
-      sb.append("  [No normalized prompt schema recorded]\n");
-      sb.append("\n");
-    }
+    // Note: Normalized prompt schema section removed - will be re-enabled when caching mode is added
 
     // LLM Interactions - each call gets its own box header
     int llmInteractionNum = 1;
