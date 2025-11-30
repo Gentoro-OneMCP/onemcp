@@ -235,11 +235,14 @@ public class OneMcp {
     }
 
     // Ensure logs directory exists
-    File logsDir = new File("logs");
+    File logsDir = new File(configuration().getString("logging.dir", "logs"));
     if (!logsDir.exists()) {
       // noinspection ResultOfMethodCallIgnored
       logsDir.mkdirs();
     }
+    log.info(
+        "Configuring file-based logging, content will be appended to directory: {}",
+        logsDir.getAbsolutePath());
 
     // Configure rolling file appender
     RollingFileAppender<ILoggingEvent> fileAppender = new RollingFileAppender<>();

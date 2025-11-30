@@ -6,6 +6,8 @@ prompt:
 
 # Logging levels can be configured here and applied at startup by OneMcp
 logging:
+  # Log file location; defaults to logs/onemcp.log
+  dir: logs
   level:
     root: INFO
     # Fine‑tune specific packages/classes as needed

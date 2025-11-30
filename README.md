@@ -9,13 +9,24 @@ It removes the need to handcraft MCP tools or connectors while achieving high pe
 ## Quick Start
 
 
-First, install the CLI:
+1) First, install the CLI:
 
+Linux or MacOS:
+More information on how to install onemcp on Linux/MacOS can be found [here](https://github.com/Gentoro-OneMCP/homebrew-onemcp).
 ```bash
-> curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | bash
+brew tap gentoro-onemcp/onemcp
+brew install onemcp
 ```
 
-Then start chatting (auto-setup wizard launches on first run):
+Windows:
+More information on how to install onemcp on Windows can be found [here](https://github.com/Gentoro-OneMCP/onemcp-scoop).
+```bash
+scoop bucket add onemcp https://github.com/gentoro-onemcp/onemcp-scoop
+scoop install onemcp
+```
+
+
+2) Then start chatting (auto-setup wizard launches on first run):
 
 ```bash
 > onemcp chat
