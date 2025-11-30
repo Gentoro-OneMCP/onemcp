@@ -19,6 +19,9 @@ import java.util.stream.Collectors;
 import org.apache.commons.codec.binary.Base64;
 
 public class HandbookImpl implements Handbook {
+  private static final org.slf4j.Logger log =
+      com.gentoro.onemcp.logging.LoggingService.getLogger(HandbookImpl.class);
+
   private final OneMcp oneMcp;
   private final Path location;
 
@@ -33,10 +36,33 @@ public class HandbookImpl implements Handbook {
   }
 
   private void initialize() {
-    this.agent = loadYaml(Agent.class, "Agent.yaml");
-    this.loadRegressionSuites();
-    this.loadServices(this.agent);
-    this.loadDocumentation();
+    try {
+      this.agent = loadYaml(Agent.class, "Agent.yaml");
+      this.loadRegressionSuites();
+      this.loadServices(this.agent);
+      this.loadDocumentation();
+
+      if (this.agent.getApis().isEmpty()) {
+        log.warn(
+            "Current Handbook has no APIs defined, won't be able to process any request at this point. "
+                + "Please add at least one API definition under ./apis folder");
+      }
+
+      if (this.agent.getApis().stream().mapToLong(a -> a.getEntities().size()).sum() == 0) {
+        log.warn(
+            "There are no entities defined. Entities are a key component of OneMCP internal operations. "
+                + "Without it, Graph representation of the context won't be mapped."
+                + "Be sure to map all relevant entities at Agent.yaml file.");
+      }
+    } catch (Exception e) {
+      log.error("There was a problem while ingest content from Handbook folder: {}", location, e);
+      log.warn(
+          "Assuming empty handbook for now. Make the necessary adjustments and publish changes again.");
+    } finally {
+      if (this.agent == null) {
+        this.agent = new Agent();
+      }
+    }
   }
 
   private Path relativePath(String relativeUri) {

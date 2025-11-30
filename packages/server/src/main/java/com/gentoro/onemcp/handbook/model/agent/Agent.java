@@ -38,7 +38,6 @@ public class Agent {
 
   public void setApis(List<Api> apis) {
     this.apis = new ArrayList<>(Objects.requireNonNullElse(apis, Collections.emptyList()));
-    ;
   }
 
   public void addApi(Api api) {
