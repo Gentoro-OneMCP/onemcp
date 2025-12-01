@@ -15,14 +15,21 @@ The OneMCP CLI is a powerful command-line tool that enables you to interact with
 
 ## 🚀 Installation
 
-### Homebrew (macOS/Linux)
+### macOS / Linux (Recommended: Homebrew)
 
 ```bash
 brew tap gentoro-onemcp/onemcp
 brew install onemcp
 ```
 
-### Install Script
+### Windows (Recommended: Scoop)
+
+```powershell
+scoop bucket add gentoro-onemcp https://github.com/Gentoro-OneMCP/onemcp-scoop
+scoop install onemcp
+```
+
+### Alternative: Install Script (macOS/Linux)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/go-cli/install.sh | bash
@@ -34,15 +41,22 @@ curl -fsSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages
 git clone https://github.com/Gentoro-OneMCP/onemcp.git
 cd onemcp/packages/go-cli
 go build -o onemcp main.go
-sudo mv onemcp /usr/local/bin/
+sudo mv onemcp /usr/local/bin/  # macOS/Linux
+# Or move to PATH on Windows
 ```
 
-## �️ Uninstallation
+## 🗑️ Uninstallation
 
-### Homebrew
+### Homebrew (macOS/Linux)
 
 ```bash
 brew uninstall onemcp
+```
+
+### Scoop (Windows)
+
+```powershell
+scoop uninstall onemcp
 ```
 
 ### Script/Manual Install
@@ -58,10 +72,10 @@ rm -rf ~/onemcp-handbooks  # Optional: removes your handbooks
 docker rmi admingentoro/gentoro:latest  # Optional: removes Docker image
 ```
 
-## �📋 Requirements
+## 🖥️ Requirements
 
 - **Docker** - Required to run the OneMCP server
-- macOS or Linux (Windows support coming soon)
+- macOS, Linux, or Windows
 
 ## 🎯 Quick Start
 

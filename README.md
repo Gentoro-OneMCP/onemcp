@@ -75,28 +75,29 @@ Report file: ~/handbooks/acme-analytics/logs/reports/execution-2025-11-25T16-49-
 
 ## Running from Source
 
-When working in the repository, you can run onemcp directly from the source code using the development script:
+When working in the repository, you can build and run the Go CLI from source:
 
 ```bash
-> packages/cli/scripts/onemcp chat
+cd packages/go-cli
+go build -o onemcp main.go
+./onemcp chat
 ```
 
-The script will automatically:
-- Install npm dependencies if needed
-- Build the CLI if needed
-- Build the server JAR if needed
-- Run the CLI with your command
+Or use the build script for all platforms:
 
-All the same commands work as with the installed version:
-- `packages/cli/scripts/onemcp chat` - Start chat mode
-- `packages/cli/scripts/onemcp start` - Start the server
-- `packages/cli/scripts/onemcp status` - Check server status
-- `packages/cli/scripts/onemcp logs` - View server logs
+```bash
+cd packages/go-cli
+./build-release.sh
+```
 
 **Requirements:**
-- Node.js >= 20
-- Java 21+ (for building the server)
-- Maven (for building the server)
+- Go 1.21+
+- Docker Desktop (for running the server)
+
+**Server Development:**
+The OneMCP server (Java) can be built separately if needed:
+- Java 21+
+- Maven
 
 ## Documentation
 
@@ -104,7 +105,7 @@ Full documentation is available at [https://onemcp.gentoro.com/docs](https://one
 
 ### CLI Details
 
-For detailed CLI documentation, all commands, and advanced features, see the [CLI README](packages/cli/README.md).
+For detailed CLI documentation, all commands, and advanced features, see the [CLI README](packages/go-cli/README.md).
 
 
 ## Contributing
