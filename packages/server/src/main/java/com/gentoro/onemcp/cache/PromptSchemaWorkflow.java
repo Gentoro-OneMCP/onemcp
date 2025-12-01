@@ -46,12 +46,12 @@ public class PromptSchemaWorkflow {
   }
 
   /**
-   * Validate this workflow against a dictionary.
+   * Validate this workflow against a lexicon.
    *
-   * @param dictionary the dictionary to validate against
+   * @param lexicon the lexicon to validate against
    * @return list of validation errors (empty if valid)
    */
-  public List<String> validate(PromptDictionary dictionary) {
+  public List<String> validate(PromptLexicon lexicon) {
     List<String> errors = new ArrayList<>();
 
     if (workflowType == null || workflowType.isEmpty()) {
@@ -68,7 +68,7 @@ public class PromptSchemaWorkflow {
         if (step == null || step.getPs() == null) {
           errors.add("Step " + (i + 1) + " is null or missing PromptSchema");
         } else {
-          List<String> stepErrors = step.getPs().validate(dictionary);
+          List<String> stepErrors = step.getPs().validate(lexicon);
           for (String error : stepErrors) {
             errors.add("Step " + (i + 1) + ": " + error);
           }

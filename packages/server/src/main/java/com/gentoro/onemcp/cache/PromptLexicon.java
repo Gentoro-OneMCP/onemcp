@@ -6,13 +6,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Canonical dictionary for Prompt Schema normalization.
+ * Canonical lexicon for Prompt Schema normalization.
  *
  * <p>Contains the allowed vocabulary extracted from API specifications: actions, entities, fields,
  * operators, and aggregation functions.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class PromptDictionary {
+public class PromptLexicon {
   @JsonProperty("actions")
   private List<String> actions = new ArrayList<>();
 
@@ -28,7 +28,7 @@ public class PromptDictionary {
   @JsonProperty("aggregates")
   private List<String> aggregates = new ArrayList<>();
 
-  public PromptDictionary() {}
+  public PromptLexicon() {}
 
   public List<String> getActions() {
     return actions;
@@ -70,27 +70,27 @@ public class PromptDictionary {
     this.aggregates = aggregates != null ? aggregates : new ArrayList<>();
   }
 
-  /** Check if an action is in the dictionary. */
+  /** Check if an action is in the lexicon. */
   public boolean hasAction(String action) {
     return actions.contains(action);
   }
 
-  /** Check if an entity is in the dictionary. */
+  /** Check if an entity is in the lexicon. */
   public boolean hasEntity(String entity) {
     return entities.contains(entity);
   }
 
-  /** Check if a field is in the dictionary. */
+  /** Check if a field is in the lexicon. */
   public boolean hasField(String field) {
     return fields.contains(field);
   }
 
-  /** Check if an operator is in the dictionary. */
+  /** Check if an operator is in the lexicon. */
   public boolean hasOperator(String operator) {
     return operators.contains(operator);
   }
 
-  /** Check if an aggregate function is in the dictionary. */
+  /** Check if an aggregate function is in the lexicon. */
   public boolean hasAggregate(String aggregate) {
     return aggregates.contains(aggregate);
   }

@@ -3,7 +3,7 @@
  */
 import fs from 'fs-extra';
 import chalk from 'chalk';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { paths } from '../config/paths.js';
 import { configManager } from '../config/manager.js';
@@ -85,12 +85,6 @@ This handbook contains the configuration and documentation for your OneMCP.
       return { valid: false, errors, warnings };
     }
 
-    // Check required files
-    const agentYamlPath = `${dir}/Agent.yaml`;
-    if (!(await fs.pathExists(agentYamlPath))) {
-      errors.push('Missing required file: Agent.yaml');
-    }
-
     // Check required directories
     const requiredDirs = ['apis'];
     for (const reqDir of requiredDirs) {
@@ -142,7 +136,10 @@ This handbook contains the configuration and documentation for your OneMCP.
     await paths.ensureDirectories();
 
     const entries = await fs.readdir(paths.handbooksDir, { withFileTypes: true });
-    const handbooks = entries.filter((e) => e.isDirectory());
+    const handbooks = entries.filter((e) => 
+      e.isDirectory() && 
+      !e.name.startsWith('.')
+    );
 
     const results: HandbookInfo[] = [];
     for (const handbook of handbooks) {
@@ -276,7 +273,14 @@ See the \`docs/\` directory for additional documentation.
       );
     }
 
-    await fs.copy(resolvedSource, targetDir);
+    // Copy all files except .onemcp directory
+    await fs.copy(resolvedSource, targetDir, {
+      filter: (src: string) => {
+        // Exclude .onemcp directory from the copy
+        const relativePath = src.replace(resolvedSource, '').replace(/^[\/\\]/, '');
+        return !relativePath.startsWith('.onemcp');
+      }
+    });
 
     // Rename instructions.md to Agent.md if needed
     const instructionsPath = `${targetDir}/instructions.md`;
@@ -298,6 +302,31 @@ See the \`docs/\` directory for additional documentation.
     await fs.ensureDir(`${targetDir}/state`);
 
     console.log(chalk.green(`✅  Example handbook copied to ${targetDir}`));
+
+    // Copy .onemcp directory contents to ONEMCP_HOME_DIR if it exists in source
+    const sourceOnemcpDir = join(resolvedSource, '.onemcp');
+    if (await fs.pathExists(sourceOnemcpDir)) {
+      const homeDir = paths.homeDir;
+      
+      try {
+        // Ensure target home directory exists
+        await fs.ensureDir(homeDir);
+        
+        // Copy all contents from source .onemcp directly into ONEMCP_HOME_DIR
+        const entries = await fs.readdir(sourceOnemcpDir);
+        for (const entry of entries) {
+          const sourceEntry = join(sourceOnemcpDir, entry);
+          const targetEntry = join(homeDir, entry);
+          await fs.copy(sourceEntry, targetEntry, { overwrite: true });
+        }
+        
+        console.log(chalk.green(`✅  Copied .onemcp contents to ${homeDir}`));
+      } catch (error: any) {
+        // Non-fatal: .onemcp copy failed, but handbook setup can continue
+        console.log(chalk.yellow(`⚠️  Could not copy .onemcp directory: ${error.message}`));
+      }
+    }
+
   }
 
   private async findFirstExisting(pathsToCheck: string[]): Promise<string | null> {

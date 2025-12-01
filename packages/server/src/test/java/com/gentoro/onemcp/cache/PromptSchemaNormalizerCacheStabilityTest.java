@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 
 /**
@@ -25,19 +26,20 @@ import org.junit.jupiter.api.DisplayName;
  *
  * <ul>
  *   <li>Real OneMcp instance with actual LLM client
- *   <li>Real dictionary generation from Acme API handbook
+ *   <li>Real lexicon generation from Acme API handbook
  *   <li>Real normalizer calls with actual LLM inference
  * </ul>
  *
  * <p>Requires LLM configuration (API keys) to be set up.
  */
+@Disabled
 @DisplayName("PromptSchemaNormalizer Cache Stability Test (Real)")
 class PromptSchemaNormalizerCacheStabilityTest {
 
   private OneMcp oneMcp;
   private PromptSchemaNormalizer normalizer;
-  private PromptDictionary dictionary;
-  private Path dictionaryPath;
+  private PromptLexicon lexicon;
+  private Path lexiconPath;
 
   /**
    * Define clusters of prompts that should map to the same cache key. Each cluster contains prompts
@@ -75,8 +77,8 @@ class PromptSchemaNormalizerCacheStabilityTest {
     oneMcp = new OneMcp(appArgs);
     oneMcp.initialize();
 
-    // Get or generate dictionary from Acme handbook
-    dictionary = getOrGenerateDictionary();
+    // Get or generate lexicon from Acme handbook
+    lexicon = getOrGenerateLexicon();
 
     // Create real normalizer
     normalizer = new PromptSchemaNormalizer(oneMcp);
@@ -90,76 +92,76 @@ class PromptSchemaNormalizerCacheStabilityTest {
   }
 
   /**
-   * Get dictionary from cache or generate it from Acme handbook. Dictionary is saved to
-   * target/test-reports/cache-stability/dictionary.yaml
+   * Get lexicon from cache or generate it from Acme handbook. Lexicon is saved to
+   * target/test-reports/cache-stability/lexicon.yaml
    */
-  private PromptDictionary getOrGenerateDictionary() throws IOException, ExecutionException {
-    // Dictionary location in target directory
+  private PromptLexicon getOrGenerateLexicon() throws IOException, ExecutionException {
+    // Lexicon location in target directory
     Path reportsDir = Paths.get("target", "test-reports", "cache-stability");
     Files.createDirectories(reportsDir);
-    dictionaryPath = reportsDir.resolve("dictionary.yaml");
+    lexiconPath = reportsDir.resolve("lexicon.yaml");
 
-    DictionaryExtractorService extractor = new DictionaryExtractorService(oneMcp);
+    LexiconExtractorService extractor = new LexiconExtractorService(oneMcp);
 
-    // Try to load existing dictionary
-    PromptDictionary dict = extractor.loadDictionary(dictionaryPath);
-    if (dict != null) {
-      System.out.println("✅ Loaded existing dictionary from: " + dictionaryPath);
-      System.out.println("   Actions: " + dict.getActions().size());
-      System.out.println("   Entities: " + dict.getEntities().size());
-      System.out.println("   Fields: " + dict.getFields().size());
+    // Try to load existing lexicon
+    PromptLexicon lex = extractor.loadLexicon(lexiconPath);
+    if (lex != null) {
+      System.out.println("✅ Loaded existing lexicon from: " + lexiconPath);
+      System.out.println("   Actions: " + lex.getActions().size());
+      System.out.println("   Entities: " + lex.getEntities().size());
+      System.out.println("   Fields: " + lex.getFields().size());
       System.out.println(
-          "   Operators: " + (dict.getOperators() != null ? dict.getOperators().size() : 0));
+          "   Operators: " + (lex.getOperators() != null ? lex.getOperators().size() : 0));
       System.out.println(
-          "   Aggregates: " + (dict.getAggregates() != null ? dict.getAggregates().size() : 0));
-      return dict;
+          "   Aggregates: " + (lex.getAggregates() != null ? lex.getAggregates().size() : 0));
+      return lex;
     }
 
-    // Dictionary doesn't exist, generate it from Acme handbook
-    System.out.println("📝 Generating dictionary from Acme handbook...");
+    // Lexicon doesn't exist, generate it from Acme handbook
+    System.out.println("📝 Generating lexicon from Acme handbook...");
     Path acmeHandbookPath = Paths.get("src", "main", "resources", "acme-handbook");
 
     if (!Files.exists(acmeHandbookPath)) {
       throw new IOException("Acme handbook not found at: " + acmeHandbookPath.toAbsolutePath());
     }
 
-    // Extract dictionary from handbook
-    dict = extractor.extractDictionary(acmeHandbookPath);
+    // Extract lexicon from handbook
+    lex = extractor.extractLexicon(acmeHandbookPath);
 
-    // Save dictionary for future test runs
-    extractor.saveDictionary(dict, dictionaryPath);
-    System.out.println("✅ Generated and saved dictionary to: " + dictionaryPath);
-    System.out.println("   Actions: " + dict.getActions().size());
-    System.out.println("   Entities: " + dict.getEntities().size());
-    System.out.println("   Fields: " + dict.getFields().size());
+    // Save lexicon for future test runs
+    extractor.saveLexicon(lex, lexiconPath);
+    System.out.println("✅ Generated and saved lexicon to: " + lexiconPath);
+    System.out.println("   Actions: " + lex.getActions().size());
+    System.out.println("   Entities: " + lex.getEntities().size());
+    System.out.println("   Fields: " + lex.getFields().size());
     System.out.println(
-        "   Operators: " + (dict.getOperators() != null ? dict.getOperators().size() : 0));
+        "   Operators: " + (lex.getOperators() != null ? lex.getOperators().size() : 0));
     System.out.println(
-        "   Aggregates: " + (dict.getAggregates() != null ? dict.getAggregates().size() : 0));
+        "   Aggregates: " + (lex.getAggregates() != null ? lex.getAggregates().size() : 0));
 
-    return dict;
+    return lex;
   }
 
   /**
-   * Create a dictionary based on the Acme Sales Analytics API specification. NOTE: This method is
+   * Create a lexicon based on the Acme Sales Analytics API specification. NOTE: This method is
    * no longer used - we now generate from the real handbook.
    */
   @SuppressWarnings("unused")
-  private PromptDictionary createAcmeDictionary() {
-    PromptDictionary dict = new PromptDictionary();
+  private PromptLexicon createAcmeLexicon() {
+    PromptLexicon lexicon = new PromptLexicon();
 
     // Actions from the API
-    dict.setActions(
+    lexicon.setActions(
         Arrays.asList(
             "search", "get", "list", "summarize", "rank", "create", "update", "delete", "trigger"));
 
     // Entities from the API
-    dict.setEntities(
+    lexicon.setEntities(
         Arrays.asList(
             "sale", "product", "customer", "region", "date", "transaction", "order", "payment"));
 
     // Fields from the API (sample - full list would include all fields from the OpenAPI spec)
-    dict.setFields(
+    lexicon.setFields(
         Arrays.asList(
             "sale.id",
             "sale.amount",
@@ -200,7 +202,7 @@ class PromptSchemaNormalizerCacheStabilityTest {
             "date.day_of_week"));
 
     // Operators
-    dict.setOperators(
+    lexicon.setOperators(
         Arrays.asList(
             "equals",
             "not_equals",
@@ -219,10 +221,10 @@ class PromptSchemaNormalizerCacheStabilityTest {
             "is_not_null"));
 
     // Aggregates
-    dict.setAggregates(
+    lexicon.setAggregates(
         Arrays.asList("sum", "avg", "count", "min", "max", "median", "stddev", "variance"));
 
-    return dict;
+    return lexicon;
   }
 
   /**
@@ -462,7 +464,7 @@ class PromptSchemaNormalizerCacheStabilityTest {
         System.out.println("  Processing: \"" + prompt + "\"...");
 
         // Normalize the prompt with REAL LLM call
-        PromptSchemaWorkflow workflow = normalizer.normalize(prompt, dictionary);
+        PromptSchemaWorkflow workflow = normalizer.normalize(prompt, lexicon);
 
         String cacheKey = null;
         PromptSchema schema = null;
@@ -664,8 +666,8 @@ class PromptSchemaNormalizerCacheStabilityTest {
         if (schema != null) {
           report.append("- Action: `").append(schema.getAction()).append("`\n");
           report
-              .append("- Entities: `")
-              .append(String.join(", ", schema.getEntities()))
+              .append("- Entity: `")
+              .append(schema.getEntity() != null ? schema.getEntity() : "null")
               .append("`\n");
           if (schema.getParams() != null && !schema.getParams().isEmpty()) {
             report
@@ -673,10 +675,10 @@ class PromptSchemaNormalizerCacheStabilityTest {
                 .append(String.join(", ", schema.getParams().keySet()))
                 .append("`\n");
           }
-          if (schema.getGroupBy() != null && !schema.getGroupBy().isEmpty()) {
+          if (schema.getShape() != null && schema.getShape().getGroupBy() != null && !schema.getShape().getGroupBy().isEmpty()) {
             report
                 .append("- Group By: `")
-                .append(String.join(", ", schema.getGroupBy()))
+                .append(String.join(", ", schema.getShape().getGroupBy()))
                 .append("`\n");
           }
           report
@@ -702,13 +704,13 @@ class PromptSchemaNormalizerCacheStabilityTest {
       report.append("⚠️ **Good, but needs improvement.** Most clusters are stable.\n");
       report.append("Review the failed clusters above and consider:\n");
       report.append("- Refining the normalization prompt to be more consistent\n");
-      report.append("- Adjusting the dictionary to better capture semantic equivalence\n");
+      report.append("- Adjusting the lexicon to better capture semantic equivalence\n");
       report.append("- Reviewing field/entity extraction logic\n\n");
     } else {
       report.append("❌ **Needs significant attention.** Many clusters show instability.\n");
       report.append("Consider:\n");
       report.append("- Major review of the normalization prompt\n");
-      report.append("- Dictionary refinement\n");
+      report.append("- Lexicon refinement\n");
       report.append("- Field/entity extraction improvements\n");
       report.append("- Cache key generation algorithm review\n\n");
     }

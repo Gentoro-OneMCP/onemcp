@@ -15,6 +15,11 @@ public interface PromptTemplate {
   /** Read-only view of the sections defined by this template. */
   List<PromptSection> sections();
 
+  /** Temperature override for this template (if specified, overrides default). */
+  default java.util.Optional<Float> temperature() {
+    return java.util.Optional.empty();
+  }
+
   /** Create a new mutable session to enable/disable sections and render. */
   PromptSession newSession();
 

@@ -38,6 +38,15 @@ public class FileSystemPromptRepository implements PromptRepository {
             "Prompt YAML must contain 'sections' (or legacy 'activations') array: " + id);
       }
 
+      // Parse optional temperature override
+      Float temperature = null;
+      if (root.has("temperature")) {
+        JsonNode tempNode = root.get("temperature");
+        if (tempNode.isNumber()) {
+          temperature = (float) tempNode.asDouble();
+        }
+      }
+
       for (JsonNode n : arr) {
         String roleStr = n.path("role").asText(null);
         if (roleStr == null) {
@@ -70,7 +79,7 @@ public class FileSystemPromptRepository implements PromptRepository {
         sections.add(new PromptTemplate.PromptSection(role, sectionId, enabled, content));
       }
 
-      return new PebblePromptTemplate(id, sections);
+      return new PebblePromptTemplate(id, sections, temperature);
     } catch (Exception e) {
       throw new com.gentoro.onemcp.exception.PromptException(
           "Failed to read prompt file: " + name, e);

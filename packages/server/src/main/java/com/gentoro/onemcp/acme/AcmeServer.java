@@ -302,8 +302,32 @@ public class AcmeServer {
 
     switch (operator) {
       case "equals":
+        // For number fields, do numeric comparison; otherwise string comparison
+        String fieldType = FIELD_TYPES.get(field);
+        if ("number".equals(fieldType)) {
+          try {
+            double fieldNum = toNumber(field, fieldValue);
+            double valueNum = toNumber(field, getJsonNodeValue(value));
+            return Double.compare(fieldNum, valueNum) == 0;
+          } catch (Exception e) {
+            // Fall back to string comparison if number conversion fails
+            return Objects.equals(fieldValue.toString(), value.asText());
+          }
+        }
         return Objects.equals(fieldValue.toString(), value.asText());
       case "not_equals":
+        // For number fields, do numeric comparison; otherwise string comparison
+        fieldType = FIELD_TYPES.get(field);
+        if ("number".equals(fieldType)) {
+          try {
+            double fieldNum = toNumber(field, fieldValue);
+            double valueNum = toNumber(field, getJsonNodeValue(value));
+            return Double.compare(fieldNum, valueNum) != 0;
+          } catch (Exception e) {
+            // Fall back to string comparison if number conversion fails
+            return !Objects.equals(fieldValue.toString(), value.asText());
+          }
+        }
         return !Objects.equals(fieldValue.toString(), value.asText());
       case "greater_than":
         return compareNumbers(field, fieldValue, value) > 0;
@@ -319,6 +343,23 @@ public class AcmeServer {
         return !fieldValue.toString().toLowerCase().contains(value.asText().toLowerCase());
       case "in":
         if (value.isArray()) {
+          fieldType = FIELD_TYPES.get(field);
+          if ("number".equals(fieldType)) {
+            // For number fields, do numeric comparison
+            try {
+              double fieldNum = toNumber(field, fieldValue);
+              for (JsonNode item : value) {
+                double itemNum = toNumber(field, getJsonNodeValue(item));
+                if (Double.compare(fieldNum, itemNum) == 0) {
+                  return true;
+                }
+              }
+              return false;
+            } catch (Exception e) {
+              // Fall back to string comparison if number conversion fails
+            }
+          }
+          // String comparison fallback
           for (JsonNode item : value) {
             if (Objects.equals(fieldValue.toString(), item.asText())) {
               return true;
@@ -608,7 +649,14 @@ public class AcmeServer {
       for (JsonNode aggregate : aggregates) {
         String field = aggregate.get("field").asText();
         String function = aggregate.get("function").asText();
-        String alias = aggregate.get("alias").asText();
+        // Generate alias from field and function if not provided
+        String alias;
+        if (aggregate.has("alias") && !aggregate.get("alias").isNull()) {
+          alias = aggregate.get("alias").asText();
+        } else {
+          // Default alias: function_field (e.g., "sum_sale.amount" -> "sum_sale_amount")
+          alias = function + "_" + field.replace(".", "_");
+        }
 
         List<Object> values =
             dataToAggregate.stream()

@@ -197,11 +197,26 @@ public final class ExecutionPlanValidator {
                 + "'. Allowed operations: "
                 + String.valueOf(allowedOperations));
       }
-      JsonNode input = nodeDef.get("input");
-      if (input != null && !(input.isObject() || input.isTextual())) {
-        throw new ExecutionPlanException(
-            "Node '" + nodeId + "' has invalid 'input': expected object or string");
+      
+      // Check if this is a new http_call node (has "http" field) or legacy node (has "input" field)
+      if (nodeDef.has("http")) {
+        // New structured HTTP call node
+        JsonNode http = nodeDef.get("http");
+        if (http == null || !http.isObject()) {
+          throw new ExecutionPlanException(
+              "Node '" + nodeId + "' has invalid 'http': expected object");
+        }
+        // http object can have: path_params, query, headers, body (all optional)
+        // Validate structure but allow flexibility
+      } else {
+        // Legacy node with flat input
+        JsonNode input = nodeDef.get("input");
+        if (input != null && !(input.isObject() || input.isTextual())) {
+          throw new ExecutionPlanException(
+              "Node '" + nodeId + "' has invalid 'input': expected object or string");
+        }
       }
+      
       JsonNode r = nodeDef.get("route");
       if (r == null || !(r.isTextual() || r.isArray() || r.isObject())) {
         throw new ExecutionPlanException(

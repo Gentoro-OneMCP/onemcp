@@ -100,7 +100,6 @@ describe('HandbookManager', () => {
       const pathExistsSpy = jest.spyOn(fs, 'pathExists');
       pathExistsSpy
         .mockResolvedValueOnce(true as never) // handbook dir exists
-        .mockResolvedValueOnce(true as never) // Agent.md exists
         .mockResolvedValueOnce(true as never) // apis/ directory exists (required check)
         .mockResolvedValueOnce(true as never) // docs/ directory exists (recommended check)
         .mockResolvedValueOnce(true as never) // state/ directory exists (recommended check)
@@ -125,16 +124,5 @@ describe('HandbookManager', () => {
       expect(result.errors.length).toBeGreaterThan(0);
     });
 
-    it('should return errors if Agent.md is missing', async () => {
-      const pathExistsSpy = jest.spyOn(fs, 'pathExists');
-      pathExistsSpy
-        .mockResolvedValueOnce(true as never)  // handbook dir exists
-        .mockResolvedValueOnce(false as never); // Agent.md missing
-
-      const result = await handbookManager.validate('test-handbook');
-
-      expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('Agent.md'))).toBe(true);
-    });
   });
 });

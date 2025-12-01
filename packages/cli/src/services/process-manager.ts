@@ -39,8 +39,10 @@ export class ProcessManager extends EventEmitter {
 
   /**
    * Start a process
+   * @param name process name
+   * @param force if true, will stop existing process before starting
    */
-  async start(name: string): Promise<void> {
+  async start(name: string, force = false): Promise<void> {
     const config = this.configs.get(name);
     if (!config) {
       throw new Error(`Process ${name} not registered`);
@@ -48,8 +50,22 @@ export class ProcessManager extends EventEmitter {
 
     // Check if already running
     if (await this.isRunning(name)) {
-      console.log(`Process ${name} is already running`);
-      return; // Don't throw error, just return
+      if (force) {
+        // Force stop and wait for cleanup
+        console.log(`Stopping existing ${name} process...`);
+        await this.stop(name, true);
+        // Wait a bit for cleanup
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Double-check it's stopped
+        let retries = 5;
+        while (retries > 0 && (await this.isRunning(name))) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+          retries--;
+        }
+      } else {
+        console.log(`Process ${name} is already running`);
+        return; // Don't throw error, just return
+      }
     }
 
     // Check dependencies - ensure they are both running and healthy

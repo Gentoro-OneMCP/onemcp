@@ -204,7 +204,19 @@ public class ExecutionPlanEngine {
         return resolveVars(outVars, gstt, null);
       }
 
-      // Operation node
+      // HTTP call node (new structured format)
+      if (nodeDef.has("http")) {
+        String opName = nodeDef.get("operation").asText();
+        JsonNode httpSpec = nodeDef.get("http");
+        JsonNode http = resolveInput(httpSpec, gstt, null);
+        JsonNode result = registry.invokeHttp(opName, http);
+        if (result == null) result = JsonNodeFactory.instance.nullNode();
+        gstt.set(currentId, result);
+        currentId = resolveRouteNew(plan, nodeDef.get("route"), gstt, result);
+        continue;
+      }
+
+      // Operation node (legacy format with flat input)
       String opName = nodeDef.get("operation").asText();
       JsonNode inputSpec = nodeDef.get("input");
       JsonNode input = resolveInput(inputSpec, gstt, null);

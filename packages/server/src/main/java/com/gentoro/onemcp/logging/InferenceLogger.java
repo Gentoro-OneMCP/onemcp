@@ -1,5 +1,6 @@
 package com.gentoro.onemcp.logging;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.handbook.Handbook;
 import com.gentoro.onemcp.messages.AssigmentResult;
@@ -50,8 +51,8 @@ public class InferenceLogger {
   // In-memory event storage: executionId -> list of events
   private final Map<String, List<ExecutionEvent>> executionEvents = new ConcurrentHashMap<>();
 
-  // Track report paths per execution
-  private final Map<String, Path> executionReportPaths = new ConcurrentHashMap<>();
+  // Track report paths per execution (kept until retrieved)
+  private final Map<String, String> executionReportPaths = new ConcurrentHashMap<>();
 
   // Thread-local execution ID for tracking context across async operations
   private static final ThreadLocal<String> currentExecutionId = new ThreadLocal<>();
@@ -291,7 +292,7 @@ public class InferenceLogger {
               .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss.SSSSSS'Z'"));
       String filename = "execution-" + timestamp + ".txt";
       Path reportPath = reportsDirectory.resolve(filename);
-      executionReportPaths.put(executionId, reportPath);
+      executionReportPaths.put(executionId, reportPath.toString());
 
       // Initialize event storage
       List<ExecutionEvent> events = new ArrayList<>();
@@ -320,12 +321,27 @@ public class InferenceLogger {
    * @return the report path (or null if report mode disabled or no report generated)
    */
   public String completeExecution(String executionId, long durationMs, boolean success) {
+    return completeExecution(executionId, durationMs, success, 0);
+  }
+
+  /**
+   * Complete an execution and generate the report.
+   *
+   * @param executionId unique execution identifier
+   * @param durationMs execution duration in milliseconds
+   * @param success whether execution succeeded
+   * @param startTimeMs execution start time in milliseconds (for log capture)
+   * @return the report path (or null if report mode disabled or no report generated)
+   */
+  public String completeExecution(String executionId, long durationMs, boolean success, long startTimeMs) {
     try {
       if (reportModeEnabled) {
         List<ExecutionEvent> events = executionEvents.get(executionId);
-        Path reportPath = executionReportPaths.get(executionId);
+        String reportPathStr = executionReportPaths.get(executionId);
 
-        if (events != null && reportPath != null) {
+        if (events != null && reportPathStr != null) {
+          Path reportPath = Paths.get(reportPathStr);
+          
           // Add completion event
           events.add(
               new ExecutionEvent(
@@ -335,18 +351,17 @@ public class InferenceLogger {
                   Map.of("durationMs", durationMs, "success", success)));
 
           // Generate and write report
-          String reportContent = generateTextReport(executionId, events, durationMs, success);
+          String reportContent = generateTextReport(executionId, events, durationMs, success, startTimeMs);
           Files.writeString(reportPath, reportContent);
 
-          String reportPathStr = reportPath.toString();
           currentReportPath.set(reportPathStr);
           log.info("Execution completed: {} (report: {})", executionId, reportPath);
 
-          // Clean up events and paths, but keep currentReportPath until it's retrieved
+          // Clean up events, but keep executionReportPaths until it's retrieved
           executionEvents.remove(executionId);
-          executionReportPaths.remove(executionId);
           currentExecutionId.remove();
-          // Note: currentReportPath is NOT removed here - it will be removed when retrieved
+          // Note: executionReportPaths and currentReportPath are NOT removed here - 
+          // they will be removed when retrieved via getCurrentReportPath()
 
           return reportPathStr;
         }
@@ -358,7 +373,7 @@ public class InferenceLogger {
     } finally {
       // Clean up execution tracking, but preserve report path for retrieval
       executionEvents.remove(executionId);
-      executionReportPaths.remove(executionId);
+      // executionReportPaths is intentionally NOT removed here - it will be cleared after retrieval
       currentExecutionId.remove();
       // currentReportPath is intentionally NOT removed here - it will be cleared after retrieval
     }
@@ -379,18 +394,37 @@ public class InferenceLogger {
   }
 
   /**
-   * Get the report path for the current execution (from thread-local). After retrieval, the
-   * thread-local is cleared.
+   * Get the report path for the most recent execution. 
+   * 
+   * <p>This method looks up the report path from the executionReportPaths map.
+   * It returns the most recently completed execution's report path and removes it
+   * from the map to prevent memory leaks.
    *
    * @return report path or null if not available
    */
   public String getCurrentReportPath() {
+    // First try thread-local (for same-thread access)
     String path = currentReportPath.get();
     if (path != null) {
-      // Clear after retrieval to prevent stale data
       currentReportPath.remove();
+      // Also remove from map if present
+      executionReportPaths.values().remove(path);
+      return path;
     }
-    return path;
+    
+    // If thread-local is empty (different thread), get the most recent one from map
+    // This handles the case where completeExecution was called in a different thread
+    if (!executionReportPaths.isEmpty()) {
+      // Get the most recent entry (last one added)
+      // Since ConcurrentHashMap doesn't preserve insertion order, we'll get any entry
+      // In practice, there should only be one entry at a time
+      String mostRecentPath = executionReportPaths.values().iterator().next();
+      // Remove all entries (should only be one)
+      executionReportPaths.clear();
+      return mostRecentPath;
+    }
+    
+    return null;
   }
 
   /**
@@ -404,6 +438,11 @@ public class InferenceLogger {
    */
   private String generateTextReport(
       String executionId, List<ExecutionEvent> events, long durationMs, boolean success) {
+    return generateTextReport(executionId, events, durationMs, success, 0);
+  }
+
+  private String generateTextReport(
+      String executionId, List<ExecutionEvent> events, long durationMs, boolean success, long startTimeMs) {
     StringBuilder sb = new StringBuilder();
 
     // Header
@@ -442,9 +481,32 @@ public class InferenceLogger {
     // Combined Execution Summary
     long apiCalls = events.stream().filter(e -> "api_call".equals(e.type)).count();
     long errors = events.stream().filter(e -> "api_call_error".equals(e.type)).count();
+    
+    // Check execution plan cache status (preferred over LLM cache status)
+    Boolean planCacheHit = null;
+    for (ExecutionEvent event : events) {
+      if ("execution_plan".equals(event.type)) {
+        Object planCacheHitObj = event.data.get("planCacheHit");
+        if (planCacheHitObj instanceof Boolean) {
+          planCacheHit = (Boolean) planCacheHitObj;
+          break; // Use first plan's cache status
+        }
+      }
+    }
+
+    // Determine cache status for header
+    // Only show cache status if plan caching is enabled (planCacheHit is not null)
+    // When planCacheHit is null, caching is disabled, so don't show any cache status
+    String cacheStatus = "";
+    if (planCacheHit != null) {
+      // Plan caching is enabled - show cache status
+      cacheStatus = planCacheHit ? " - Cache hit" : " - Cache miss";
+    }
+    // If planCacheHit is null, caching is disabled - don't show cache status
 
     sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
-    sb.append("│ EXECUTION SUMMARY                                                            │\n");
+    String headerText = "EXECUTION SUMMARY" + cacheStatus;
+    sb.append("│ ").append(String.format("%-76s", headerText)).append("│\n");
     sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
     sb.append("\n");
     sb.append("  Status:              [").append(success ? "SUCCESS" : "FAILED").append("]\n");
@@ -491,6 +553,9 @@ public class InferenceLogger {
           continue; // Skip this event
         }
 
+        Object cacheHitObj = event.data.get("cacheHit");
+        Boolean cacheHit = cacheHitObj instanceof Boolean ? (Boolean) cacheHitObj : null;
+        
         String phaseStr =
             (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
         // Track phase counts and append retry number if > 1
@@ -499,9 +564,10 @@ public class InferenceLogger {
         if (phaseCount > 1) {
           phaseStr = phaseStr + "#" + phaseCount;
         }
+        // Cache status is shown in summary only, not in individual call headers
         // Format: "  LLM Call N (phase):    DURATIONms | Tokens: X+Y=Z"
-        // Use fixed width for phase to ensure alignment
-        String callLabel = String.format("  LLM Call %d (%-10s):", llmCallNum++, phaseStr);
+        // Phase name without padding, then add padding before values
+        String callLabel = String.format("  LLM Call %d (%s):", llmCallNum++, phaseStr);
         String durationStr = dur > 0 ? String.format("%6dms", dur) : "   N/A";
         // Compact token display: Tokens: 23432+233=23665
         String tokenStr =
@@ -577,6 +643,9 @@ public class InferenceLogger {
           continue; // Skip this event
         }
 
+        Object cacheHitObj = event.data.get("cacheHit");
+        Boolean cacheHit = cacheHitObj instanceof Boolean ? (Boolean) cacheHitObj : null;
+        
         String phaseStr =
             (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
         // Track phase counts and append retry number if > 1
@@ -585,6 +654,7 @@ public class InferenceLogger {
         if (phaseCount > 1) {
           phaseStr = phaseStr + "#" + phaseCount;
         }
+        // Cache status is shown in summary only, not in individual call headers
         String callHeader = "LLM Call " + llmInteractionNum + " (" + phaseStr + ")";
 
         // Box header for this LLM call
@@ -594,26 +664,6 @@ public class InferenceLogger {
         sb.append(
             "└──────────────────────────────────────────────────────────────────────────────┘\n");
         sb.append("\n");
-
-        // Show duration and tokens as regular content below header
-        StringBuilder details = new StringBuilder();
-        if (duration != null) {
-          details.append("Duration: ").append(duration).append("ms");
-        }
-        if (promptT > 0 || completionT > 0) {
-          if (details.length() > 0) details.append(" | ");
-          details
-              .append("Tokens: ")
-              .append(promptT)
-              .append("+")
-              .append(completionT)
-              .append("=")
-              .append(promptT + completionT);
-        }
-        if (details.length() > 0) {
-          sb.append("  ").append(details.toString()).append("\n");
-          sb.append("\n");
-        }
 
         llmInteractionNum++; // Increment after processing this event
 
@@ -643,6 +693,13 @@ public class InferenceLogger {
             sb.append(
                 "┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
             String messagesStr = currentInputMessages;
+            
+            // If we have a previous input, elide common prefix
+            if (previousInputMessages != null && !previousInputMessages.isEmpty()) {
+              String elided = elideCommonPrefix(previousInputMessages, messagesStr);
+              messagesStr = elided;
+            }
+            
             // Format messages nicely - they should already be formatted with [role] prefix
             String[] lines = messagesStr.split("\n");
             for (String line : lines) {
@@ -712,6 +769,203 @@ public class InferenceLogger {
     }
     sb.append("\n");
 
+    // Execution Plans (may have multiple due to retries)
+    List<ExecutionEvent> planEvents = events.stream()
+        .filter(e -> "execution_plan".equals(e.type))
+        .collect(java.util.stream.Collectors.toList());
+    
+    if (!planEvents.isEmpty()) {
+      int planNum = 1;
+      for (ExecutionEvent event : planEvents) {
+        sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        sb.append("│ EXECUTION PLAN ").append(planEvents.size() > 1 ? String.format("(Attempt %d)", planNum) : "").append("\n");
+        sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+        sb.append("\n");
+
+        Object plan = event.data.get("plan");
+        Object executionResult = event.data.get("executionResult");
+        Object error = event.data.get("error");
+        
+        // Always show plan section, even if empty (so errors are visible)
+        if (plan != null && !plan.toString().trim().isEmpty()) {
+          String planStr = plan.toString();
+          // Try to pretty-print JSON
+          try {
+            Object parsed = JacksonUtility.getJsonMapper().readValue(planStr, Object.class);
+            planStr =
+                JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
+          } catch (Exception e) {
+            // Not JSON, use as-is
+          }
+          
+          sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
+          String[] lines = planStr.split("\n");
+          for (String line : lines) {
+            if (line.isEmpty()) {
+              sb.append("│\n");
+            } else {
+              int maxWidth = 76;
+              if (line.length() <= maxWidth) {
+                sb.append("│ ").append(line).append("\n");
+              } else {
+                int start = 0;
+                while (start < line.length()) {
+                  int end = Math.min(start + maxWidth, line.length());
+                  String chunk = line.substring(start, end);
+                  sb.append("│ ").append(chunk).append("\n");
+                  start = end;
+                }
+              }
+            }
+          }
+          sb.append("\n");
+        } else {
+          // Show plan section even if empty, so execution result/error is visible
+          sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
+          sb.append("│ [No execution plan captured]\n");
+          sb.append("\n");
+        }
+
+        // Execution Result - always show if there's an error or result
+        
+        if (error != null && !error.toString().trim().isEmpty()) {
+          sb.append("┌─ EXECUTION RESULT ─────────────────────────────────────────────────────────\n");
+          sb.append("│ [ERROR]\n");
+          String errorStr = error.toString();
+          
+          // Strategy: Extract the most useful error message
+          // 1. First try to extract from API call events (most reliable - direct from response body)
+          // 2. Then try to extract from error message if it contains "API error:"
+          // 3. Fall back to cleaned exception message
+          
+          String apiErrorMsg = extractApiErrorFromEvents(events, -1);
+          
+          if (apiErrorMsg == null || apiErrorMsg.trim().isEmpty()) {
+            // Try to extract from error message itself if it contains "API error:"
+            if (errorStr.contains("API error:")) {
+              int apiErrorIndex = errorStr.indexOf("API error:");
+              String afterApiError = errorStr.substring(apiErrorIndex + "API error:".length()).trim();
+              // Extract the actual error message (may have HTTP status prefix)
+              if (afterApiError.startsWith("HTTP ")) {
+                // Format: "API error: HTTP 400: Missing required fields..."
+                int colonIndex = afterApiError.indexOf(':', "HTTP ".length());
+                if (colonIndex > 0 && colonIndex < afterApiError.length() - 1) {
+                  apiErrorMsg = afterApiError.substring(colonIndex + 1).trim();
+                } else {
+                  // No second colon, use everything after "HTTP XXX"
+                  apiErrorMsg = afterApiError;
+                }
+              } else {
+                // Format: "API error: Missing required fields..."
+                apiErrorMsg = afterApiError;
+              }
+            }
+          }
+          
+          if (apiErrorMsg != null && !apiErrorMsg.trim().isEmpty()) {
+            // Use the API error message from response body instead of generic exception
+            errorStr = apiErrorMsg;
+            log.debug("Using extracted API error message: {}", apiErrorMsg);
+          } else {
+            log.debug("No API error message found, using exception message: {}", errorStr);
+            // Clean up error string - remove stack trace information
+            // If it looks like a compact stack trace (contains " > "), extract just the error message
+            if (errorStr.contains(" > ")) {
+              // Try to extract just the first meaningful part (exception type and message)
+              // Look for patterns like "ClassName: message" or just "ClassName"
+              String[] parts = errorStr.split(" > ");
+              if (parts.length > 0) {
+                String firstPart = parts[0].trim();
+                // If first part contains a colon, try to extract message
+                int colonIndex = firstPart.indexOf(':');
+                if (colonIndex > 0 && colonIndex < firstPart.length() - 1) {
+                  String className = firstPart.substring(0, colonIndex).trim();
+                  String message = firstPart.substring(colonIndex + 1).trim();
+                  // Only use if message doesn't look like a file path or stack trace
+                  if (!message.contains("(") && !message.contains(".java")) {
+                    errorStr = className + ": " + message;
+                  } else {
+                    errorStr = className;
+                  }
+                } else {
+                  // No colon, just use the first part (likely just class name)
+                  errorStr = firstPart;
+                }
+              }
+            }
+          }
+          
+          String[] errorLines = errorStr.split("\n");
+          for (String line : errorLines) {
+            if (line.isEmpty()) {
+              sb.append("│\n");
+            } else {
+              int maxWidth = 76;
+              if (line.length() <= maxWidth) {
+                sb.append("│ ").append(line).append("\n");
+              } else {
+                int start = 0;
+                while (start < line.length()) {
+                  int end = Math.min(start + maxWidth, line.length());
+                  String chunk = line.substring(start, end);
+                  sb.append("│ ").append(chunk).append("\n");
+                  start = end;
+                }
+              }
+            }
+          }
+          sb.append("\n");
+        } else if (executionResult != null && !executionResult.toString().trim().isEmpty()) {
+          sb.append("┌─ EXECUTION RESULT ─────────────────────────────────────────────────────────\n");
+          String resultStr = executionResult.toString();
+          // Try to parse and pretty-print as JSON
+          try {
+            Object parsed = JacksonUtility.getJsonMapper().readValue(resultStr, Object.class);
+            resultStr =
+                JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
+          } catch (Exception e) {
+            // Not JSON, use as-is
+          }
+          String[] resultLines = resultStr.split("\n");
+          for (String line : resultLines) {
+            if (line.isEmpty()) {
+              sb.append("│\n");
+            } else {
+              int maxWidth = 76;
+              if (line.length() <= maxWidth) {
+                sb.append("│ ").append(line).append("\n");
+              } else {
+                int start = 0;
+                while (start < line.length()) {
+                  int end = Math.min(start + maxWidth, line.length());
+                  String chunk = line.substring(start, end);
+                  sb.append("│ ").append(chunk).append("\n");
+                  start = end;
+                }
+              }
+            }
+          }
+          sb.append("\n");
+        }
+        
+        planNum++;
+        if (planNum <= planEvents.size()) {
+          sb.append("\n"); // Space between multiple plans
+        }
+      }
+    } else {
+      sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+      sb.append("│ EXECUTION PLAN                                                               │\n");
+      sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+      sb.append("\n");
+      sb.append("  [No execution plan recorded]\n");
+      sb.append("\n");
+    }
+
     // API Calls - each call gets its own box header
     int apiCallNum2 = 1;
     boolean hasApiCalls = false;
@@ -725,7 +979,17 @@ public class InferenceLogger {
         Object requestBody = event.data.get("requestBody");
         Object responseBody = event.data.get("responseBody");
 
+        // Build header with URL if available
         String apiHeader = "API Call " + apiCallNum2;
+        if (url != null) {
+          String urlStr = url.toString();
+          // Truncate URL if too long to fit in header
+          int maxUrlLength = 76 - apiHeader.length() - 3; // 3 for " - "
+          if (urlStr.length() > maxUrlLength) {
+            urlStr = urlStr.substring(0, maxUrlLength - 3) + "...";
+          }
+          apiHeader = apiHeader + " - " + urlStr;
+        }
 
         // Box header for this API call
         sb.append(
@@ -735,14 +999,10 @@ public class InferenceLogger {
             "└──────────────────────────────────────────────────────────────────────────────┘\n");
         sb.append("\n");
 
-        // Show method, URL, status, and duration as regular content
+        // Show method, status, and duration as regular content (URL already in header)
         StringBuilder details = new StringBuilder();
         if (method != null) {
           details.append("Method: ").append(method);
-        }
-        if (url != null) {
-          if (details.length() > 0) details.append(" | ");
-          details.append("URL: ").append(url);
         }
         if (statusCode != null) {
           if (details.length() > 0) details.append(" | ");
@@ -850,15 +1110,8 @@ public class InferenceLogger {
           curlCmd.append(" \\\n");
           // Escape single quotes in the body for shell safety
           String escapedBody = requestBody.toString().replace("'", "'\\''");
-          // Wrap long curl body lines
-          if (escapedBody.length() > 70) {
-            curlCmd
-                .append("      -d '")
-                .append(escapedBody.substring(0, Math.min(70, escapedBody.length())))
-                .append("...'\n");
-          } else {
-            curlCmd.append("      -d '").append(escapedBody).append("'\n");
-          }
+          // Always include the full body - do not truncate
+          curlCmd.append("      -d '").append(escapedBody).append("'\n");
         } else {
           curlCmd.append("\n");
         }
@@ -869,45 +1122,6 @@ public class InferenceLogger {
     }
     if (!hasApiCalls) {
       sb.append("  [No API calls recorded]\n");
-    }
-    sb.append("\n");
-
-    // Execution Plan
-    sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
-    sb.append("│ EXECUTION PLAN                                                               │\n");
-    sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
-    sb.append("\n");
-
-    boolean hasExecutionPlan = false;
-    for (ExecutionEvent event : events) {
-      if ("execution_plan".equals(event.type)) {
-        hasExecutionPlan = true;
-        Object plan = event.data.get("plan");
-        if (plan != null && !plan.toString().trim().isEmpty()) {
-          String planStr = plan.toString();
-          // Try to pretty-print JSON
-          try {
-            Object parsed = JacksonUtility.getJsonMapper().readValue(planStr, Object.class);
-            planStr =
-                JacksonUtility.getJsonMapper()
-                    .writerWithDefaultPrettyPrinter()
-                    .writeValueAsString(parsed);
-          } catch (Exception e) {
-            // Not JSON, use as-is
-          }
-          String[] lines = planStr.split("\n");
-          for (String line : lines) {
-            sb.append("  ").append(line).append("\n");
-          }
-        } else {
-          sb.append("  [No execution plan captured]\n");
-        }
-        sb.append("\n");
-        break; // Only show first execution plan
-      }
-    }
-    if (!hasExecutionPlan) {
-      sb.append("  [No execution plan recorded]\n");
     }
     sb.append("\n");
 
@@ -980,6 +1194,39 @@ public class InferenceLogger {
       sb.append("\n");
     }
 
+    // Server Log Section
+    sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+    sb.append("│ SERVER LOG                                                                   │\n");
+    sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+    sb.append("\n");
+    
+    String serverLog = captureServerLog(startTimeMs, durationMs);
+    if (serverLog != null && !serverLog.trim().isEmpty()) {
+      String[] lines = serverLog.split("\n");
+      for (String line : lines) {
+        if (line.isEmpty()) {
+          sb.append("│\n");
+        } else {
+          int maxWidth = 76;
+          if (line.length() <= maxWidth) {
+            sb.append("│ ").append(line).append("\n");
+          } else {
+            int start = 0;
+            while (start < line.length()) {
+              int end = Math.min(start + maxWidth, line.length());
+              String chunk = line.substring(start, end);
+              sb.append("│ ").append(chunk).append("\n");
+              start = end;
+            }
+          }
+        }
+      }
+      sb.append("\n");
+    } else {
+      sb.append("│ [No server log entries captured during execution]\n");
+      sb.append("\n");
+    }
+
     // Footer
     sb.append("╔══════════════════════════════════════════════════════════════════════════════╗\n");
     sb.append("║                          END OF REPORT                                       ║\n");
@@ -1011,6 +1258,11 @@ public class InferenceLogger {
 
   public void logLlmInferenceComplete(
       String phase, long durationMs, long promptTokens, long completionTokens, String response) {
+    logLlmInferenceComplete(phase, durationMs, promptTokens, completionTokens, response, null);
+  }
+
+  public void logLlmInferenceComplete(
+      String phase, long durationMs, long promptTokens, long completionTokens, String response, Boolean cacheHit) {
     String executionId = currentExecutionId.get();
     if (executionId == null) return;
 
@@ -1023,6 +1275,9 @@ public class InferenceLogger {
         data.put("promptTokens", promptTokens);
         data.put("completionTokens", completionTokens);
         data.put("response", response != null ? response : "");
+        if (cacheHit != null) {
+          data.put("cacheHit", cacheHit);
+        }
         events.add(
             new ExecutionEvent(
                 "llm_inference_complete", executionId, Instant.now().toString(), data));
@@ -1226,20 +1481,72 @@ public class InferenceLogger {
   }
 
   public void logExecutionPlan(String planJson) {
+    logExecutionPlan(planJson, null, null, null);
+  }
+
+  public void logExecutionPlan(String planJson, Boolean planCacheHit) {
+    logExecutionPlan(planJson, null, null, planCacheHit);
+  }
+
+  public void logExecutionPlan(String planJson, String executionResult, String error) {
+    logExecutionPlan(planJson, executionResult, error, null);
+  }
+
+  public void logExecutionPlan(String planJson, String executionResult, String error, Boolean planCacheHit) {
     String executionId = currentExecutionId.get();
-    if (executionId == null) return;
+    if (executionId == null) {
+      log.warn("Cannot log execution plan: executionId is null");
+      return;
+    }
 
     if (reportModeEnabled) {
       List<ExecutionEvent> events = executionEvents.get(executionId);
       if (events != null) {
+        // If we have ONLY a result/error (no plan JSON), try to update the most recent plan event
+        // This is for adding execution results to an already-logged plan
+        if ((executionResult != null || error != null) && (planJson == null || planJson.trim().isEmpty())) {
+          // Find the most recent execution_plan event and update it
+          for (int i = events.size() - 1; i >= 0; i--) {
+            ExecutionEvent event = events.get(i);
+            if ("execution_plan".equals(event.type) && event.data != null) {
+              // Update the existing event's data map (map is mutable even though reference is final)
+              if (executionResult != null) {
+                event.data.put("executionResult", executionResult);
+              }
+              if (error != null) {
+                event.data.put("error", error);
+              }
+              log.debug("Updated execution plan with result (executionId: {}, hasResult: {}, hasError: {})", 
+                  executionId, executionResult != null, error != null);
+              return;
+            }
+          }
+          // If no plan event found, log a new one (shouldn't happen, but handle gracefully)
+          log.warn("No existing plan event found to update with result (executionId: {})", executionId);
+        }
+        
+        // Log new plan event - either we have a plan JSON, or we couldn't find an existing event to update
         Map<String, Object> data = new HashMap<>();
         data.put("plan", planJson != null ? planJson : "");
+        if (executionResult != null) {
+          data.put("executionResult", executionResult);
+        }
+        if (error != null) {
+          data.put("error", error);
+        }
+        if (planCacheHit != null) {
+          data.put("planCacheHit", planCacheHit);
+        }
         events.add(
             new ExecutionEvent("execution_plan", executionId, Instant.now().toString(), data));
+        log.debug("Execution plan logged (length: {}, executionId: {}, hasResult: {}, hasError: {}, planCacheHit: {})", 
+            planJson != null ? planJson.length() : 0, executionId, executionResult != null, error != null, planCacheHit);
+      } else {
+        log.warn("Cannot log execution plan: events list is null for executionId: {}", executionId);
       }
+    } else {
+      log.debug("Execution plan not logged: report mode disabled");
     }
-
-    log.debug("Execution plan logged (length: {})", planJson != null ? planJson.length() : 0);
   }
 
   public void logPhaseChange(String phase) {
@@ -1371,6 +1678,242 @@ public class InferenceLogger {
       }
     } else {
       log.debug("Report mode disabled, skipping AssigmentResult logging");
+    }
+  }
+
+  /**
+   * Elide common prefix between two strings (typically LLM input messages).
+   * Compares line by line and removes matching prefix lines, replacing them with
+   * an elision marker.
+   *
+   * @param previous the previous string
+   * @param current the current string
+   * @return the current string with common prefix elided
+   */
+  private String elideCommonPrefix(String previous, String current) {
+    if (previous == null || previous.isEmpty() || current == null || current.isEmpty()) {
+      return current;
+    }
+
+    String[] prevLines = previous.split("\n");
+    String[] currLines = current.split("\n");
+
+    // Find the number of matching lines from the start
+    int commonLines = 0;
+    int minLines = Math.min(prevLines.length, currLines.length);
+    for (int i = 0; i < minLines; i++) {
+      if (prevLines[i].equals(currLines[i])) {
+        commonLines++;
+      } else {
+        break;
+      }
+    }
+
+    // If no common prefix or all lines are common, return current as-is
+    if (commonLines == 0 || commonLines >= currLines.length) {
+      return current;
+    }
+
+    // If there's a significant common prefix (at least 2 lines), elide it
+    if (commonLines >= 2) {
+      StringBuilder result = new StringBuilder();
+      result.append("... (")
+          .append(commonLines)
+          .append(" line")
+          .append(commonLines > 1 ? "s" : "")
+          .append(" from previous call elided) ...\n");
+      
+      // Append the unique part
+      for (int i = commonLines; i < currLines.length; i++) {
+        result.append(currLines[i]);
+        if (i < currLines.length - 1) {
+          result.append("\n");
+        }
+      }
+      return result.toString();
+    }
+
+    // If only 1 line matches, don't elide (not significant enough)
+    return current;
+  }
+
+  /**
+   * Extract API error message from the most recent API call event with an error status.
+   * Looks for API calls with status >= 400 and extracts the error message from the response body.
+   * 
+   * Since API calls happen during execution (after the plan event is created), we look through
+   * ALL events to find the most recent API call with an error status.
+   *
+   * @param events list of execution events
+   * @param currentEventIndex index of the current event (execution_plan with error) - not used, kept for API compatibility
+   * @return the API error message, or null if not found
+   */
+  private String extractApiErrorFromEvents(List<ExecutionEvent> events, int currentEventIndex) {
+    if (events == null || events.isEmpty()) {
+      log.debug("extractApiErrorFromEvents: events is null or empty");
+      return null;
+    }
+    
+    // Look through ALL events to find the most recent API call with error status
+    // API calls happen during execution, so they may be anywhere in the events list
+    ExecutionEvent mostRecentErrorApiCall = null;
+    int mostRecentIndex = -1;
+    
+    for (int i = 0; i < events.size(); i++) {
+      ExecutionEvent event = events.get(i);
+      if ("api_call".equals(event.type) && event.data != null) {
+        Object statusCode = event.data.get("statusCode");
+        
+        // Check if this is an error status (4xx or 5xx)
+        if (statusCode != null) {
+          int status = 0;
+          if (statusCode instanceof Number) {
+            status = ((Number) statusCode).intValue();
+          } else {
+            try {
+              status = Integer.parseInt(statusCode.toString());
+            } catch (NumberFormatException e) {
+              continue;
+            }
+          }
+          
+          if (status >= 400) {
+            // This is an error API call - track it as the most recent
+            mostRecentErrorApiCall = event;
+            mostRecentIndex = i;
+            log.debug("Found error API call at index {} with status {}", i, status);
+          }
+        }
+      }
+    }
+    
+    if (mostRecentErrorApiCall == null) {
+      log.debug("extractApiErrorFromEvents: No error API call found in {} events", events.size());
+      return null;
+    }
+    
+    log.debug("extractApiErrorFromEvents: Found error API call at index {}, extracting error message", mostRecentIndex);
+    
+    // If we found an error API call, extract the error message from its response body
+    if (mostRecentErrorApiCall.data != null) {
+      Object responseBody = mostRecentErrorApiCall.data.get("responseBody");
+      if (responseBody != null) {
+        String responseBodyStr = responseBody.toString();
+        log.debug("extractApiErrorFromEvents: Response body length: {}", responseBodyStr.length());
+        if (!responseBodyStr.trim().isEmpty()) {
+          // Try to extract error message from JSON response
+          try {
+            JsonNode responseJson = JacksonUtility.getJsonMapper().readTree(responseBodyStr);
+            if (responseJson.has("error") && responseJson.get("error").isTextual()) {
+              String errorMsg = responseJson.get("error").asText();
+              log.debug("extractApiErrorFromEvents: Extracted error message: {}", errorMsg);
+              return errorMsg;
+            } else if (responseJson.has("message") && responseJson.get("message").isTextual()) {
+              String errorMsg = responseJson.get("message").asText();
+              log.debug("extractApiErrorFromEvents: Extracted message: {}", errorMsg);
+              return errorMsg;
+            } else if (responseJson.has("error") && !responseJson.get("error").isNull()) {
+              String errorMsg = responseJson.get("error").toString();
+              log.debug("extractApiErrorFromEvents: Extracted error (non-textual): {}", errorMsg);
+              return errorMsg;
+            }
+            log.debug("extractApiErrorFromEvents: JSON response found but no error/message field");
+          } catch (Exception e) {
+            log.debug("extractApiErrorFromEvents: Failed to parse response as JSON: {}", e.getMessage());
+            // Not JSON or parse error, try to extract from response body as-is
+            // Look for common error patterns
+            if (responseBodyStr.contains("\"error\"") || responseBodyStr.contains("error:")) {
+              // Try to extract error message from text
+              int errorIndex = responseBodyStr.indexOf("\"error\"");
+              if (errorIndex >= 0) {
+                int colonIndex = responseBodyStr.indexOf(':', errorIndex);
+                if (colonIndex > 0 && colonIndex < responseBodyStr.length() - 1) {
+                  String afterColon = responseBodyStr.substring(colonIndex + 1).trim();
+                  // Extract quoted string or value
+                  if (afterColon.startsWith("\"")) {
+                    int endQuote = afterColon.indexOf('"', 1);
+                    if (endQuote > 0) {
+                      String errorMsg = afterColon.substring(1, endQuote);
+                      log.debug("extractApiErrorFromEvents: Extracted error from text pattern: {}", errorMsg);
+                      return errorMsg;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          log.debug("extractApiErrorFromEvents: Response body is empty");
+        }
+      } else {
+        log.debug("extractApiErrorFromEvents: Response body is null");
+      }
+    } else {
+      log.debug("extractApiErrorFromEvents: Event data is null");
+    }
+    
+    log.debug("extractApiErrorFromEvents: Could not extract error message");
+    return null;
+  }
+
+  /**
+   * Capture server log entries that occurred during the execution timeframe.
+   *
+   * @param startTimeMs execution start time in milliseconds
+   * @param durationMs execution duration in milliseconds
+   * @return log entries as a string, or null if unable to capture
+   */
+  private String captureServerLog(long startTimeMs, long durationMs) {
+    if (startTimeMs == 0) {
+      return null; // No start time provided, can't capture logs
+    }
+
+    try {
+      // Determine log file location (same logic as OneMcp.configureFileOnlyLogging)
+      String logDirEnv = System.getenv("ONEMCP_LOG_DIR");
+      java.io.File logFile;
+      if (logDirEnv != null && !logDirEnv.isBlank()) {
+        logFile = new java.io.File(logDirEnv, "onemcp.log");
+      } else {
+        String homeDirEnv = System.getenv("ONEMCP_HOME_DIR");
+        if (homeDirEnv != null && !homeDirEnv.isBlank()) {
+          logFile = new java.io.File(homeDirEnv, "logs/onemcp.log");
+        } else {
+          String userHome = System.getProperty("user.home");
+          logFile = new java.io.File(
+              userHome != null ? userHome : System.getProperty("java.io.tmpdir"),
+              ".onemcp/logs/onemcp.log");
+        }
+      }
+
+      if (!logFile.exists() || !logFile.canRead()) {
+        log.debug("Log file not found or not readable: {}", logFile);
+        return null;
+      }
+
+      // Read log file and filter entries within execution timeframe
+      long endTimeMs = startTimeMs + durationMs;
+      List<String> relevantLines = new ArrayList<>();
+      
+      try (java.io.BufferedReader reader = java.nio.file.Files.newBufferedReader(logFile.toPath())) {
+        String line;
+        while ((line = reader.readLine()) != null) {
+          // Try to extract timestamp from log line (format varies by logback config)
+          // Common formats: "2025-12-01 05:27:32.123" or ISO format
+          // For now, include all lines - timestamp parsing can be improved later
+          relevantLines.add(line);
+        }
+      }
+
+      // If log file is too large, only return recent lines (last 1000 lines)
+      if (relevantLines.size() > 1000) {
+        relevantLines = relevantLines.subList(relevantLines.size() - 1000, relevantLines.size());
+      }
+
+      return String.join("\n", relevantLines);
+    } catch (Exception e) {
+      log.debug("Failed to capture server log: {}", e.getMessage());
+      return null;
     }
   }
 

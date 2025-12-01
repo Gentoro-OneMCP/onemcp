@@ -86,6 +86,14 @@ export class AgentService {
     const activeProfile = this.resolveActiveProfile(config?.provider);
     const javaArgs = await this.buildJavaArgs(projectRoot, activeProfile, port);
 
+    const cacheEnabled = config?.cache?.enabled ?? false;
+    
+    // Log the cache setting for debugging
+    if (this.initialized) {
+      // Only log on re-initialization (restart), not on first init
+      console.log(chalk.dim(`  Setting CACHE_ENABLED=${cacheEnabled ? 'true' : 'false'} (from config.cache.enabled=${config?.cache?.enabled})`));
+    }
+    
     const initialEnv = {
       SERVER_PORT: port.toString(),
       FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
@@ -98,6 +106,8 @@ export class AgentService {
       ONEMCP_CACHE_DIR: paths.cacheDir,
       // Set OrientDB root directory to ONEMCP_HOME_DIR/orient
       GRAPH_V2_ORIENT_ROOT_DIR: join(paths.homeDir, 'orient'),
+      // Pass cache enabled setting from config - explicitly set as string
+      CACHE_ENABLED: cacheEnabled ? 'true' : 'false',
     };
 
     processManager.register({
@@ -109,6 +119,12 @@ export class AgentService {
       port,
       healthCheckUrl: `http://localhost:${port}/mcp`,
     });
+    
+    // Verify the registration worked
+    const registeredConfig = processManager.getConfig('app');
+    if (registeredConfig?.env?.CACHE_ENABLED !== (cacheEnabled ? 'true' : 'false')) {
+      console.log(chalk.yellow(`  WARNING: CACHE_ENABLED mismatch! Expected: ${cacheEnabled ? 'true' : 'false'}, Got: ${registeredConfig?.env?.CACHE_ENABLED}`));
+    }
 
     this.initialized = true;
   }
@@ -171,6 +187,7 @@ export class AgentService {
     // Show log file location
     const logPath = paths.getLogPath('app');
     console.log(chalk.dim(`  • Logs: ${logPath}`));
+    console.log();
 
     console.log(chalk.dim('  • Starting OneMCP core service...'));
     try {
@@ -251,15 +268,42 @@ export class AgentService {
    * Restart a specific service or all services
    */
   async restart(serviceName?: string): Promise<void> {
+    // Reload config to get latest cache setting
+    const config = await configManager.getGlobalConfig();
+    const cacheEnabled = config?.cache?.enabled ?? false;
+    
+    console.log(chalk.dim(`  Cache setting from config: ${cacheEnabled} (config.cache.enabled=${config?.cache?.enabled})`));
+    
+    // Reset initialization flag so we can re-register with updated config
+    this.initialized = false;
+    
+    // Re-initialize to register process with updated environment variables
     await this.initialize();
+    
+    // Verify the environment variable was set correctly
+    const registeredConfig = processManager.getConfig(serviceName || 'app');
+    const cacheEnvValue = registeredConfig?.env?.CACHE_ENABLED;
+    console.log(chalk.dim(`  CACHE_ENABLED env var set to: ${cacheEnvValue}`));
 
     if (serviceName) {
       console.log(`Restarting ${serviceName}...`);
-      await processManager.stop(serviceName);
-      await processManager.start(serviceName);
+      // Use force start which will stop existing process if needed
+      await processManager.start(serviceName, true);
+      
+      // Wait for service to become healthy
+      const appConfig = processManager.getConfig(serviceName);
+      if (appConfig?.healthCheckUrl) {
+        const logStartPosition = processManager.getLogStartPosition(serviceName);
+        try {
+          await this.waitForServiceHealthy(serviceName, appConfig, 60000, logStartPosition);
+        } catch (error: any) {
+          throw new Error(`Service ${serviceName} failed to become healthy after restart: ${error.message}`);
+        }
+      }
     } else {
       console.log('Restarting all services...');
       await this.stop();
+      await new Promise(resolve => setTimeout(resolve, 1000));
       await this.start();
     }
   }

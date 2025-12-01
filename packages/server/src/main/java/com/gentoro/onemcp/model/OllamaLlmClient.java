@@ -148,9 +148,10 @@ public class OllamaLlmClient extends AbstractLlmClient {
 
   @Override
   public String runInference(
-      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+      List<Message> messages, List<Tool> tools, Float temperature, InferenceEventListener listener) {
 
     final Ollama ollama = new Ollama(configuration.getString("baseUrl", "http://localhost:11434"));
+    // TODO: Use temperature parameter if provided (currently hardcoded to 0.3f)
     final OllamaChatRequest builder = initializeChat(ollama, messages, tools, listener);
     try {
       OllamaChatResult chatCompletion;

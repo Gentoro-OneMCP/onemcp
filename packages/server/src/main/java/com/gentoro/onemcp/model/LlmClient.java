@@ -19,10 +19,20 @@ public interface LlmClient {
    * tool-calling loops or ignore tools if unsupported.
    *
    * @param tools Optional tools available to the model.
+   * @param temperature Optional temperature override (null uses default from configuration).
    * @return final model response string.
    */
   String chat(
-      List<Message> messages, List<Tool> tools, boolean cacheable, InferenceEventListener listener);
+      List<Message> messages, List<Tool> tools, boolean cacheable, InferenceEventListener listener, Float temperature);
+  
+  /**
+   * Process a single-turn interaction with optional tool-calling (backward compatibility).
+   * Uses default temperature from configuration.
+   */
+  default String chat(
+      List<Message> messages, List<Tool> tools, boolean cacheable, InferenceEventListener listener) {
+    return chat(messages, tools, cacheable, listener, null);
+  }
 
   String generate(
       String message, List<Tool> tools, boolean cacheable, InferenceEventListener listener);

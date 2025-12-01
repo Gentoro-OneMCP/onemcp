@@ -1,14 +1,18 @@
-package com.gentoro.onemcp.cache;
+package com.gentoro.onemcp.plan;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.TextNode;
+import com.gentoro.onemcp.cache.FilterExpression;
+import com.gentoro.onemcp.cache.PromptSchema;
+import com.gentoro.onemcp.cache.PromptSchemaShape;
 import com.gentoro.onemcp.engine.ExecutionPlanEngine;
 import com.gentoro.onemcp.engine.OperationRegistry;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,9 +31,9 @@ public class ExecutionPlan {
   private static final org.slf4j.Logger log =
       com.gentoro.onemcp.logging.LoggingService.getLogger(ExecutionPlan.class);
 
-  /** Pattern to match placeholders: {{params.field}} or {{params.field.subfield}} */
+  /** Pattern to match all placeholders: {{params.X}}, {{filter.X.value}}, {{shape.X}} */
   private static final Pattern PLACEHOLDER_PATTERN = 
-      Pattern.compile("\\{\\{params\\.([a-zA-Z0-9_.]+)\\}\\}");
+      Pattern.compile("\\{\\{(params|filter|shape)\\.([a-zA-Z0-9_.]+)\\}\\}");
 
   private final JsonNode planNode;
 
@@ -127,8 +131,8 @@ public class ExecutionPlan {
   public String execute(PromptSchema schema, OperationRegistry registry) {
     log.debug("Executing plan with schema: {}", schema.getCacheKey());
 
-    // 1. Hydrate placeholders with values from schema.params
-    JsonNode hydratedPlan = hydrate(planNode, schema.getParams());
+    // 1. Hydrate placeholders with values from schema (params, filter, shape)
+    JsonNode hydratedPlan = hydrate(planNode, schema);
     log.trace("Hydrated plan: {}", hydratedPlan);
 
     // 2. Execute via engine
@@ -136,36 +140,65 @@ public class ExecutionPlan {
         JacksonUtility.getJsonMapper(), registry);
     JsonNode result = engine.execute(hydratedPlan, null);
     log.debug("Execution result: {}", result);
+    
+    if (result == null) {
+      log.error("ExecutionPlanEngine returned null result for schema: {}", schema.getCacheKey());
+      throw new RuntimeException("Plan execution returned null result");
+    }
+
+    // 2.5. Check for API failures (success: false in response)
+    // This can happen when the API call succeeds but returns an error response
+    if (result.isObject()) {
+      JsonNode successNode = result.get("success");
+      if (successNode != null && successNode.isBoolean() && !successNode.asBoolean()) {
+        // API returned success: false
+        String errorMsg = "API call failed";
+        JsonNode errorNode = result.get("error");
+        if (errorNode != null && errorNode.isTextual()) {
+          errorMsg = "API error: " + errorNode.asText();
+        } else if (errorNode != null) {
+          errorMsg = "API error: " + errorNode.toString();
+        }
+        log.warn("API returned success: false for schema: {}. Error: {}", schema.getCacheKey(), errorMsg);
+        throw new RuntimeException(errorMsg);
+      }
+    }
 
     // 3. Format result
-    return formatResult(result);
+    String formatted = formatResult(result);
+    if (formatted == null || formatted.trim().isEmpty()) {
+      log.error("Formatted result is null or empty for schema: {}", schema.getCacheKey());
+      log.debug("Raw result was: {}", result);
+      throw new RuntimeException("Plan execution produced null or empty formatted result");
+    }
+    return formatted;
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Hydration - Replace {{params.X}} with actual values
+  // Hydration - Replace {{params.X}}, {{filter.X.value}}, {{shape.X}} with actual values
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Hydrate placeholders in the plan with actual values.
+   * Hydrate placeholders in the plan with actual values from schema.
    *
    * @param node the JSON node to hydrate
-   * @param params the parameter values from PromptSchema
+   * @param schema the PromptSchema containing params, filter, and shape values
    * @return a new JSON node with placeholders replaced
    */
-  private JsonNode hydrate(JsonNode node, Map<String, Object> params) {
+  private JsonNode hydrate(JsonNode node, PromptSchema schema) {
     if (node == null || node.isNull()) {
       return node;
     }
 
     if (node.isTextual()) {
       String text = node.asText();
-      return hydrateText(text, params);
+      return hydrateText(text, schema);
     }
 
     if (node.isArray()) {
       ArrayNode result = JacksonUtility.getJsonMapper().createArrayNode();
       for (JsonNode element : node) {
-        result.add(hydrate(element, params));
+        result.add(hydrate(element, schema));
       }
       return result;
     }
@@ -175,7 +208,7 @@ public class ExecutionPlan {
       Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
       while (fields.hasNext()) {
         Map.Entry<String, JsonNode> field = fields.next();
-        result.set(field.getKey(), hydrate(field.getValue(), params));
+        result.set(field.getKey(), hydrate(field.getValue(), schema));
       }
       return result;
     }
@@ -185,19 +218,21 @@ public class ExecutionPlan {
   }
 
   /**
-   * Hydrate a text value, replacing {{params.X}} placeholders.
+   * Hydrate a text value, replacing placeholders with actual values.
+   * Supports: {{params.X}}, {{filter.field_name.value}}, {{shape.limit}}, {{shape.offset}}
    *
    * @param text the text to hydrate
-   * @param params the parameter values
+   * @param schema the PromptSchema containing all values
    * @return a JsonNode with the hydrated value
    */
-  private JsonNode hydrateText(String text, Map<String, Object> params) {
+  private JsonNode hydrateText(String text, PromptSchema schema) {
     Matcher matcher = PLACEHOLDER_PATTERN.matcher(text);
     
     // If the entire text is a single placeholder, return the actual value type
     if (matcher.matches()) {
-      String path = matcher.group(1);
-      Object value = resolveParamPath(path, params);
+      String namespace = matcher.group(1); // params, filter, or shape
+      String path = matcher.group(2);
+      Object value = resolvePlaceholder(namespace, path, schema);
       return valueToJsonNode(value);
     }
 
@@ -205,8 +240,9 @@ public class ExecutionPlan {
     StringBuffer sb = new StringBuffer();
     matcher.reset();
     while (matcher.find()) {
-      String path = matcher.group(1);
-      Object value = resolveParamPath(path, params);
+      String namespace = matcher.group(1);
+      String path = matcher.group(2);
+      Object value = resolvePlaceholder(namespace, path, schema);
       String replacement = value != null ? value.toString() : "";
       matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
     }
@@ -218,6 +254,98 @@ public class ExecutionPlan {
       return new TextNode(text);
     }
     return new TextNode(result);
+  }
+
+  /**
+   * Resolve a placeholder value from the schema.
+   *
+   * @param namespace "params", "filter", or "shape"
+   * @param path the path within the namespace (e.g., "date_year.value" for filter)
+   * @param schema the PromptSchema
+   * @return the resolved value, or null if not found
+   */
+  private Object resolvePlaceholder(String namespace, String path, PromptSchema schema) {
+    switch (namespace) {
+      case "params":
+        return resolveParamPath(path, schema.getParams());
+        
+      case "filter":
+        return resolveFilterPath(path, schema.getFilter());
+        
+      case "shape":
+        return resolveShapePath(path, schema.getShape());
+        
+      default:
+        log.warn("Unknown placeholder namespace: {}", namespace);
+        return null;
+    }
+  }
+
+  /**
+   * Resolve a filter path like "date_year.value" from the filter list.
+   * Looks up filter by field name and returns the specified property.
+   *
+   * @param path the path (format: "field_name.property", e.g., "date_year.value")
+   * @param filters the list of filter expressions
+   * @return the resolved value, or null if not found
+   */
+  private Object resolveFilterPath(String path, List<FilterExpression> filters) {
+    if (filters == null || filters.isEmpty() || path == null) {
+      return null;
+    }
+    
+    // Parse path: field_name.property (e.g., "date_year.value", "customer_state.value")
+    int dotIndex = path.lastIndexOf('.');
+    if (dotIndex < 0) {
+      log.warn("Invalid filter path (expected field.property): {}", path);
+      return null;
+    }
+    
+    String fieldName = path.substring(0, dotIndex);
+    String property = path.substring(dotIndex + 1);
+    
+    // Find filter by field name
+    for (FilterExpression fe : filters) {
+      if (fe != null && fieldName.equals(fe.getField())) {
+        switch (property) {
+          case "value":
+            return fe.getValue();
+          case "operator":
+            return fe.getOperator();
+          case "field":
+            return fe.getField();
+          default:
+            log.warn("Unknown filter property: {}", property);
+            return null;
+        }
+      }
+    }
+    
+    log.warn("Filter not found for field: {}", fieldName);
+    return null;
+  }
+
+  /**
+   * Resolve a shape path like "limit" or "offset" from the shape object.
+   *
+   * @param path the property name (e.g., "limit", "offset")
+   * @param shape the PromptSchemaShape
+   * @return the resolved value, or null if not found
+   */
+  private Object resolveShapePath(String path, PromptSchemaShape shape) {
+    if (shape == null || path == null) {
+      return null;
+    }
+    
+    switch (path) {
+      case "limit":
+        return shape.getLimit();
+      case "offset":
+        return shape.getOffset();
+      default:
+        log.warn("Unknown shape property: {}", path);
+        return null;
+    }
   }
 
   /**
@@ -283,22 +411,40 @@ public class ExecutionPlan {
       return "Execution completed but no result was produced.";
     }
 
+    StringBuilder output = new StringBuilder();
+    
     // If result has an "answer" field, use it
     if (result.has("answer")) {
       JsonNode answer = result.get("answer");
       if (answer.isTextual()) {
-        return answer.asText();
+        output.append(answer.asText());
+      } else {
+        // Try to format as JSON if it's an object/array
+        try {
+          output.append(JacksonUtility.getJsonMapper()
+              .writerWithDefaultPrettyPrinter()
+              .writeValueAsString(answer));
+        } catch (Exception e) {
+          output.append(answer.toString());
+        }
       }
-      return answer.toString();
     }
 
-    // If result has a "message" field, use it
+    // If result has a "message" field, append it (for shaping warnings)
     if (result.has("message")) {
       JsonNode message = result.get("message");
-      if (message.isTextual()) {
-        return message.asText();
+      String messageStr = message.isTextual() ? message.asText() : message.toString();
+      if (!messageStr.trim().isEmpty()) {
+        if (output.length() > 0) {
+          output.append("\n\n");
+        }
+        output.append(messageStr);
       }
-      return message.toString();
+    }
+
+    // If we have output, return it
+    if (output.length() > 0) {
+      return output.toString();
     }
 
     // Otherwise return the JSON representation
@@ -354,5 +500,4 @@ public class ExecutionPlan {
     return "ExecutionPlan{hasPlaceholders=" + hasPlaceholders() + "}";
   }
 }
-
 

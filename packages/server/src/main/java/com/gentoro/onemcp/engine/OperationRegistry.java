@@ -55,7 +55,45 @@ public class OperationRegistry {
     try {
       return op.apply(input);
     } catch (Exception e) {
+      // Preserve API error messages from the cause
+      String errorMsg = e.getMessage();
+      if (errorMsg != null && (errorMsg.contains("API error:") || errorMsg.contains("HTTP "))) {
+        // Use the original error message which contains the API error details
+        throw new ExecutionPlanException(errorMsg, e);
+      } else {
+        // Generic error, use standard message
       throw new ExecutionPlanException("Operation '" + name + "' failed", e);
+      }
+    }
+  }
+
+  /**
+   * Invoke a previously registered operation with structured HTTP request.
+   * This is used for the new http_call node type that has explicit path_params, query, body structure.
+   *
+   * @param name operation name as referenced from a plan.
+   * @param httpRequest structured HTTP request with path_params, query, headers, body.
+   * @return the {@link JsonNode} result returned by the operation (may be {@code null}).
+   * @throws ExecutionPlanException if the operation is not registered or if the implementation
+   *     throws any exception.
+   */
+  public JsonNode invokeHttp(String name, JsonNode httpRequest) {
+    Function<JsonNode, JsonNode> op = operations.get(name);
+    if (op == null) {
+      throw new ExecutionPlanException("No operation registered with name '" + name + "'");
+    }
+    try {
+      // For http_call nodes, we pass the structured http request directly
+      // The operation (EndpointInvoker) will handle it specially
+      return op.apply(httpRequest);
+    } catch (Exception e) {
+      // Preserve API error messages from the cause
+      String errorMsg = e.getMessage();
+      if (errorMsg != null && (errorMsg.contains("API error:") || errorMsg.contains("HTTP "))) {
+        throw new ExecutionPlanException(errorMsg, e);
+      } else {
+        throw new ExecutionPlanException("Operation '" + name + "' failed", e);
+      }
     }
   }
 }

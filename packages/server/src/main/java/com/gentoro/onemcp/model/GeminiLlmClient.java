@@ -21,10 +21,13 @@ public class GeminiLlmClient extends AbstractLlmClient {
     this.geminiClient = geminiClient;
   }
 
-  private GenerateContentConfig.Builder initializeConfigBuilder(List<Tool> tools) {
+  private GenerateContentConfig.Builder initializeConfigBuilder(List<Tool> tools, Float temperatureOverride) {
+    float temp = temperatureOverride != null 
+        ? temperatureOverride 
+        : configuration.getFloat("options.temperature", 0.0f);
     GenerateContentConfig.Builder configBuilder =
         GenerateContentConfig.builder()
-            .temperature(configuration.getFloat("options.temperature", 0.7f))
+            .temperature(temp)
             .candidateCount(configuration.getInt("options.candidate-count", 1));
 
     if (!tools.isEmpty()) {
@@ -49,7 +52,7 @@ public class GeminiLlmClient extends AbstractLlmClient {
   @Override
   public String runContentGeneration(
       String message, List<Tool> tools, InferenceEventListener listener) {
-    GenerateContentConfig.Builder configBuilder = initializeConfigBuilder(tools);
+    GenerateContentConfig.Builder configBuilder = initializeConfigBuilder(tools, null);
 
     String modelName = configuration.getString("model", "gemini-2.5-flash");
     long start = System.currentTimeMillis();
@@ -119,9 +122,9 @@ public class GeminiLlmClient extends AbstractLlmClient {
 
   @Override
   public String runInference(
-      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+      List<Message> messages, List<Tool> tools, Float temperature, InferenceEventListener listener) {
 
-    GenerateContentConfig.Builder configBuilder = initializeConfigBuilder(tools);
+    GenerateContentConfig.Builder configBuilder = initializeConfigBuilder(tools, temperature);
     String modelName = configuration.getString("model", "gemini-2.5-flash");
 
     if (messages.isEmpty() || Message.allExcept(messages, Role.SYSTEM).isEmpty()) {

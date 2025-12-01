@@ -68,6 +68,13 @@ llm:
     enabled: false
     location: ${env:ONEMCP_CACHE_DIR:-${env:ONEMCP_HOME_DIR:-cache}/cache}
 
+# Orchestrator configuration
+orchestrator:
+  # Enable caching path (uses plan package + cache package)
+  # When false, uses legacy path (orchestrator.PlanGenerationService)
+  cache:
+    enabled: ${env:CACHE_ENABLED:-false}
+
 graph:
   indexing:
     # When true, the selected driver database/collection is cleared before re-indexing
@@ -100,7 +107,8 @@ graph:
   # OrientDB embedded driver configuration
   orient:
     # Root directory where embedded OrientDB stores data
-    rootDir: ${env:GRAPH_V2_ORIENT_ROOT_DIR:-data/orient}
+    # Defaults to ONEMCP_HOME_DIR/orient if ONEMCP_HOME_DIR is set, otherwise data/orient
+    rootDir: ${env:GRAPH_V2_ORIENT_ROOT_DIR:-${env:ONEMCP_HOME_DIR:-data}/orient}
     # Database name prefix; final DB name defaults to <databasePrefix><handbookName> when 'database' not set
     databasePrefix: ${env:GRAPH_V2_ORIENT_DB_PREFIX:-onemcp-}
     # Optional: Explicit database name override (useful for single DB setups)

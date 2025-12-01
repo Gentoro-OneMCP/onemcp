@@ -106,8 +106,9 @@ public class OpenAiLlmClient extends AbstractLlmClient {
 
   @Override
   public String runInference(
-      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+      List<Message> messages, List<Tool> tools, Float temperature, InferenceEventListener listener) {
     ChatCompletionCreateParams.Builder builder = initialize(messages, tools);
+    // TODO: Use temperature parameter if provided
     final TypeReference<HashMap<String, Object>> typeRef =
         new TypeReference<HashMap<String, Object>>() {};
 

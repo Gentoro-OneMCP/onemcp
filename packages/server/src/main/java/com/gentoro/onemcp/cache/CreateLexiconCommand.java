@@ -5,18 +5,18 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * Standalone command for creating dictionary from OpenAPI specifications.
+ * Standalone command for creating lexicon from OpenAPI specifications.
  *
- * <p>Usage: java -jar onemcp.jar create-dict [handbook-path]
+ * <p>Usage: java -jar onemcp.jar create-lexicon [handbook-path]
  */
-public class CreateDictionaryCommand {
+public class CreateLexiconCommand {
   private static final org.slf4j.Logger log =
-      com.gentoro.onemcp.logging.LoggingService.getLogger(CreateDictionaryCommand.class);
+      com.gentoro.onemcp.logging.LoggingService.getLogger(CreateLexiconCommand.class);
 
   public static void main(String[] args) {
     try {
       if (args.length < 1) {
-        System.err.println("Usage: create-dict <handbook-path>");
+        System.err.println("Usage: create-lexicon <handbook-path>");
         System.exit(1);
       }
 
@@ -88,18 +88,18 @@ public class CreateDictionaryCommand {
         OneMcp oneMcp = new OneMcp(appArgs);
         oneMcp.initialize();
 
-        // Extract dictionary
-        DictionaryExtractorService extractor = new DictionaryExtractorService(oneMcp);
-        PromptDictionary dictionary = extractor.extractDictionary(handbookPath);
+        // Extract lexicon
+        LexiconExtractorService extractor = new LexiconExtractorService(oneMcp);
+        PromptLexicon lexicon = extractor.extractLexicon(handbookPath);
 
-        // Save to apis/dictionary.yaml
-        Path outputPath = handbookPath.resolve("apis").resolve("dictionary.yaml");
-        extractor.saveDictionary(dictionary, outputPath);
+        // Save to apis/lexicon.yaml
+        Path outputPath = handbookPath.resolve("apis").resolve("lexicon.yaml");
+        extractor.saveLexicon(lexicon, outputPath);
 
-        System.out.println("Dictionary extracted and saved to: " + outputPath);
-        System.out.println("Actions: " + dictionary.getActions().size());
-        System.out.println("Entities: " + dictionary.getEntities().size());
-        System.out.println("Fields: " + dictionary.getFields().size());
+        System.out.println("Lexicon extracted and saved to: " + outputPath);
+        System.out.println("Actions: " + lexicon.getActions().size());
+        System.out.println("Entities: " + lexicon.getEntities().size());
+        System.out.println("Fields: " + lexicon.getFields().size());
 
         oneMcp.shutdown();
         System.exit(0);
@@ -112,7 +112,7 @@ public class CreateDictionaryCommand {
         }
       }
     } catch (Exception e) {
-      System.err.println("Error creating dictionary: " + e.getMessage());
+      System.err.println("Error creating lexicon: " + e.getMessage());
       e.printStackTrace();
       System.exit(1);
     }

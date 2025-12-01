@@ -18,6 +18,9 @@ export interface GlobalConfig {
   baseUrl?: string;
   modelName?: string;
   chatTimeout?: number; // Timeout in milliseconds for chat requests
+  cache?: {
+    enabled: boolean;
+  };
 }
 
 export interface ServiceConfig {

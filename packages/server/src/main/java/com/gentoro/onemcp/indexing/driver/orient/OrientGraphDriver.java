@@ -46,7 +46,20 @@ public class OrientGraphDriver implements GraphDriver {
       this.database =
           (configured != null && !configured.isBlank()) ? configured : (prefix + handbookName);
 
-      File storageRoot = Path.of(root).toFile();
+      // Ensure absolute path - resolve relative paths against ONEMCP_HOME_DIR
+      Path rootPath = Path.of(root);
+      if (!rootPath.isAbsolute()) {
+        String homeDir = System.getenv("ONEMCP_HOME_DIR");
+        if (homeDir != null && !homeDir.isBlank()) {
+          rootPath = Path.of(homeDir).resolve(root).toAbsolutePath();
+        } else {
+          // If ONEMCP_HOME_DIR is not set, use absolute path from user home
+          String userHome = System.getProperty("user.home");
+          rootPath = Path.of(userHome, ".onemcp").resolve(root).toAbsolutePath();
+        }
+      }
+      
+      File storageRoot = rootPath.toFile();
       if (!storageRoot.exists() && !storageRoot.mkdirs()) {
         throw new IoException("Unable to create OrientDB storage root directory: " + storageRoot);
       }
