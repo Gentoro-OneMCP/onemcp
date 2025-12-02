@@ -1,5 +1,6 @@
 package com.gentoro.onemcp.handbook.model.agent;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.gentoro.onemcp.handbook.Handbook;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -7,8 +8,8 @@ import java.util.List;
 import java.util.Objects;
 
 public class Api {
-  private transient Handbook handbook;
-  private transient Service service;
+  @JsonIgnore private transient Handbook handbook;
+  @JsonIgnore private transient Service service;
   private String slug;
   private String name;
   private String ref;
@@ -64,6 +65,10 @@ public class Api {
 
   public void addEntity(Entity entity) {
     entities.add(entity);
+  }
+
+  public void clearEntities() {
+    entities.clear();
   }
 
   public List<String> getBaseUrls() {

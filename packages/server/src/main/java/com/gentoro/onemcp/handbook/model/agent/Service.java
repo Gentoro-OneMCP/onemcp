@@ -35,34 +35,6 @@ public class Service {
     api.setSlug(StringUtility.sanitize(api.getName()).toLowerCase());
     api.setBaseUrls(getOpenApi().getServers().stream().map(Server::getUrl).toList());
     api.setDescription(getOpenApi().getInfo().getDescription());
-    getOpenApi()
-        .getTags()
-        .forEach(
-            tag -> {
-              final Entity entity = new Entity();
-              entity.setName(tag.getName());
-              entity.setDescription(tag.getDescription());
-              entity.setOpenApiTag(tag.getName());
-              getOpenApi()
-                  .getPaths()
-                  .forEach(
-                      (path, pathItem) -> {
-                        pathItem.readOperationsMap().entrySet().stream()
-                            .filter(entry -> entry.getValue().getTags().contains(tag.getName()))
-                            .forEach(
-                                entry -> {
-                                  String operationKind = httpMethodAsOperationKind(entry.getKey());
-                                  if (operationKind != null) {
-                                    EntityOperation entityOperation = new EntityOperation();
-                                    entityOperation.setKind(operationKind);
-                                    entityOperation.setDescription(
-                                        entry.getValue().getDescription());
-                                    entity.addOperation(entityOperation);
-                                  }
-                                });
-                      });
-              api.addEntity(entity);
-            });
     this.apiDef = api;
     this.apiDef.bindHandbook(handbook, this);
   }

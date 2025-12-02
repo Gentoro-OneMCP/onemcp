@@ -62,7 +62,7 @@ public class Example {
     JsonNode input = JacksonUtility.getJsonMapper().readTree(jsonInput);
 
     // 4️⃣ Invoke dynamically using operationId from OpenAPI
-    JsonNode response = proxy.invoke("createOrder", input);
+    JsonNode response = proxy.invoke("createOrder", input, null);
 
     // 5️⃣ Print result
     System.out.println(response.toPrettyString());

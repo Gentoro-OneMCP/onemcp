@@ -9,6 +9,7 @@ import com.gentoro.onemcp.exception.ExceptionUtil;
 import com.gentoro.onemcp.exception.HandbookException;
 import com.gentoro.onemcp.handbook.model.agent.Api;
 import com.gentoro.onemcp.indexing.GraphContextTuple;
+import com.gentoro.onemcp.mcp.model.ToolCallContext;
 import com.gentoro.onemcp.memory.ValueStore;
 import com.gentoro.onemcp.messages.AssigmentResult;
 import com.gentoro.onemcp.messages.AssignmentContext;
@@ -72,14 +73,15 @@ public class OrchestratorService {
   }
 
   public AssigmentResult handlePrompt(String prompt) {
-    return handlePrompt(prompt, new NoOpProgressSink());
+    return handlePrompt(prompt, null, new NoOpProgressSink());
   }
 
   /**
    * Handle a natural language prompt request and return a structured result, emitting optional
    * progress updates through the provided {@link ProgressSink}.
    */
-  public AssigmentResult handlePrompt(String prompt, ProgressSink progress) {
+  public AssigmentResult handlePrompt(
+      String prompt, ToolCallContext toolCallContext, ProgressSink progress) {
     log.trace("Processing prompt: {}", prompt);
 
     if (oneMcp.handbook().apis().isEmpty()) {
@@ -88,16 +90,11 @@ public class OrchestratorService {
               + "Review your handbook configuration and publish your APIs.");
     }
 
-    // Generate execution ID and start execution tracking
-    String executionId = UUID.randomUUID().toString();
-    String reportPath = oneMcp.inferenceLogger().startExecution(executionId, prompt);
-
     final List<String> calledOperations = new ArrayList<>();
     final List<AssigmentResult.Assignment> assignmentParts = new ArrayList<>();
     final long start = System.currentTimeMillis();
     AssignmentContext assignmentContext = null;
-    OrchestratorContext ctx = new OrchestratorContext(oneMcp, new ValueStore());
-    boolean success = false;
+    OrchestratorContext ctx = new OrchestratorContext(oneMcp, new ValueStore(), toolCallContext);
     try {
       // annotate root span with incoming prompt (truncated to avoid sensitive data)
       TelemetryTracer tracer = ctx.tracer();
@@ -134,9 +131,6 @@ public class OrchestratorService {
       int steps = plan.has("steps") && plan.get("steps").isArray() ? plan.get("steps").size() : 0;
       progress.endStageOk("plan", Map.of("steps", steps));
 
-      // Log execution plan for reporting
-      oneMcp.inferenceLogger().logExecutionPlan(planJson);
-
       // Prepare operations stage (we can’t know execution count precisely here)
       OperationRegistry operationRegistry = new OperationRegistry();
       for (Api api : ctx.handbook().apis().values()) {
@@ -158,10 +152,9 @@ public class OrchestratorService {
                           StdoutUtility.printRollingLine(
                               oneMcp, "Invoking operation %s".formatted(key));
 
-                          // Set inference logger on invoker to log API calls
-                          value.setInferenceLogger(oneMcp.inferenceLogger());
                           JsonNode result =
-                              value.invoke(data.has("data") ? data.get("data") : data);
+                              value.invoke(
+                                  data.has("data") ? data.get("data") : data, toolCallContext);
                           long opEnd = System.currentTimeMillis();
                           ctx.tracer()
                               .endCurrentOk(
@@ -233,21 +226,12 @@ public class OrchestratorService {
       assignmentParts.add(
           new AssigmentResult.Assignment(
               true, assignmentContext.getRefinedAssignment(), false, outputStr));
-      success = true;
-
-      // Log final response
-      oneMcp.inferenceLogger().logFinalResponse(outputStr);
     } catch (Exception e) {
       StdoutUtility.printError(oneMcp, "Could not handle assignment properly", e);
       assignmentParts.add(
           new AssigmentResult.Assignment(
               true, prompt, true, ExceptionUtil.formatCompactStackTrace(e)));
-      success = false;
       throw e;
-    } finally {
-      // Complete execution tracking
-      long totalTimeMs = System.currentTimeMillis() - start;
-      oneMcp.inferenceLogger().completeExecution(executionId, totalTimeMs, success);
     }
 
     long totalTimeMs = System.currentTimeMillis() - start;
@@ -271,6 +255,6 @@ public class OrchestratorService {
             ctx.tracer().completionTokens(),
             "totalTokens",
             ctx.tracer().totalTokens()));
-    return new AssigmentResult(assignmentParts, stats, assignmentContext, reportPath);
+    return new AssigmentResult(assignmentParts, stats, assignmentContext, null);
   }
 }

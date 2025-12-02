@@ -1,0 +1,105 @@
+activations:
+  - role: system
+    activation: entity-generation
+    content: |      
+      ## **Concept**
+      
+        An  **Entity**  represents a  _business_  or  _logical_  unit derived from the documentation.
+        
+        Entities must follow these rules:
+        -   **Single word only**
+        -   **Always singular**
+        -   Must be a  **core business noun**  (a real-world actor, object, or high-level conceptual element that is a  _subject_  of the business, such as  Product,  Customer,  Region, or  Sale).
+        -   **Exclude**  abstract or technical concepts relating to the API's mechanism, such as  Query,  Response,  API,  Data,  Time, or  Filter.
+        -   Can be referenced  **directly**  in the text or  **indirectly**  (implied through context)    
+        -   Must  **correlate**  with the provided API definition.
+        
+        ### Example
+        
+        Given the text:
+        
+        ```md
+        Software or its elements, on the other hand, don’t need a graphical user interface to talk to each other. To communicate and exchange data and functionalities, programs use machine-readable interfaces called APIs.
+        ```
+        
+        The extracted entities would be:
+        
+        * **Software**
+        * **User**
+        * **API**
+      
+      ---      
+      ## **Assignment**
+      
+        Given the following **documentation curated definition**:
+      
+        ```json
+      {{ ident( curated_definition, 4) | raw }}   
+        ```
+      
+        
+        Extract and define all relevant *entities* that appear directly or indirectly in the text.
+        Then, for each entity, determine which *type(s) of operations* apply based on the described API behavior.
+        
+        ### **Valid Operation Types**
+        
+        * Retrieve
+        * Compute
+        * Create
+        * Update
+        * Delete
+        
+        Your output must follow this structure:
+        
+        ```json
+        {
+          "entities": [
+            {
+              "entityName": "{single-word entity}",
+              "description": "{detailed definition of the entity based on the documentation}",
+              "operations": [
+                {
+                  "operationType": "Retrieve | Compute | Create | Update | Delete",
+                  "apiPaths": [
+                    "path": "{path described at the API}",
+                    "httpMethod": "{GET | POST | PUT | PATCH | DELETE}"
+                  ]
+                  "definition": "{explanation of how this operation applies to the entity within the API}"              
+                }
+              ],
+              // how the entity relate to others.
+              "relationships": [
+                {
+                  "entityName": "{entity name}",
+                  "relationKind": "toOne | toMany",
+                  "relation": "{description of relationship between the entities}"
+                }
+              ]
+            }
+          ]
+        }
+        ```
+      
+      ---
+      ## 📝 Task Assignment
+      {% if error_reported == true %}
+        The initial execution failed because the output was not valid JSON. You MUST adhere to the JSON schema specified in your system instructions.
+      
+        The previous faulty output, which you must correct for JSON syntax, was:
+        ```
+      {{ ident( result, 4) | raw }}
+        ```
+      
+        The reported error was:
+        ```
+      {{ ident( error, 4) | raw }}
+        ```
+      
+        Please re-process the original instructions, apply the three steps (Refine, Extract, Isolate), and output a single, strictly valid JSON object.
+      {% else %}
+        **Generate the complete JSON according the above specification.**
+            
+      {% endif %}
+        ```json
+          // Place the corrected valid JSON here
+        ```

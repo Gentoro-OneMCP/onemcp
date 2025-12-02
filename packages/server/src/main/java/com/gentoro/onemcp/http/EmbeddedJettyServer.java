@@ -45,7 +45,7 @@ public class EmbeddedJettyServer implements AutoCloseable {
         throw new ConfigException("Failed to resolve http.port configuration", e);
       }
 
-      String hostname = "0.0.0.0";
+      String hostname;
       try {
         hostname = oneMcp.configuration().getString("http.hostname", "0.0.0.0");
         if (Objects.isNull(hostname) || hostname.isBlank()) {
@@ -76,7 +76,8 @@ public class EmbeddedJettyServer implements AutoCloseable {
       } catch (Exception e) {
         throw new NetworkException(
             "There was a problem while attempting to initialize jetty service. "
-                + "Please, check if the chosen port and hostname are available and that this process has the proper permission to start a new listener on these configurations",
+                + "Please, check if the chosen port and hostname are available and that this process has "
+                + "the proper permission to start a new listener on these configurations",
             e);
       }
     }

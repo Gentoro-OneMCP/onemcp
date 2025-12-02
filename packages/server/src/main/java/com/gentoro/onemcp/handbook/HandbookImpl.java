@@ -7,6 +7,8 @@ import com.gentoro.onemcp.exception.IoException;
 import com.gentoro.onemcp.exception.NotFoundException;
 import com.gentoro.onemcp.handbook.model.agent.*;
 import com.gentoro.onemcp.handbook.model.regression.RegressionSuite;
+import com.gentoro.onemcp.management.ManagementService;
+import com.gentoro.onemcp.management.model.EntityGenerationResult;
 import com.gentoro.onemcp.utility.JacksonUtility;
 import com.google.common.hash.Hashing;
 import java.io.IOException;
@@ -15,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.apache.commons.codec.binary.Base64;
 
@@ -38,8 +41,11 @@ public class HandbookImpl implements Handbook {
   private void initialize() {
     try {
       this.agent = loadYaml(Agent.class, "Agent.yaml");
-      this.loadRegressionSuites();
+      if (this.agent == null) {
+        this.agent = new Agent();
+      }
       this.loadServices(this.agent);
+      this.loadRegressionSuites();
       this.loadDocumentation();
 
       if (this.agent.getApis().isEmpty()) {
@@ -88,8 +94,25 @@ public class HandbookImpl implements Handbook {
     return null;
   }
 
-  private void loadServices(Agent agent) {
+  private void saveYaml(Object data, String relativeUri) {
+    Path yamlPath = location.resolve(relativeUri);
+    if (!Files.exists(yamlPath.getParent())) {
+      try {
+        Files.createDirectories(yamlPath.getParent());
+      } catch (IOException e) {
+        throw new IoException("Could not create directory tree: " + relativeUri, e);
+      }
+    }
 
+    try {
+      JacksonUtility.getYamlMapper().writeValue(yamlPath.toFile(), data);
+    } catch (IOException e) {
+      throw new IoException("Could not save content into file: " + relativeUri, e);
+    }
+  }
+
+  private void loadServices(Agent agent) {
+    AtomicBoolean persistAgentYaml = new AtomicBoolean(false);
     if (this.agent == null || (this.agent.getApis() != null && this.agent.getApis().isEmpty())) {
       Path apisPath = location.resolve("./apis");
       if (Files.exists(apisPath) && Files.isDirectory(apisPath)) {
@@ -98,9 +121,125 @@ public class HandbookImpl implements Handbook {
               .forEach(
                   file -> {
                     if (Files.isRegularFile(file)
-                        && file.getFileName().toString().toLowerCase().endsWith(".yaml")) {
+                        && (file.getFileName().toString().toLowerCase().endsWith(".yaml")
+                            || file.getFileName().toString().toLowerCase().endsWith(".json"))) {
+                      log.info("Loading unlinked API: {} ", location().relativize(file));
                       Service service = new Service(this, file);
-                      agent.addApi(service.getApiDef());
+                      final Api apiDef = service.getApiDef();
+                      apiDef.clearEntities();
+
+                      ManagementService managementService = new ManagementService(this.oneMcp);
+                      EntityGenerationResult result = managementService.generateEntities(apiDef);
+
+                      result
+                          .getEntities()
+                          .forEach(
+                              entity -> {
+                                final Entity entityDef = new Entity();
+                                entityDef.setName(entity.getEntityName());
+                                entityDef.setDescription(entity.getDescription());
+
+                                entity
+                                    .getOperations()
+                                    .forEach(
+                                        operation -> {
+                                          final EntityOperation operationDef =
+                                              new EntityOperation();
+                                          operationDef.setKind(operation.getOperationType());
+                                          operationDef.setDescription(operation.getDefinition());
+
+                                          operation
+                                              .getApiPaths()
+                                              .forEach(
+                                                  apiPath -> {
+                                                    OpenApiRel openApiRel = new OpenApiRel();
+                                                    openApiRel.setPath(apiPath.getPath());
+                                                    openApiRel.setHttpMethod(
+                                                        apiPath.getHttpMethod());
+
+                                                    openApiRel.setOperationId(
+                                                        apiDef
+                                                            .getService()
+                                                            .getOpenApi()
+                                                            .getPaths()
+                                                            .entrySet()
+                                                            .stream()
+                                                            .filter(
+                                                                e -> {
+                                                                  return e.getKey()
+                                                                      .equalsIgnoreCase(
+                                                                          apiPath.getPath());
+                                                                })
+                                                            .flatMap(
+                                                                e ->
+                                                                    e
+                                                                        .getValue()
+                                                                        .readOperationsMap()
+                                                                        .entrySet()
+                                                                        .stream())
+                                                            .filter(
+                                                                e ->
+                                                                    e.getKey()
+                                                                        .name()
+                                                                        .equalsIgnoreCase(
+                                                                            apiPath
+                                                                                .getHttpMethod()))
+                                                            .map(Map.Entry::getValue)
+                                                            .map(v -> v.getOperationId())
+                                                            .findFirst()
+                                                            .orElse(null));
+                                                    if (Objects.nonNull(openApiRel.getOperationId())
+                                                        && !openApiRel.getOperationId().isEmpty())
+                                                      operationDef.addOpenApiRel(openApiRel);
+                                                    else {
+                                                      log.warn(
+                                                          "Could not locate corresponding OpenAPI Operation for: path = [{}], method = [{}]",
+                                                          apiPath.getPath(),
+                                                          apiPath.getHttpMethod());
+                                                    }
+                                                  });
+                                          if (Objects.nonNull(operationDef.getOpenApiRels())
+                                              && !operationDef.getOpenApiRels().isEmpty()) {
+                                            entityDef.addOperation(operationDef);
+                                          } else {
+                                            log.warn(
+                                                "Skipping operation mapping: [{}]",
+                                                operationDef.getKind());
+                                          }
+                                        });
+
+                                entity
+                                    .getRelationships()
+                                    .forEach(
+                                        relationship -> {
+                                          Relationship relationshipDef = new Relationship();
+                                          relationshipDef.setType(relationship.getRelationKind());
+                                          relationshipDef.setName(relationship.getEntityName());
+                                          relationshipDef.setDescription(
+                                              relationship.getRelation());
+                                          entityDef.addRelationship(relationshipDef);
+                                        });
+
+                                if (Objects.nonNull(entityDef.getOperations())
+                                    && !entityDef.getOperations().isEmpty()) {
+                                  apiDef.addEntity(entityDef);
+                                } else {
+                                  log.warn(
+                                      "Skipping entity mapping due to lake of linked operations: path = [{}]",
+                                      entityDef.getName());
+                                }
+                              });
+
+                      this.agent.addApi(apiDef);
+                      RegressionSuite regressionSuite =
+                          managementService.generateRegressionSuite(apiDef);
+                      if (Objects.nonNull(regressionSuite)
+                          && Objects.nonNull(regressionSuite.getTests())
+                          && !regressionSuite.getTests().isEmpty()) {
+                        saveYaml(
+                            regressionSuite, "regression-suites/" + apiDef.getSlug() + ".yaml");
+                      }
+                      persistAgentYaml.set(true);
                     }
                   });
           Release release = new Release();
@@ -132,6 +271,10 @@ public class HandbookImpl implements Handbook {
                   api.bindHandbook(this);
                 });
       }
+    }
+
+    if (persistAgentYaml.get()) {
+      saveYaml(agent, "./Agent.yaml");
     }
   }
 

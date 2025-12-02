@@ -65,12 +65,6 @@ public abstract class AbstractLlmClient implements LlmClient {
             .collect(Collectors.joining(", ")),
         cacheable);
 
-    // Log input message for reporting
-    if (oneMcp != null && oneMcp.inferenceLogger() != null) {
-      List<Message> inputMessages = List.of(new Message(LlmClient.Role.USER, message));
-      oneMcp.inferenceLogger().logLlmInputMessages(inputMessages);
-    }
-
     long start = System.currentTimeMillis();
     TelemetrySink t = telemetry();
     if (t != null) {
@@ -137,9 +131,6 @@ public abstract class AbstractLlmClient implements LlmClient {
       log.trace("generate() took {} ms", duration);
       StdoutUtility.printRollingLine(
           oneMcp, "(Inference): completed in (%d)ms".formatted(duration));
-
-      // Log LLM inference complete for reporting
-      logInferenceComplete(duration, promptTokens, completionTokens, result);
     }
   }
 
@@ -274,9 +265,6 @@ public abstract class AbstractLlmClient implements LlmClient {
       }
       sink.endCurrentOk(endAttrs);
     }
-
-    // Log LLM inference complete
-    logInferenceComplete(duration, promptTokens, completionTokens, responseText);
   }
 
   /**
@@ -310,48 +298,6 @@ public abstract class AbstractLlmClient implements LlmClient {
     }
 
     return "unknown";
-  }
-
-  /**
-   * Logs a tool call to the inference logger if available.
-   *
-   * @param toolName The name of the tool being called
-   * @param values The parameter values for the tool call
-   */
-  protected void logToolCall(String toolName, Map<String, Object> values) {
-    if (oneMcp != null && oneMcp.inferenceLogger() != null) {
-      oneMcp.inferenceLogger().logToolCall(toolName, values);
-    }
-  }
-
-  /**
-   * Logs tool output to the inference logger if available.
-   *
-   * @param toolName The name of the tool that produced the output
-   * @param result The output result from the tool execution
-   */
-  protected void logToolOutput(String toolName, String result) {
-    if (oneMcp != null && oneMcp.inferenceLogger() != null) {
-      oneMcp.inferenceLogger().logToolOutput(toolName, result);
-    }
-  }
-
-  /**
-   * Logs LLM inference completion with phase detection and all metrics.
-   *
-   * @param duration The duration of the inference in milliseconds
-   * @param promptTokens The number of prompt tokens used
-   * @param completionTokens The number of completion tokens used
-   * @param responseText The response text from the LLM
-   */
-  protected void logInferenceComplete(
-      long duration, long promptTokens, long completionTokens, String responseText) {
-    if (oneMcp != null && oneMcp.inferenceLogger() != null) {
-      String phase = detectPhase(telemetry());
-      oneMcp
-          .inferenceLogger()
-          .logLlmInferenceComplete(phase, duration, promptTokens, completionTokens, responseText);
-    }
   }
 
   public record Inference(List<Message> messages, String result) {}

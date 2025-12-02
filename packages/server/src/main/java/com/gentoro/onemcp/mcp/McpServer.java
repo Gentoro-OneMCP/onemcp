@@ -3,6 +3,7 @@ package com.gentoro.onemcp.mcp;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.exception.ExceptionUtil;
+import com.gentoro.onemcp.mcp.model.ToolCallContext;
 import com.gentoro.onemcp.orchestrator.progress.McpProgressSink;
 import com.gentoro.onemcp.orchestrator.progress.NoOpProgressSink;
 import com.gentoro.onemcp.orchestrator.progress.ProgressSink;
@@ -98,7 +99,7 @@ public class McpServer implements AutoCloseable {
             .jsonMapper(json)
             .mcpEndpoint(endpoint)
             .disallowDelete(disallowDelete)
-            // .keepAliveInterval(keepAlive)
+            .keepAliveInterval(Duration.ofSeconds(5))
             .build();
 
     // Build the MCP server with capabilities and example tool
@@ -123,7 +124,9 @@ public class McpServer implements AutoCloseable {
                             .inputSchema(
                                 new McpSchema.JsonSchema(
                                     "object",
-                                    Map.of("prompt", Map.of("type", "string")),
+                                    Map.of(
+                                        "prompt", Map.of("type", "string"),
+                                        "context", Map.of("type", "string")),
                                     List.of("prompt"),
                                     false,
                                     Collections.emptyMap(),
@@ -166,7 +169,10 @@ public class McpServer implements AutoCloseable {
                                 oneMcp
                                     .orchestrator()
                                     .handlePrompt(
-                                        request.arguments().get("prompt").toString(), sink);
+                                        request.arguments().get("prompt").toString(),
+                                        ToolCallContext.valueOf(
+                                            (String) request.arguments().get("context")),
+                                        sink);
 
                             return new McpSchema.CallToolResult(
                                 JacksonUtility.toJson(result), false);
