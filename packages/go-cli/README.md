@@ -110,6 +110,14 @@ You: Show total sales for 2024
 | `onemcp provider set` | Configure a provider and API key |
 | `onemcp provider switch` | Switch between configured providers |
 
+### Service Management
+
+| Command | Description |
+|---------|-------------|
+| `onemcp service auth` | Configure authentication for external services |
+| `onemcp service list` | List configured services |
+| `onemcp service renew` | Renew service authentication token |
+
 ### Handbook Management
 
 | Command | Description |
@@ -119,6 +127,15 @@ You: Show total sales for 2024
 | `onemcp handbook use [name]` | Set active handbook (interactive if no name) |
 | `onemcp handbook current` | Show current handbook info |
 | `onemcp handbook validate [name]` | Validate handbook structure (current if no name) |
+
+### Shell Completion
+
+| Command | Description |
+|---------|-------------|
+| `onemcp completion bash` | Generate bash completion script |
+| `onemcp completion zsh` | Generate zsh completion script |
+| `onemcp completion fish` | Generate fish completion script |
+| `onemcp completion powershell` | Generate PowerShell completion script |
 
 ## 📚 Handbooks
 
