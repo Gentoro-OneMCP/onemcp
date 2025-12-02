@@ -50,11 +50,6 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
       currentAttributes().put("phase", currentPhase);
     }
     currentStartTime = System.currentTimeMillis();
-
-    // Log LLM inference start
-    if (context != null && context.oneMcp() != null) {
-      context.oneMcp().inferenceLogger().logLlmInferenceStart(currentPhase);
-    }
   }
 
   @Override
@@ -89,20 +84,6 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
       if (response == null) {
         response = (String) currentAttributes().get("response");
       }
-
-      // Only log if we haven't already logged (concrete implementations should handle this)
-      // But we'll log anyway as a fallback since generate() might not log properly
-      if (response != null || promptTokens > 0 || completionTokens > 0) {
-        context
-            .oneMcp()
-            .inferenceLogger()
-            .logLlmInferenceComplete(
-                currentPhase,
-                duration,
-                promptTokens,
-                completionTokens,
-                response != null ? response : "");
-      }
     }
     currentStartTime = 0;
   }
@@ -110,30 +91,11 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
   @Override
   public void endCurrentError(Map<String, Object> attrs) {
     tracer.endCurrentError(attrs);
-
-    // Log LLM inference complete even on error
-    if (context != null && context.oneMcp() != null && currentStartTime > 0) {
-      long duration = System.currentTimeMillis() - currentStartTime;
-      Long promptTokens = (Long) currentAttributes().get("_promptTokens");
-      Long completionTokens = (Long) currentAttributes().get("_completionTokens");
-      if (promptTokens == null) promptTokens = 0L;
-      if (completionTokens == null) completionTokens = 0L;
-
-      String errorMsg = attrs != null ? (String) attrs.get("error") : "Error occurred";
-      context
-          .oneMcp()
-          .inferenceLogger()
-          .logLlmInferenceComplete(
-              currentPhase, duration, promptTokens, completionTokens, "ERROR: " + errorMsg);
-    }
     currentStartTime = 0;
   }
 
   public void setCurrentMessages(java.util.List<LlmClient.Message> messages) {
     this.currentMessages = messages;
-    if (context != null && context.oneMcp() != null && messages != null) {
-      context.oneMcp().inferenceLogger().logLlmInputMessages(messages);
-    }
   }
 
   @Override

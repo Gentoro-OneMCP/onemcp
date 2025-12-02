@@ -2,6 +2,7 @@ package com.gentoro.onemcp.orchestrator;
 
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.handbook.Handbook;
+import com.gentoro.onemcp.mcp.model.ToolCallContext;
 import com.gentoro.onemcp.memory.ValueStore;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.prompt.PromptRepository;
@@ -20,14 +21,17 @@ public class OrchestratorContext {
   private final ValueStore valueStore;
   private final OneMcp oneMcp;
   private final TelemetryTracer telemetryTracer;
+  private final ToolCallContext toolCallContext;
 
-  public OrchestratorContext(OneMcp oneMcp, ValueStore valueStore) {
+  public OrchestratorContext(
+      OneMcp oneMcp, ValueStore valueStore, ToolCallContext toolCallContext) {
     this.oneMcp = oneMcp;
     this.llmClient = oneMcp().llmClient();
     this.promptTemplateManager = oneMcp().promptRepository();
     this.handbook = oneMcp.handbook();
     this.valueStore = valueStore;
     this.telemetryTracer = new TelemetryTracer();
+    this.toolCallContext = toolCallContext;
   }
 
   /** LLM client used for chatting with the provider. */
@@ -57,5 +61,9 @@ public class OrchestratorContext {
   /** Tracer used to record nested spans and aggregate token usage. */
   public TelemetryTracer tracer() {
     return telemetryTracer;
+  }
+
+  public ToolCallContext toolCallContext() {
+    return toolCallContext;
   }
 }

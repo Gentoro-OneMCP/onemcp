@@ -114,22 +114,6 @@ public class OpenAiLlmClient extends AbstractLlmClient {
     String result = null;
     main_loop:
     while (true) {
-      // Log input messages for this LLM call
-      // Note: We log the original messages list, which may not include tool responses in multi-turn
-      // conversations
-      // but will show the initial prompt and system messages
-      if (oneMcp != null
-          && oneMcp.inferenceLogger() != null
-          && !builder.build().messages().isEmpty()) {
-        // Log a summary - the full message conversion is complex due to OpenAI SDK types
-        // We'll log the original messages that were passed in (from AbstractLlmClient.chat)
-        // For multi-turn with tools, the builder contains the full history but it's hard to convert
-        List<Message> messagesToLog = messages; // Use original messages list
-        if (messagesToLog != null && !messagesToLog.isEmpty()) {
-          oneMcp.inferenceLogger().logLlmInputMessages(messagesToLog);
-        }
-      }
-
       long start = System.currentTimeMillis();
       TelemetrySink t2 = telemetry();
       if (t2 != null) {
@@ -181,14 +165,6 @@ public class OpenAiLlmClient extends AbstractLlmClient {
         llmToolCalls.addAll(choice.message().toolCalls().get());
       }
 
-      // Log LLM inference complete for this call (whether it has tool calls or not)
-      // If there are tool calls, the response is about tool calls, otherwise it's the final answer
-      String finalResponse = responseText;
-      if (!llmToolCalls.isEmpty()) {
-        finalResponse = "[Tool calls: " + llmToolCalls.size() + "] " + responseText;
-      }
-      logInferenceComplete((end - start), promptTokens, completionTokens, finalResponse);
-
       if (llmToolCalls.isEmpty()) {
         result = choice.message().content().map(String::trim).orElse("");
         break;
@@ -209,13 +185,7 @@ public class OpenAiLlmClient extends AbstractLlmClient {
                             toolCall.function().get().function().arguments(), "{}"),
                         typeRef);
 
-            // Log tool call
-            logToolCall(tool.name(), values);
-
             String content = tool.execute(values);
-
-            // Log tool output
-            logToolOutput(tool.name(), content);
             builder.addMessage(
                 ChatCompletionToolMessageParam.builder()
                     .toolCallId(toolCall.function().get().id())

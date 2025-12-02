@@ -2,6 +2,7 @@ package com.gentoro.onemcp.openapi;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.gentoro.onemcp.exception.StateException;
+import com.gentoro.onemcp.mcp.model.ToolCallContext;
 import io.swagger.v3.oas.models.OpenAPI;
 import java.util.Map;
 
@@ -15,12 +16,13 @@ public class OpenApiProxyImpl implements OpenApiProxy {
   }
 
   @Override
-  public JsonNode invoke(String operationId, JsonNode input) throws Exception {
+  public JsonNode invoke(String operationId, JsonNode input, ToolCallContext toolCallContext)
+      throws Exception {
     EndpointInvoker invoker = invokers.get(operationId);
     if (invoker == null) {
       throw new StateException("Unknown operationId: " + operationId);
     }
     log.trace("Invoking operation {}", operationId);
-    return invoker.invoke(input);
+    return invoker.invoke(input, toolCallContext);
   }
 }

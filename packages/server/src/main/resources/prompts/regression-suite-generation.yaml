@@ -1,0 +1,63 @@
+activations:
+  - role: system
+    activation: regression-suite-generation
+    content: |      
+      ## **Concept**
+        
+        Given an Open API definition, we would like to generate a robust regression test suite.
+      
+        The test should capture OpenAPI features and methods, from an end user perspective, 
+        intended as what a real user or automated AI Agent would present in runtime.
+      
+      ---      
+      ## **Material**
+      
+        Here is a detailed documentation to be used as a material for the Task Assignment.
+      
+        ```json
+      {{ ident( curated_definition, 4) | raw }}   
+        ```    
+      
+        Your output must follow this structure:
+      
+        ```json
+          {
+            // Collection of generated tests
+            "tests": [
+              {
+                "displayName": "{unique single time}",
+                "prompt": "{The complete prompt to be used as the request.}",
+                "assert": "{
+                  Natural language expression that validates if the produced result is valid or not.
+                  As LLM is not a consistent value, instead of validating the actual structure,
+                  we validate the semantic of the result, not the actual structure.
+                }"
+            ]
+          }
+        ```
+      
+        > **Note:** Make sure the `prompt` is clear and precise, matching at least one of the existing Open API capabilities.
+      
+      ---
+      ## 📝 Task Assignment
+      {% if error_reported == true %}
+        The initial execution failed because the output was not valid JSON. You MUST adhere to the JSON schema specified in your system instructions.
+      
+        The previous faulty output, which you must correct for JSON syntax, was:
+        ```
+      {{ ident( result, 4) | raw }}
+        ```
+      
+        The reported error was:
+        ```
+      {{ ident( error, 4) | raw }}
+        ```
+      
+        Please re-process the original instructions, apply the three steps (Refine, Extract, Isolate), and output a single, strictly valid JSON object.
+      {% else %}
+        **Generate the complete JSON according the above specification.**
+            
+      {% endif %}
+        ```json
+          // Place the corrected valid JSON here
+        ```

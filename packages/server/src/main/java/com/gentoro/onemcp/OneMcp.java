@@ -16,7 +16,7 @@ import com.gentoro.onemcp.handbook.Handbook;
 import com.gentoro.onemcp.handbook.HandbookFactory;
 import com.gentoro.onemcp.http.EmbeddedJettyServer;
 import com.gentoro.onemcp.indexing.HandbookGraphService;
-import com.gentoro.onemcp.logging.InferenceLogger;
+import com.gentoro.onemcp.management.ManagementServer;
 import com.gentoro.onemcp.mcp.McpServer;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.model.LlmClientFactory;
@@ -43,7 +43,6 @@ public class OneMcp {
   private Handbook handbook;
   private LlmClient llmClient;
   private OrchestratorService orchestrator;
-  private InferenceLogger inferenceLogger;
   private HandbookGraphService graphService;
   private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
   private final CountDownLatch shutdownLatch = new CountDownLatch(1);
@@ -67,16 +66,13 @@ public class OneMcp {
     com.gentoro.onemcp.logging.LoggingService.applyConfiguration(configuration());
     this.promptRepository = PromptRepositoryFactory.create(this);
 
+    this.llmClient = LlmClientFactory.createProvider(this);
+
     try {
       this.handbook = HandbookFactory.create(this);
     } catch (Exception e) {
       throw new HandbookException("Failed to ingest Handbook content", e);
     }
-
-    this.llmClient = LlmClientFactory.createProvider(this);
-
-    // Initialize inference logger
-    this.inferenceLogger = new InferenceLogger(this);
 
     try {
       this.graphService = new HandbookGraphService(this);
@@ -97,6 +93,8 @@ public class OneMcp {
       new ActuatorService(this).register();
       // Register MCP servlet
       new McpServer(this).register();
+      // Register Management endpoints
+      new ManagementServer(this).register();
 
       // Start Jetty (non-blocking)
       httpServer.start();
@@ -110,7 +108,7 @@ public class OneMcp {
     // If running in interactive mode: disable STDOUT appender and enable file-based logging
     String mode = startupParameters().getParameter("mode", String.class);
     if ("interactive".equalsIgnoreCase(mode)) {
-      configureFileOnlyLogging();
+      // configureFileOnlyLogging();
     }
 
     switch (startupParameters().getParameter("mode", String.class)) {
@@ -209,12 +207,27 @@ public class OneMcp {
     return orchestrator;
   }
 
-  public InferenceLogger inferenceLogger() {
-    return inferenceLogger;
-  }
-
   public HandbookGraphService graphService() {
     return graphService;
+  }
+
+  /**
+   * Reloads the Handbook from the configured location and triggers a full re-index of its content.
+   * Safe to call multiple times; graph service will be initialized on demand.
+   */
+  public synchronized void reloadHandbook() {
+    try {
+      this.handbook = HandbookFactory.create(this);
+      if (this.graphService == null) {
+        this.graphService = new HandbookGraphService(this);
+        this.graphService.initialize();
+      }
+      this.graphService.indexHandbook();
+      log.info("Handbook reloaded and re-indexed successfully");
+    } catch (Exception e) {
+      throw new com.gentoro.onemcp.exception.HandbookException(
+          "Failed to reload and re-index Handbook", e);
+    }
   }
 
   /**

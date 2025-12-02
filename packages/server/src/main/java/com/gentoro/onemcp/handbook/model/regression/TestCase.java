@@ -1,10 +1,12 @@
 package com.gentoro.onemcp.handbook.model.regression;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class TestCase {
 
-  @JsonProperty("display-name")
+  @JsonProperty("display-name") // name used for serialization
+  @JsonAlias({"displayName"}) // additional names accepted on input
   private String displayName;
 
   private String prompt;

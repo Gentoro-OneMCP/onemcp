@@ -1,6 +1,9 @@
 package com.gentoro.onemcp.openapi;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.gentoro.onemcp.mcp.model.ContextKind;
+import com.gentoro.onemcp.mcp.model.Cookie;
+import com.gentoro.onemcp.mcp.model.ToolCallContext;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.media.MediaType;
 import io.swagger.v3.oas.models.parameters.Parameter;
@@ -11,11 +14,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class EndpointInvoker {
 
@@ -38,7 +40,7 @@ public class EndpointInvoker {
     this.inferenceLogger = logger;
   }
 
-  public JsonNode invoke(JsonNode input) throws Exception {
+  public JsonNode invoke(JsonNode input, ToolCallContext toolCallContext) throws Exception {
     // 1️⃣ Build final path with {pathParam} replacements
     String finalPath = buildPath(pathTemplate, input);
 
@@ -53,6 +55,51 @@ public class EndpointInvoker {
     // 4️⃣ Add headers and cookies
     addHeaders(operation.getParameters(), input, builder);
     addCookies(operation.getParameters(), input, builder);
+
+    if (Objects.nonNull(toolCallContext)) {
+
+      toolCallContext.getContext().stream()
+          .filter(c -> c.getKind() == ContextKind.API_CONTEXT)
+          .forEach(
+              context -> {
+                if (Objects.nonNull(context.getHeaders())) {
+                  context.getHeaders().forEach((k) -> builder.header(k.getName(), k.getValue()));
+                }
+
+                if (Objects.nonNull(context.getCookies())) {
+                  // Build a temporary request to inspect existing headers
+                  HttpRequest temp = builder.build();
+
+                  // Extract existing cookies (if any)
+                  List<String> existingCookieHeaders = temp.headers().allValues("Cookie");
+
+                  // Combine all existing cookies into one map
+                  Map<String, String> cookieMap = new LinkedHashMap<>();
+
+                  for (String header : existingCookieHeaders) {
+                    for (String cookie : header.split(";")) {
+                      String[] parts = cookie.trim().split("=", 2);
+                      if (parts.length == 2) {
+                        cookieMap.put(parts[0].trim(), parts[1].trim());
+                      }
+                    }
+                  }
+
+                  // Add/override cookies from context
+                  for (Cookie c : context.getCookies()) {
+                    cookieMap.put(c.getName(), c.getValue());
+                  }
+
+                  // Build merged Cookie header
+                  String mergedCookieHeader =
+                      cookieMap.entrySet().stream()
+                          .map(e -> e.getKey() + "=" + e.getValue())
+                          .collect(Collectors.joining("; "));
+
+                  builder.header("Cookie", mergedCookieHeader);
+                }
+              });
+    }
 
     // 5️⃣ Build request body (if needed)
     String body = buildBody(operation.getRequestBody(), input);

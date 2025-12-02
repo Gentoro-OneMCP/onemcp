@@ -21,7 +21,7 @@ logging:
         jetty: WARN
     okhttp3: INFO
     io:
-      modelcontextprotocol: INFO
+      modelcontextprotocol: ALL
 
 http:
   port: ${env:SERVER_PORT:-8080}

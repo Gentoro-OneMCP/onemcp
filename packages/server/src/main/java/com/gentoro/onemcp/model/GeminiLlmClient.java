@@ -208,9 +208,6 @@ public class GeminiLlmClient extends AbstractLlmClient {
         t.endCurrentOk(java.util.Map.of("latencyMs", (end - start), "response", responseText));
       }
 
-      // Log LLM inference complete with response
-      logInferenceComplete((end - start), promptTokens, completionTokens, responseText);
-
       if (chatCompletions.finishReason().knownEnum()
           == FinishReason.Known.MALFORMED_FUNCTION_CALL) {
         if (++attempts == 3) {
@@ -286,15 +283,7 @@ public class GeminiLlmClient extends AbstractLlmClient {
           if (listener != null) listener.on(EventType.ON_TOOL_CALL, tool);
           try {
             Map<String, Object> values = functionCall.args().get();
-
-            // Log tool call
-            logToolCall(tool.name(), values);
-
             String result = tool.execute(values);
-
-            // Log tool output
-            logToolOutput(tool.name(), result);
-
             FunctionResponse.Builder functionResponse =
                 FunctionResponse.builder().name(functionCall.name().get());
             functionCall.id().ifPresent(functionResponse::id);

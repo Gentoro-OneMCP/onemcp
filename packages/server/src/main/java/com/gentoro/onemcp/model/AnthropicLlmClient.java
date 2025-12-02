@@ -162,9 +162,6 @@ public class AnthropicLlmClient extends AbstractLlmClient {
           (end - start),
           totalTokens);
 
-      // Log LLM inference complete with response
-      logInferenceComplete((end - start), promptTokens, completionTokens, responseText);
-
       // Iterate through the content blocks
       chatCompletions
           .content()
@@ -196,14 +193,7 @@ public class AnthropicLlmClient extends AbstractLlmClient {
           Objects.requireNonNull(toolCall._input().convert(toolCallTypeRef))
               .forEach((key, value) -> values.put(key, value.toString()));
 
-          // Log tool call
-          logToolCall(tool.name(), values);
-
           String result = tool.execute(values);
-
-          // Log tool output
-          logToolOutput(tool.name(), result);
-
           ctx.localMessages()
               .add(
                   MessageParam.builder()
