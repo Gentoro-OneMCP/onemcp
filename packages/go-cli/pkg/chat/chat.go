@@ -48,6 +48,7 @@ func (m *Mode) Start() error {
 		return err
 	}
 	defer rl.Close()
+	defer m.client.Close() // Ensure connection is properly closed
 
 	for {
 		line, err := rl.Readline()

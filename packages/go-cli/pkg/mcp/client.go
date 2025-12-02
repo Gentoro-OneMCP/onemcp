@@ -8,13 +8,16 @@ import (
 	"time"
 
 	"github.com/gentoro/onemcp/go-cli/pkg/config"
+	"github.com/gentoro/onemcp/go-cli/pkg/version"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type Client struct {
-	BaseURL string
-	Session *mcp.ClientSession
-	Config  *config.GlobalConfig
+	BaseURL    string
+	Session    *mcp.ClientSession
+	Config     *config.GlobalConfig
+	connCtx    context.Context
+	connCancel context.CancelFunc
 }
 
 func NewClient(baseURL string) *Client {
@@ -51,22 +54,11 @@ func (c *Client) SendMessage(prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
+	// Check if we need to (re)connect
 	if c.Session == nil {
-		client := mcp.NewClient(&mcp.Implementation{
-			Name:    "go-cli",
-			Version: "0.1.0",
-		}, nil)
-
-		// Use the built-in StreamableClientTransport
-		transport := &mcp.StreamableClientTransport{
-			Endpoint: c.BaseURL,
+		if err := c.connect(ctx); err != nil {
+			return "", err
 		}
-
-		session, err := client.Connect(ctx, transport, nil)
-		if err != nil {
-			return "", fmt.Errorf("failed to connect: %v", err)
-		}
-		c.Session = session
 	}
 
 	// Call Tool
@@ -84,7 +76,32 @@ func (c *Client) SendMessage(prompt string) (string, error) {
 			c.Session = nil
 			return "", fmt.Errorf("request timed out after %d seconds - session reset for next query", c.Config.ChatTimeout)
 		}
-		return "", err
+
+		// Check if connection was closed - try to reconnect once
+		if strings.Contains(err.Error(), "connection closed") ||
+			strings.Contains(err.Error(), "client is closing") ||
+			strings.Contains(err.Error(), "connection failed") {
+			c.Session = nil
+
+			// Try to reconnect
+			if reconnectErr := c.connect(ctx); reconnectErr != nil {
+				return "", fmt.Errorf("connection lost and reconnect failed: %v", reconnectErr)
+			}
+
+			// Retry the request once
+			result, err = c.Session.CallTool(ctx, &mcp.CallToolParams{
+				Name: "onemcp.run",
+				Arguments: map[string]interface{}{
+					"prompt": prompt,
+				},
+			})
+
+			if err != nil {
+				return "", fmt.Errorf("request failed after reconnection: %v", err)
+			}
+		} else {
+			return "", err
+		}
 	}
 
 	if result.IsError {
@@ -115,4 +132,39 @@ func (c *Client) SendMessage(prompt string) (string, error) {
 	}
 
 	return "", fmt.Errorf("no text content in response")
+}
+
+// connect establishes a new MCP session with a long-lived connection context
+func (c *Client) connect(ctx context.Context) error {
+	// Create long-lived context for the SSE connection
+	// This prevents the connection from being cancelled when individual requests complete
+	c.connCtx, c.connCancel = context.WithCancel(context.Background())
+
+	client := mcp.NewClient(&mcp.Implementation{
+		Name:    "go-cli",
+		Version: version.Version,
+	}, nil)
+
+	// Use the built-in StreamableClientTransport
+	transport := &mcp.StreamableClientTransport{
+		Endpoint: c.BaseURL,
+	}
+
+	// Use connection context (long-lived), not the request context (short-lived)
+	session, err := client.Connect(c.connCtx, transport, nil)
+	if err != nil {
+		c.connCancel() // Clean up context if connection fails
+		return fmt.Errorf("failed to connect: %v", err)
+	}
+
+	c.Session = session
+	return nil
+}
+
+// Close closes the MCP session and cancels the connection context
+func (c *Client) Close() {
+	if c.connCancel != nil {
+		c.connCancel()
+	}
+	c.Session = nil
 }
