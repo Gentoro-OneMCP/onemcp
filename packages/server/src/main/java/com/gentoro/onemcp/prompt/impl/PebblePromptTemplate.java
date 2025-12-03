@@ -33,16 +33,27 @@ public class PebblePromptTemplate implements PromptTemplate {
   private final String id;
   private final List<PromptSection> sections;
   private final List<CompiledSection> compiled;
+  private final java.util.Optional<Float> temperature;
 
   private record CompiledSection(PromptSection section, PebbleTemplate template) {}
 
   public PebblePromptTemplate(String id, List<PromptSection> sections) {
+    this(id, sections, null);
+  }
+
+  public PebblePromptTemplate(String id, List<PromptSection> sections, Float temperature) {
     this.id = Objects.requireNonNull(id, "id");
     this.sections = List.copyOf(Objects.requireNonNull(sections, "sections"));
+    this.temperature = temperature != null ? java.util.Optional.of(temperature) : java.util.Optional.empty();
     this.compiled =
         this.sections.stream()
             .map(s -> new CompiledSection(s, ENGINE.getLiteralTemplate(s.content())))
             .collect(Collectors.toUnmodifiableList());
+  }
+
+  @Override
+  public java.util.Optional<Float> temperature() {
+    return temperature;
   }
 
   @Override

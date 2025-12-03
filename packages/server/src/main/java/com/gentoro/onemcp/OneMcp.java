@@ -62,6 +62,32 @@ public class OneMcp {
     LogManager.getLogManager().reset();
     Logger.getLogger("").setLevel(Level.OFF);
 
+    // CRITICAL: Check for and prevent logs directory creation in handbook BEFORE anything else
+    // This must run before any initialization that might create directories
+    try {
+      String handbookDirEnv = System.getenv("HANDBOOK_DIR");
+      if (handbookDirEnv != null && !handbookDirEnv.isBlank()) {
+        java.nio.file.Path handbookPath = java.nio.file.Paths.get(handbookDirEnv);
+        if (java.nio.file.Files.exists(handbookPath)) {
+          java.nio.file.Path logsInHandbook = handbookPath.resolve("logs");
+          if (java.nio.file.Files.exists(logsInHandbook)) {
+            log.error(
+                "CRITICAL: Found logs directory in handbook at {}. This should never exist!",
+                logsInHandbook);
+            // Try to delete it if it's empty
+            try {
+              java.nio.file.Files.deleteIfExists(logsInHandbook);
+              log.warn("Deleted logs directory from handbook: {}", logsInHandbook);
+            } catch (Exception e) {
+              log.error("Could not delete logs directory from handbook: {}", e.getMessage());
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      log.debug("Could not check for logs directory in handbook: {}", e.getMessage());
+    }
+
     this.configurationProvider = new ConfigurationProvider(startupParameters.configFile());
     // Apply logging levels from application.yaml as early as possible
     com.gentoro.onemcp.logging.LoggingService.applyConfiguration(configuration());
@@ -234,8 +260,53 @@ public class OneMcp {
       }
     }
 
-    // Ensure logs directory exists
-    File logsDir = new File(configuration().getString("logging.dir", "logs"));
+    // Use ONEMCP_LOG_DIR if set, otherwise ONEMCP_HOME_DIR/logs, fallback to absolute path
+    String logDirEnv = System.getenv("ONEMCP_LOG_DIR");
+    File logsDir;
+    if (logDirEnv != null && !logDirEnv.isBlank()) {
+      logsDir = new File(logDirEnv);
+    } else {
+      String homeDirEnv = System.getenv("ONEMCP_HOME_DIR");
+      if (homeDirEnv != null && !homeDirEnv.isBlank()) {
+        logsDir = new File(homeDirEnv, "logs");
+      } else {
+        // Fallback to user home directory to avoid creating logs in current working directory
+        String userHome = System.getProperty("user.home");
+        logsDir = new File(userHome != null ? userHome : System.getProperty("java.io.tmpdir"), ".onemcp/logs");
+      }
+    }
+    
+    // Safety check: Never create logs in handbook directory
+    // If logsDir is within the handbook directory, redirect to ONEMCP_HOME_DIR/logs
+    try {
+      Handbook handbook = this.handbook();
+      if (handbook != null) {
+        java.nio.file.Path handbookPath = handbook.location();
+        if (handbookPath != null && java.nio.file.Files.exists(handbookPath)) {
+          java.nio.file.Path normalizedHandbook = handbookPath.normalize().toAbsolutePath();
+          java.nio.file.Path normalizedLogDir = logsDir.toPath().normalize().toAbsolutePath();
+          
+          // Check if log directory is within or equal to handbook directory
+          if (normalizedLogDir.startsWith(normalizedHandbook) || normalizedLogDir.equals(normalizedHandbook)) {
+            log.warn(
+                "Detected attempt to create logs in handbook directory ({}), redirecting to ONEMCP_HOME_DIR/logs",
+                logsDir);
+            // Redirect to ONEMCP_HOME_DIR/logs
+            String homeDir = System.getenv("ONEMCP_HOME_DIR");
+            if (homeDir != null && !homeDir.isBlank()) {
+              logsDir = new File(homeDir, "logs");
+            } else {
+              String userHome = System.getProperty("user.home");
+              logsDir = new File(userHome != null ? userHome : System.getProperty("java.io.tmpdir"), ".onemcp/logs");
+            }
+            log.info("Using redirected logging directory: {}", logsDir);
+          }
+        }
+      }
+    } catch (Exception e) {
+      log.debug("Could not check handbook path for log directory safety: {}", e.getMessage());
+    }
+    
     if (!logsDir.exists()) {
       // noinspection ResultOfMethodCallIgnored
       logsDir.mkdirs();

@@ -11,8 +11,15 @@ import java.util.Objects;
 /**
  * Prompt Schema Key (PSK) - Deterministic cache key generated from a Prompt Schema.
  *
- * <p>The PSK is generated from: (action, sorted(entities), sorted(params.keys()), group_by) where
- * group_by is in declared order (not sorted).
+ * <p>According to cache_spec.txt, the PSK is generated from:
+ * <ul>
+ *   <li>action
+ *   <li>entity (singular)
+ *   <li>Set of filter fields and operators
+ *   <li>Set of param field names
+ *   <li>Set of shape (group_by, aggregates, order_by) field names
+ *   <li>Presence of limit / offset (but not their numeric values)
+ * </ul>
  *
  * <p>Note: param values are NOT included in the PSK, allowing cache reuse across different
  * parameter values for the same schema structure.
@@ -20,15 +27,19 @@ import java.util.Objects;
  * <p>The key can be represented as:
  *
  * <ul>
- *   <li>Human-readable string format: "action:entity1,entity2:field1,field2:group1,group2"
+ *   <li>Human-readable string format
  *   <li>SHA-256 hash for storage efficiency
  * </ul>
  */
 public class PromptSchemaKey {
   private final String action;
-  private final List<String> entities;
-  private final List<String> fields; // from params.keys()
-  private final List<String> groupBy; // in declared order
+  private final String entity; // Singular, not entities array
+  private final List<String> filterFields; // Sorted set of filter field names
+  private final List<String> filterOperators; // Sorted set of filter operators
+  private final List<String> paramFields; // Sorted set of param field names
+  private final List<String> shapeFields; // Sorted set of shape field names (group_by, aggregates, order_by)
+  private final boolean hasLimit; // Presence, not value
+  private final boolean hasOffset; // Presence, not value
   private final String stringKey;
   private final String hashKey;
 
@@ -43,29 +54,70 @@ public class PromptSchemaKey {
     }
 
     this.action = ps.getAction() != null ? ps.getAction() : "";
+    this.entity = ps.getEntity() != null ? ps.getEntity() : "";
 
-    // Sort entities alphabetically for deterministic key
-    List<String> sortedEntities = new ArrayList<>();
-    if (ps.getEntities() != null) {
-      sortedEntities.addAll(ps.getEntities());
-      Collections.sort(sortedEntities);
+    // Extract filter fields and operators (sorted sets)
+    List<String> filterFieldList = new ArrayList<>();
+    List<String> filterOpList = new ArrayList<>();
+    if (ps.getFilter() != null) {
+      for (FilterExpression fe : ps.getFilter()) {
+        if (fe != null) {
+          if (fe.getField() != null) {
+            filterFieldList.add(fe.getField());
+          }
+          if (fe.getOperator() != null) {
+            filterOpList.add(fe.getOperator());
+          }
+        }
+      }
     }
-    this.entities = Collections.unmodifiableList(sortedEntities);
+    Collections.sort(filterFieldList);
+    Collections.sort(filterOpList);
+    this.filterFields = Collections.unmodifiableList(filterFieldList);
+    this.filterOperators = Collections.unmodifiableList(filterOpList);
 
     // Sort params.keys() alphabetically for deterministic key
-    List<String> sortedFields = new ArrayList<>();
+    List<String> sortedParamFields = new ArrayList<>();
     if (ps.getParams() != null && !ps.getParams().isEmpty()) {
-      sortedFields.addAll(ps.getParams().keySet());
-      Collections.sort(sortedFields);
+      sortedParamFields.addAll(ps.getParams().keySet());
+      Collections.sort(sortedParamFields);
     }
-    this.fields = Collections.unmodifiableList(sortedFields);
+    this.paramFields = Collections.unmodifiableList(sortedParamFields);
 
-    // group_by is in declared order (not sorted) - order is significant
-    List<String> groupByList = new ArrayList<>();
-    if (ps.getGroupBy() != null) {
-      groupByList.addAll(ps.getGroupBy());
+    // Extract shape fields (group_by, aggregates, order_by) - sorted set
+    List<String> shapeFieldList = new ArrayList<>();
+    boolean hasLimitFlag = false;
+    boolean hasOffsetFlag = false;
+    if (ps.getShape() != null) {
+      PromptSchemaShape shape = ps.getShape();
+      // group_by fields
+      if (shape.getGroupBy() != null) {
+        shapeFieldList.addAll(shape.getGroupBy());
     }
-    this.groupBy = Collections.unmodifiableList(groupByList);
+      // aggregate fields
+      if (shape.getAggregates() != null) {
+        for (PromptSchemaShape.AggregateSpec agg : shape.getAggregates()) {
+          if (agg != null && agg.getField() != null) {
+            shapeFieldList.add(agg.getField());
+          }
+        }
+      }
+      // order_by fields
+      if (shape.getOrderBy() != null) {
+        for (PromptSchemaShape.OrderSpec order : shape.getOrderBy()) {
+          if (order != null && order.getField() != null) {
+            shapeFieldList.add(order.getField());
+          }
+        }
+      }
+      // limit/offset presence (not values)
+      hasLimitFlag = shape.getLimit() != null;
+      hasOffsetFlag = shape.getOffset() != null;
+    }
+    Collections.sort(shapeFieldList);
+    this.shapeFields = Collections.unmodifiableList(shapeFieldList);
+    this.hasLimit = hasLimitFlag;
+    this.hasOffset = hasOffsetFlag;
 
     // Generate human-readable string key
     this.stringKey = generateStringKey();
@@ -76,28 +128,47 @@ public class PromptSchemaKey {
 
   /** Create a PSK from explicit components (for testing or manual construction). */
   public PromptSchemaKey(
-      String action, List<String> entities, List<String> fields, List<String> groupBy) {
+      String action,
+      String entity,
+      List<String> filterFields,
+      List<String> filterOperators,
+      List<String> paramFields,
+      List<String> shapeFields,
+      boolean hasLimit,
+      boolean hasOffset) {
     this.action = action != null ? action : "";
+    this.entity = entity != null ? entity : "";
 
-    List<String> sortedEntities = new ArrayList<>();
-    if (entities != null) {
-      sortedEntities.addAll(entities);
-      Collections.sort(sortedEntities);
+    List<String> sortedFilterFields = new ArrayList<>();
+    if (filterFields != null) {
+      sortedFilterFields.addAll(filterFields);
+      Collections.sort(sortedFilterFields);
     }
-    this.entities = Collections.unmodifiableList(sortedEntities);
+    this.filterFields = Collections.unmodifiableList(sortedFilterFields);
 
-    List<String> sortedFields = new ArrayList<>();
-    if (fields != null) {
-      sortedFields.addAll(fields);
-      Collections.sort(sortedFields);
+    List<String> sortedFilterOps = new ArrayList<>();
+    if (filterOperators != null) {
+      sortedFilterOps.addAll(filterOperators);
+      Collections.sort(sortedFilterOps);
     }
-    this.fields = Collections.unmodifiableList(sortedFields);
+    this.filterOperators = Collections.unmodifiableList(sortedFilterOps);
 
-    List<String> groupByList = new ArrayList<>();
-    if (groupBy != null) {
-      groupByList.addAll(groupBy); // Keep in declared order
+    List<String> sortedParamFields = new ArrayList<>();
+    if (paramFields != null) {
+      sortedParamFields.addAll(paramFields);
+      Collections.sort(sortedParamFields);
     }
-    this.groupBy = Collections.unmodifiableList(groupByList);
+    this.paramFields = Collections.unmodifiableList(sortedParamFields);
+
+    List<String> sortedShapeFields = new ArrayList<>();
+    if (shapeFields != null) {
+      sortedShapeFields.addAll(shapeFields);
+      Collections.sort(sortedShapeFields);
+    }
+    this.shapeFields = Collections.unmodifiableList(sortedShapeFields);
+
+    this.hasLimit = hasLimit;
+    this.hasOffset = hasOffset;
 
     this.stringKey = generateStringKey();
     this.hashKey = generateHashKey();
@@ -105,25 +176,40 @@ public class PromptSchemaKey {
 
   private String generateStringKey() {
     // Generate filename-safe cache key
-    // Format: action-entity1_entity2-field1_field2-group_field1_field2
+    // Format: action-entity-filterFields_filterOps-paramFields-shapeFields-limit_offset
     // Uses hyphens (-) to separate components, underscores (_) within components
-    // This is filename-safe on all platforms and avoids ambiguity with field names
     StringBuilder sb = new StringBuilder();
     sb.append(action != null ? action : "");
 
-    if (!entities.isEmpty()) {
+    if (!entity.isEmpty()) {
       sb.append("-");
-      sb.append(String.join("_", entities));
+      sb.append(entity);
     }
 
-    if (!fields.isEmpty()) {
-      sb.append("-");
-      sb.append(String.join("_", fields));
+    if (!filterFields.isEmpty()) {
+      sb.append("-filter_");
+      sb.append(String.join("_", filterFields));
+      if (!filterOperators.isEmpty()) {
+        sb.append("_ops_");
+        sb.append(String.join("_", filterOperators));
+      }
     }
 
-    if (!groupBy.isEmpty()) {
-      sb.append("-group_");
-      sb.append(String.join("_", groupBy));
+    if (!paramFields.isEmpty()) {
+      sb.append("-params_");
+      sb.append(String.join("_", paramFields));
+    }
+
+    if (!shapeFields.isEmpty()) {
+      sb.append("-shape_");
+      sb.append(String.join("_", shapeFields));
+    }
+
+    if (hasLimit || hasOffset) {
+      sb.append("-");
+      if (hasLimit) sb.append("limit");
+      if (hasLimit && hasOffset) sb.append("_");
+      if (hasOffset) sb.append("offset");
     }
 
     return sb.toString();
@@ -151,16 +237,32 @@ public class PromptSchemaKey {
     return action;
   }
 
-  public List<String> getEntities() {
-    return entities;
+  public String getEntity() {
+    return entity;
   }
 
-  public List<String> getFields() {
-    return fields;
+  public List<String> getFilterFields() {
+    return filterFields;
   }
 
-  public List<String> getGroupBy() {
-    return groupBy;
+  public List<String> getFilterOperators() {
+    return filterOperators;
+  }
+
+  public List<String> getParamFields() {
+    return paramFields;
+  }
+
+  public List<String> getShapeFields() {
+    return shapeFields;
+  }
+
+  public boolean hasLimit() {
+    return hasLimit;
+  }
+
+  public boolean hasOffset() {
+    return hasOffset;
   }
 
   /** Get the human-readable string representation of the key. */
@@ -184,14 +286,19 @@ public class PromptSchemaKey {
     if (o == null || getClass() != o.getClass()) return false;
     PromptSchemaKey that = (PromptSchemaKey) o;
     return Objects.equals(action, that.action)
-        && Objects.equals(entities, that.entities)
-        && Objects.equals(fields, that.fields)
-        && Objects.equals(groupBy, that.groupBy);
+        && Objects.equals(entity, that.entity)
+        && Objects.equals(filterFields, that.filterFields)
+        && Objects.equals(filterOperators, that.filterOperators)
+        && Objects.equals(paramFields, that.paramFields)
+        && Objects.equals(shapeFields, that.shapeFields)
+        && hasLimit == that.hasLimit
+        && hasOffset == that.hasOffset;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(action, entities, fields, groupBy);
+    return Objects.hash(
+        action, entity, filterFields, filterOperators, paramFields, shapeFields, hasLimit, hasOffset);
   }
 
   @Override

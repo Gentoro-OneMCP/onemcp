@@ -68,6 +68,96 @@ public final class ExceptionUtil {
     return formatCompactStackTrace(t, 10);
   }
 
+  /**
+   * Extract just the error message from a throwable, without any stack trace information.
+   * This is useful for user-facing error messages where stack traces are not helpful.
+   * 
+   * @param t the throwable to extract the message from
+   * @return the error message, or a default message if none is available
+   */
+  public static String extractErrorMessage(Throwable t) {
+    if (t == null) {
+      return "Unknown error";
+    }
+    
+    // First, recursively search the exception chain for API error messages
+    // This is the most important information for the user
+    Throwable current = t;
+    while (current != null) {
+      String message = current.getMessage();
+      if (message != null && !message.trim().isEmpty()) {
+        // If we find an API error message anywhere in the chain, use it
+        if (message.contains("API error:")) {
+          int apiErrorIndex = message.indexOf("API error:");
+          String apiError = message.substring(apiErrorIndex);
+          // Clean up the error message - remove HTTP status prefix if present
+          // Format: "API error: HTTP 400: Missing required fields..."
+          // We want: "Missing required fields..."
+          if (apiError.startsWith("API error: HTTP ")) {
+            int colonIndex = apiError.indexOf(':', "API error: HTTP ".length());
+            if (colonIndex > 0 && colonIndex < apiError.length() - 1) {
+              return apiError.substring(colonIndex + 1).trim();
+            }
+          } else if (apiError.startsWith("API error: ")) {
+            return apiError.substring("API error: ".length());
+          }
+          return apiError;
+        }
+        // Also check for HTTP error patterns
+        if (message.contains("HTTP ") && (message.contains("4") || message.contains("5"))) {
+          // Extract the error message after HTTP status
+          // Format: "API error: HTTP 400: Missing required fields..."
+          if (message.contains("API error: HTTP ")) {
+            int httpIndex = message.indexOf("HTTP ");
+            int colonAfterHttp = message.indexOf(':', httpIndex);
+            if (colonAfterHttp > 0 && colonAfterHttp < message.length() - 1) {
+              return message.substring(colonAfterHttp + 1).trim();
+            }
+          }
+        }
+      }
+      current = current.getCause();
+    }
+    
+    // If no API error found, extract a clean message from the top-level exception
+    String className = t.getClass().getSimpleName();
+    String message = t.getMessage();
+    
+    if (message != null && !message.trim().isEmpty()) {
+      // If message contains stack trace info (e.g., from formatCompactStackTrace),
+      // try to extract just the first meaningful part
+      if (message.contains(" > ") || (message.contains("(") && message.contains(".java"))) {
+        // This looks like a compact stack trace, just return the exception type
+        return className;
+      }
+      
+      // Check if message is just a stack trace (starts with class name and contains file info)
+      if (message.contains(className) && (message.contains(".java:") || message.contains("("))) {
+        // Extract just the part before any stack trace indicators
+        int stackStart = message.indexOf("(");
+        if (stackStart > 0) {
+          String beforeStack = message.substring(0, stackStart).trim();
+          // If there's a colon, try to get the message part
+          int colonIndex = beforeStack.indexOf(':');
+          if (colonIndex > 0 && colonIndex < beforeStack.length() - 1) {
+            String msgPart = beforeStack.substring(colonIndex + 1).trim();
+            if (!msgPart.isEmpty() && !msgPart.contains("(")) {
+              return className + ": " + msgPart;
+            }
+          }
+        }
+        // If we can't extract a clean message, just return the exception type
+        return className;
+      }
+      
+      // Clean message, use it
+      return className + ": " + message;
+    }
+    
+    // If no message, return the exception class name
+    return className;
+  }
+
   private static String safeMessage(String message) {
     return message == null ? "" : message;
   }

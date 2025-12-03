@@ -17,7 +17,7 @@ import java.util.Map;
  * Service for normalizing natural-language prompts into Prompt Schema Workflows.
  *
  * <p>Uses LLM to convert user prompts into structured Prompt Schemas according to the Prompt Schema
- * Specification. The normalizer validates against a dictionary to ensure only canonical vocabulary
+ * Specification. The normalizer validates against a lexicon to ensure only canonical vocabulary
  * is used.
  */
 public class PromptSchemaNormalizer {
@@ -35,51 +35,51 @@ public class PromptSchemaNormalizer {
    * Normalize a natural-language prompt into a Prompt Schema Workflow.
    *
    * @param prompt the user's natural-language prompt
-   * @param dictionary the dictionary to validate against
+   * @param lexicon the lexicon to validate against
    * @return normalized Prompt Schema Workflow
    * @throws ExecutionException if normalization fails
    */
-  public PromptSchemaWorkflow normalize(String prompt, PromptDictionary dictionary)
+  public PromptSchemaWorkflow normalize(String prompt, PromptLexicon lexicon)
       throws ExecutionException {
     if (prompt == null || prompt.trim().isEmpty()) {
       throw new IllegalArgumentException("Prompt cannot be null or empty");
     }
-    if (dictionary == null) {
-      throw new IllegalArgumentException("Dictionary cannot be null");
+    if (lexicon == null) {
+      throw new IllegalArgumentException("Lexicon cannot be null");
     }
 
     log.debug("Normalizing prompt: {}", prompt);
 
-    // Validate dictionary has required fields
-    if (dictionary == null) {
-      throw new IllegalArgumentException("Dictionary cannot be null");
+    // Validate lexicon has required fields
+    if (lexicon == null) {
+      throw new IllegalArgumentException("Lexicon cannot be null");
     }
 
-    // Validate dictionary has required components
-    if (dictionary.getActions() == null || dictionary.getActions().isEmpty()) {
-      log.warn("Dictionary has no actions");
+    // Validate lexicon has required components
+    if (lexicon.getActions() == null || lexicon.getActions().isEmpty()) {
+      log.warn("Lexicon has no actions");
     }
-    if (dictionary.getEntities() == null || dictionary.getEntities().isEmpty()) {
-      log.warn("Dictionary has no entities");
+    if (lexicon.getEntities() == null || lexicon.getEntities().isEmpty()) {
+      log.warn("Lexicon has no entities");
     }
-    if (dictionary.getFields() == null || dictionary.getFields().isEmpty()) {
-      log.warn("Dictionary has no fields");
+    if (lexicon.getFields() == null || lexicon.getFields().isEmpty()) {
+      log.warn("Lexicon has no fields");
     }
 
     // Prepare prompt context
     Map<String, Object> context = new HashMap<>();
     context.put("user_prompt", prompt.trim());
-    // Serialize dictionary to JSON string for better LLM consumption
-    String dictionaryJson = serializeDictionaryToJson(dictionary);
-    context.put("dictionary", dictionaryJson);
+    // Serialize lexicon to JSON string for better LLM consumption
+    String lexiconJson = serializeLexiconToJson(lexicon);
+    context.put("lexicon", lexiconJson);
 
     log.debug(
-        "Dictionary summary - Actions: {}, Entities: {}, Fields: {}, Operators: {}, Aggregates: {}",
-        dictionary.getActions() != null ? dictionary.getActions().size() : 0,
-        dictionary.getEntities() != null ? dictionary.getEntities().size() : 0,
-        dictionary.getFields() != null ? dictionary.getFields().size() : 0,
-        dictionary.getOperators() != null ? dictionary.getOperators().size() : 0,
-        dictionary.getAggregates() != null ? dictionary.getAggregates().size() : 0);
+        "Lexicon summary - Actions: {}, Entities: {}, Fields: {}, Operators: {}, Aggregates: {}",
+        lexicon.getActions() != null ? lexicon.getActions().size() : 0,
+        lexicon.getEntities() != null ? lexicon.getEntities().size() : 0,
+        lexicon.getFields() != null ? lexicon.getFields().size() : 0,
+        lexicon.getOperators() != null ? lexicon.getOperators().size() : 0,
+        lexicon.getAggregates() != null ? lexicon.getAggregates().size() : 0);
 
     // Load and render normalization prompt
     PromptRepository promptRepo = oneMcp.promptRepository();
@@ -116,14 +116,14 @@ public class PromptSchemaNormalizer {
           feedback.append("❌ ").append(error).append("\n");
         }
         feedback.append(
-            "\nCRITICAL: You MUST use ONLY values from the Dictionary provided above.\n");
+            "\nCRITICAL: You MUST use ONLY values from the Lexicon provided above.\n");
         feedback.append("Please correct your response and try again.\n");
         feedback.append("Remember:\n");
-        feedback.append("- Action MUST be in Dictionary.actions\n");
-        feedback.append("- Entities MUST be in Dictionary.entities\n");
+        feedback.append("- Action MUST be in Lexicon.actions\n");
+        feedback.append("- Entities MUST be in Lexicon.entities\n");
         feedback.append(
-            "- Field names in params MUST be in Dictionary.fields (use underscores, not dots)\n");
-        feedback.append("- Do NOT use 'query' unless it's in Dictionary.actions\n");
+            "- Field names in params MUST be in Lexicon.fields (use underscores, not dots)\n");
+        feedback.append("- Do NOT use 'query' unless it's in Lexicon.actions\n");
 
         messagesToSend.add(new LlmClient.Message(LlmClient.Role.USER, feedback.toString()));
         log.warn(
@@ -138,6 +138,7 @@ public class PromptSchemaNormalizer {
       final long[] tokenCounts = new long[3]; // [promptTokens, completionTokens, totalTokens]
       final Map<String, Object> sinkAttributes = new HashMap<>();
       sinkAttributes.put("phase", "normalize"); // Set phase so LLM client detects it correctly
+      sinkAttributes.put("cacheHit", false); // Normalization is never cached
 
       LlmClient.TelemetrySink tokenSink =
           new LlmClient.TelemetrySink() {
@@ -163,11 +164,14 @@ public class PromptSchemaNormalizer {
             }
           };
 
+      // Get temperature from template if specified
+      Float temperature = template.temperature().orElse(null);
+      
       String response;
       try (LlmClient.TelemetryScope ignored = llmClient.withTelemetry(tokenSink)) {
         // LLM client will automatically log input messages and inference complete
         // with phase detected from telemetry sink attributes
-        response = llmClient.chat(messagesToSend, Collections.emptyList(), false, null);
+        response = llmClient.chat(messagesToSend, Collections.emptyList(), false, null, temperature);
       }
 
       // Log token usage
@@ -202,10 +206,11 @@ public class PromptSchemaNormalizer {
       try {
         workflow = objectMapper.readValue(jsonStr, PromptSchemaWorkflow.class);
 
-        // Generate cache keys for all prompt schemas in the workflow
+        // Normalize year values to integers (post-processing to handle LLM inconsistencies)
         if (workflow != null && workflow.getSteps() != null) {
           for (PromptSchemaStep step : workflow.getSteps()) {
             if (step != null && step.getPs() != null) {
+              normalizeYearValues(step.getPs());
               step.getPs().generateCacheKey();
               log.debug("Generated cache key for schema: {}", step.getPs().getCacheKey());
             }
@@ -350,9 +355,9 @@ public class PromptSchemaNormalizer {
       // Validate the normalized workflow (but don't fail parsing if validation fails)
       List<String> validationErrors = new ArrayList<>();
       if (workflow != null) {
-        validationErrors.addAll(workflow.validate(dictionary));
+        validationErrors.addAll(workflow.validate(lexicon));
 
-        // No additional validation needed - workflow.validate() already checks against dictionary
+        // No additional validation needed - workflow.validate() already checks against lexicon
 
         if (!validationErrors.isEmpty()) {
           log.warn(
@@ -390,7 +395,7 @@ public class PromptSchemaNormalizer {
   }
 
   /**
-   * Serialize dictionary to JSON string for inclusion in the prompt.
+   * Serialize lexicon to JSON string for inclusion in the prompt.
    *
    * <p>JSON is preferred over YAML for LLMs because:
    *
@@ -402,44 +407,44 @@ public class PromptSchemaNormalizer {
    *   <li>Less prone to formatting errors
    * </ul>
    *
-   * @param dictionary the dictionary to serialize
-   * @return serialized dictionary as a JSON string (pretty-printed for readability)
+   * @param lexicon the lexicon to serialize
+   * @return serialized lexicon as a JSON string (pretty-printed for readability)
    */
-  private String serializeDictionaryToJson(PromptDictionary dictionary) {
+  private String serializeLexiconToJson(PromptLexicon lexicon) {
     try {
-      Map<String, Object> dictMap = new HashMap<>();
+      Map<String, Object> lexiconMap = new HashMap<>();
 
       // Ensure we always have lists (even if empty) to avoid null issues
       List<String> actions =
-          dictionary.getActions() != null ? dictionary.getActions() : new ArrayList<>();
+          lexicon.getActions() != null ? lexicon.getActions() : new ArrayList<>();
       List<String> entities =
-          dictionary.getEntities() != null ? dictionary.getEntities() : new ArrayList<>();
+          lexicon.getEntities() != null ? lexicon.getEntities() : new ArrayList<>();
       List<String> fields =
-          dictionary.getFields() != null ? dictionary.getFields() : new ArrayList<>();
+          lexicon.getFields() != null ? lexicon.getFields() : new ArrayList<>();
       List<String> operators =
-          dictionary.getOperators() != null ? dictionary.getOperators() : new ArrayList<>();
+          lexicon.getOperators() != null ? lexicon.getOperators() : new ArrayList<>();
       List<String> aggregates =
-          dictionary.getAggregates() != null ? dictionary.getAggregates() : new ArrayList<>();
+          lexicon.getAggregates() != null ? lexicon.getAggregates() : new ArrayList<>();
 
       // Log if critical arrays are empty
       if (actions.isEmpty()) {
-        log.error("CRITICAL: Dictionary has NO actions! This will cause normalization to fail.");
+        log.error("CRITICAL: Lexicon has NO actions! This will cause normalization to fail.");
       }
       if (entities.isEmpty()) {
-        log.error("CRITICAL: Dictionary has NO entities! This will cause normalization to fail.");
+        log.error("CRITICAL: Lexicon has NO entities! This will cause normalization to fail.");
       }
       if (fields.isEmpty()) {
-        log.error("CRITICAL: Dictionary has NO fields! This will cause normalization to fail.");
+        log.error("CRITICAL: Lexicon has NO fields! This will cause normalization to fail.");
       }
 
-      dictMap.put("actions", actions);
-      dictMap.put("entities", entities);
-      dictMap.put("fields", fields);
-      dictMap.put("operators", operators);
-      dictMap.put("aggregates", aggregates);
+      lexiconMap.put("actions", actions);
+      lexiconMap.put("entities", entities);
+      lexiconMap.put("fields", fields);
+      lexiconMap.put("operators", operators);
+      lexiconMap.put("aggregates", aggregates);
 
       // Pretty-print JSON for better LLM readability
-      String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(dictMap);
+      String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(lexiconMap);
 
       // Verify actions are in the JSON
       if (!json.contains("\"actions\"")) {
@@ -452,9 +457,9 @@ public class PromptSchemaNormalizer {
 
       return json;
     } catch (Exception e) {
-      log.error("Failed to serialize dictionary to JSON", e);
+      log.error("Failed to serialize lexicon to JSON", e);
       // Fallback to basic string representation
-      return "{\"error\": \"Failed to serialize dictionary\", \"message\": \""
+      return "{\"error\": \"Failed to serialize lexicon\", \"message\": \""
           + e.getMessage()
           + "\"}";
     }
@@ -583,5 +588,102 @@ public class PromptSchemaNormalizer {
     }
 
     return json;
+  }
+
+  /**
+   * Normalize numeric field values in filter expressions to integers.
+   * Handles fields that should be integers based on explicit naming patterns:
+   * - Fields ending with _year, _week, _month → INTEGER (default)
+   * - Fields ending with _year_str, _week_str, _month_str → STRING (explicit)
+   * - Fields matching date.year, date.week, date.month → INTEGER
+   */
+  private void normalizeYearValues(PromptSchema schema) {
+    if (schema == null || schema.getFilter() == null) {
+      return;
+    }
+
+    for (FilterExpression filter : schema.getFilter()) {
+      if (filter == null || filter.getField() == null || filter.getValue() == null) {
+        continue;
+      }
+
+      String field = filter.getField();
+      // Skip fields with _str suffix (explicitly string) or compound formats (obviously string)
+      boolean isExplicitString = 
+          field.endsWith("_yyyy_str") ||
+          field.endsWith("_week_str") ||
+          field.endsWith("_month_str") ||
+          field.endsWith("_yyyy_mm") ||
+          field.endsWith("_yyyy_mm_dd");
+      
+      if (isExplicitString) {
+        continue; // Keep as string, don't convert
+      }
+      
+      // Integer fields: explicit _int suffix or API field names (date.year, date.week, date.month)
+      boolean isIntegerField = 
+          field.endsWith("_yyyy_int") ||
+          field.endsWith("_week_int") ||
+          field.endsWith("_month_int") ||
+          field.equals("date.year") ||         // API field name
+          field.equals("date.week") ||         // API field name
+          field.equals("date.month");          // API field name
+      
+      if (isIntegerField) {
+        Object value = filter.getValue();
+        
+        // Convert string values to integers
+        if (value instanceof String) {
+          try {
+            int intValue = Integer.parseInt((String) value);
+            filter.setValue(intValue);
+            log.debug("Normalized {} value from string '{}' to integer {} for field {}", 
+                getFieldTypeName(field), value, intValue, field);
+          } catch (NumberFormatException e) {
+            log.warn("Could not parse {} value '{}' as integer for field {}", 
+                getFieldTypeName(field), value, field);
+          }
+        } else if (value instanceof Number) {
+          // Already a number, ensure it's an integer
+          int intValue = ((Number) value).intValue();
+          filter.setValue(intValue);
+          log.debug("Normalized {} value from {} to integer {} for field {}", 
+              getFieldTypeName(field), value, intValue, field);
+        } else if (value instanceof List) {
+          // Handle array values (for "in" operator)
+          List<?> valueList = (List<?>) value;
+          List<Object> normalizedList = new ArrayList<>();
+          for (Object item : valueList) {
+            if (item instanceof String) {
+              try {
+                normalizedList.add(Integer.parseInt((String) item));
+              } catch (NumberFormatException e) {
+                normalizedList.add(item); // Keep original if can't parse
+              }
+            } else if (item instanceof Number) {
+              normalizedList.add(((Number) item).intValue());
+            } else {
+              normalizedList.add(item);
+            }
+          }
+          filter.setValue(normalizedList);
+          log.debug("Normalized {} array values for field {}", getFieldTypeName(field), field);
+        }
+      }
+    }
+  }
+
+  /**
+   * Get a human-readable type name for a field based on its pattern.
+   */
+  private String getFieldTypeName(String field) {
+    if (field.endsWith("_yyyy_int") || field.equals("date.year")) {
+      return "year";
+    } else if (field.endsWith("_week_int") || field.equals("date.week")) {
+      return "week";
+    } else if (field.endsWith("_month_int") || field.equals("date.month")) {
+      return "month";
+    }
+    return "numeric";
   }
 }

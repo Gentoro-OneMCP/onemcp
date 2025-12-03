@@ -130,27 +130,26 @@ ensure_cli_built() {
     fi
 }
 
-# Build server JAR if needed
-ensure_server_built() {
+# Ensure server classes are compiled (CLI runs from repo, uses classes not JAR)
+ensure_server_compiled() {
     local repo_root="$1"
     local server_dir="$repo_root/packages/server"
     local target_dir="$server_dir/target"
-    local pom_file="$server_dir/pom.xml"
+    local classes_dir="$target_dir/classes"
+    local main_class="$classes_dir/com/gentoro/onemcp/OneMcpApp.class"
+    local source_file="$server_dir/src/main/java/com/gentoro/onemcp/OneMcpApp.java"
     
-    # Check if JAR exists
-    local jar_found=false
-    if [ -d "$target_dir" ]; then
-        # Look for jar-with-dependencies first, then regular jar
-        if ls "$target_dir"/onemcp-*-jar-with-dependencies.jar >/dev/null 2>&1; then
-            jar_found=true
-        elif ls "$target_dir"/onemcp-*.jar >/dev/null 2>&1; then
-            jar_found=true
-        fi
+    # Check if main class exists and is up to date
+    local needs_compile=false
+    if [ ! -f "$main_class" ]; then
+        needs_compile=true
+        info "Server classes not found. Compiling server..."
+    elif [ -f "$source_file" ] && [ "$source_file" -nt "$main_class" ]; then
+        needs_compile=true
+        info "Server source files changed. Recompiling server..."
     fi
     
-    if [ "$jar_found" = false ]; then
-        info "Server JAR not found. Building server..."
-        
+    if [ "$needs_compile" = true ]; then
         # Check for Java and Maven
         if ! command_exists java; then
             error "Java is required but not found. Please install Java 21+: https://adoptium.net/"
@@ -161,12 +160,12 @@ ensure_server_built() {
         fi
         
         cd "$server_dir"
-        if ! mvn clean package -DskipTests; then
-            error "Failed to build server. Check the Maven output above for errors."
+        if ! mvn compile -q; then
+            error "Failed to compile server. Check the Maven output above for errors."
         fi
-        success "Server built successfully"
+        success "Server compiled successfully"
     else
-        info "Server JAR already exists"
+        info "Server classes already compiled"
     fi
 }
 
@@ -219,8 +218,8 @@ main() {
     # Ensure CLI is built
     ensure_cli_built "$cli_dir"
     
-    # Ensure server is built
-    ensure_server_built "$repo_root"
+    # Ensure server is compiled (CLI uses classes, not JAR)
+    ensure_server_compiled "$repo_root"
     
     # Note: We don't auto-start the server here because:
     # 1. The 'start' command handles server startup with proper error handling

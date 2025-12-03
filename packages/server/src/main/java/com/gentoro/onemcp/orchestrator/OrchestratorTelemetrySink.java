@@ -14,6 +14,7 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
   private String currentPhase = "unknown";
   private java.util.List<LlmClient.Message> currentMessages = null;
   private long currentStartTime = 0;
+  private Boolean cacheHit = null; // null = not applicable, true = cache hit, false = cache miss
 
   public OrchestratorTelemetrySink(TelemetryTracer tracer) {
     this.tracer = tracer;
@@ -33,6 +34,14 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
     }
   }
 
+  public void setCacheHit(boolean cacheHit) {
+    this.cacheHit = cacheHit;
+    // Store cache status in attributes
+    if (currentAttributes() != null) {
+      currentAttributes().put("cacheHit", cacheHit);
+    }
+  }
+
   @Override
   public void startChild(String name) {
     tracer.startChild(name);
@@ -44,10 +53,15 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
         currentPhase = name;
       }
     }
-    // Ensure phase is always available in the current span's attributes
+    // CRITICAL: Always ensure phase is available in the current span's attributes
+    // This must happen AFTER tracer.startChild() so we're setting it on the child span
     // This is critical so that detectPhase() can find it even in child spans
     if (currentAttributes() != null) {
       currentAttributes().put("phase", currentPhase);
+      // Also preserve cacheHit status in child spans
+      if (cacheHit != null) {
+        currentAttributes().put("cacheHit", cacheHit);
+      }
     }
     currentStartTime = System.currentTimeMillis();
 
@@ -101,7 +115,8 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
                 duration,
                 promptTokens,
                 completionTokens,
-                response != null ? response : "");
+                response != null ? response : "",
+                cacheHit);
       }
     }
     currentStartTime = 0;
@@ -124,7 +139,7 @@ public class OrchestratorTelemetrySink implements LlmClient.TelemetrySink {
           .oneMcp()
           .inferenceLogger()
           .logLlmInferenceComplete(
-              currentPhase, duration, promptTokens, completionTokens, "ERROR: " + errorMsg);
+              currentPhase, duration, promptTokens, completionTokens, "ERROR: " + errorMsg, cacheHit);
     }
     currentStartTime = 0;
   }

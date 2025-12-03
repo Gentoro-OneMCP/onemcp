@@ -151,19 +151,24 @@ public abstract class AbstractLlmClient implements LlmClient {
       List<Message> messages,
       List<Tool> tools,
       boolean cacheable,
-      final InferenceEventListener _listener) {
+      final InferenceEventListener _listener,
+      Float temperature) {
     StdoutUtility.printRollingLine(
         oneMcp, "(Inference): sending (%d) message(s) to LLM...".formatted(messages.size()));
     log.trace(
-        "chat() called with: messages = [{}], tools = [{}], cacheable = [{}]",
+        "chat() called with: messages = [{}], tools = [{}], cacheable = [{}], temperature = [{}]",
         messages,
         Objects.requireNonNullElse(tools, Collections.<Tool>emptyList()).stream()
             .map(Tool::name)
             .collect(Collectors.joining(", ")),
-        cacheable);
+        cacheable,
+        temperature);
 
-    // Note: Input messages will be logged by concrete implementations
-    // which have access to the actual message state during inference
+    // Log input messages for reporting
+    if (oneMcp != null && oneMcp.inferenceLogger() != null) {
+      oneMcp.inferenceLogger().logLlmInputMessages(messages);
+    }
+    
     long start = System.currentTimeMillis();
     String result = null;
     long promptTokens = 0;
@@ -174,6 +179,7 @@ public abstract class AbstractLlmClient implements LlmClient {
           runInference(
               messages,
               tools,
+              temperature,
               new InferenceEventListener() {
                 @Override
                 public void on(EventType type, Object data) {
@@ -214,7 +220,7 @@ public abstract class AbstractLlmClient implements LlmClient {
   }
 
   public abstract String runInference(
-      List<Message> messages, List<Tool> tools, InferenceEventListener listener);
+      List<Message> messages, List<Tool> tools, Float temperature, InferenceEventListener listener);
 
   /**
    * Sets up telemetry for an LLM inference call.
@@ -348,9 +354,17 @@ public abstract class AbstractLlmClient implements LlmClient {
       long duration, long promptTokens, long completionTokens, String responseText) {
     if (oneMcp != null && oneMcp.inferenceLogger() != null) {
       String phase = detectPhase(telemetry());
+      // Check for cache hit status in telemetry attributes
+      Boolean cacheHit = null;
+      if (telemetry() != null && telemetry().currentAttributes() != null) {
+        Object cacheHitObj = telemetry().currentAttributes().get("cacheHit");
+        if (cacheHitObj instanceof Boolean) {
+          cacheHit = (Boolean) cacheHitObj;
+        }
+      }
       oneMcp
           .inferenceLogger()
-          .logLlmInferenceComplete(phase, duration, promptTokens, completionTokens, responseText);
+          .logLlmInferenceComplete(phase, duration, promptTokens, completionTokens, responseText, cacheHit);
     }
   }
 

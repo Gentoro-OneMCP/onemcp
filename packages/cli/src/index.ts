@@ -15,6 +15,7 @@ import { handbookManager } from './handbook/manager.js';
 import { paths } from './config/paths.js';
 import inquirer from 'inquirer';
 import fs from 'fs-extra';
+import { join } from 'path';
 
 const program = new Command();
 
@@ -115,6 +116,25 @@ program
         startedByChat = true;
         console.log(chalk.dim('Starting One MCP service...'));
         console.log();
+
+        // Capture log file size at the earliest possible moment (when "Starting One MCP service..." is printed)
+        const { paths } = await import('./config/paths.js');
+        const fs = (await import('fs-extra')).default;
+        const logPath = paths.getLogPath('app');
+        let logStartPosition = 0;
+        
+        // Always check the file size, even if it doesn't exist yet (will be 0)
+        try {
+          if (await fs.pathExists(logPath)) {
+            const stats = await fs.stat(logPath);
+            logStartPosition = stats.size;
+          }
+        } catch (error) {
+          logStartPosition = 0;
+        }
+        
+        // Store it for use in agentService.start() and tailing
+        process.env.ONEMCP_LOG_START_POSITION = logStartPosition.toString();
 
         // Start services with logging
         console.log(chalk.dim('🔄 Starting service...'));
@@ -454,18 +474,39 @@ handbookCmd
   });
 
 /**
- * Create Dictionary command
+ * Create Lexicon command
  */
 program
-  .command('create-dict [handbook]')
-  .description('Create a prompt dictionary from OpenAPI specifications')
+  .command('create-lexicon [handbook]')
+  .description('Create a prompt lexicon from OpenAPI specifications')
   .action(async (handbookArg) => {
-    const spinner = ora('Creating dictionary...').start();
+    const spinner = ora('Creating lexicon...').start();
     
     try {
-      // Find project root and JAR
+      // Find project root
       const projectRoot = agentService.findProjectRoot();
-      const onemcpJar = await agentService.resolveOnemcpJar(projectRoot);
+      
+      // Ensure server is compiled
+      await agentService.ensureServerCompiled(projectRoot);
+      
+      // Build classpath for running CreateLexiconCommand
+      const { join } = await import('path');
+      const serverDir = join(projectRoot, 'packages/server');
+      const classesDir = join(serverDir, 'target/classes');
+      const resourcesDir = join(serverDir, 'src/main/resources');
+      
+      // Get Maven classpath
+      const { execa } = await import('execa');
+      const { stdout: mavenClasspath } = await execa('mvn', ['dependency:build-classpath', '-q'], {
+        cwd: serverDir,
+        stdio: 'pipe',
+      });
+      
+      const classpath = [
+        classesDir,
+        resourcesDir,
+        mavenClasspath.trim(),
+      ].filter(Boolean).join(':');
       
       // Determine handbook path
       let handbookPath: string;
@@ -494,8 +535,8 @@ program
         } else {
           spinner.fail('No handbook specified');
           console.log(chalk.yellow('Please specify a handbook:'));
-          console.log(chalk.cyan('  onemcp create-dict <handbook-name>'));
-          console.log(chalk.cyan('  onemcp create-dict <handbook-path>'));
+          console.log(chalk.cyan('  onemcp create-lexicon <handbook-name>'));
+          console.log(chalk.cyan('  onemcp create-lexicon <handbook-path>'));
           console.log(chalk.dim('Or set a current handbook: onemcp handbook use <name>'));
           process.exit(1);
         }
@@ -523,16 +564,15 @@ program
         INFERENCE_DEFAULT_PROVIDER: provider,
       };
       
-      spinner.text = 'Extracting dictionary from OpenAPI specifications...';
+      spinner.text = 'Extracting lexicon from OpenAPI specifications...';
       
-      // Execute Java command
-      const { execa } = await import('execa');
+      // Execute Java command using classpath
       const { stdout, stderr } = await execa(
         'java',
         [
           '-cp',
-          onemcpJar,
-          'com.gentoro.onemcp.cache.CreateDictionaryCommand',
+          classpath,
+          'com.gentoro.onemcp.cache.CreateLexiconCommand',
           handbookPath,
         ],
         {
@@ -550,14 +590,14 @@ program
         console.error(chalk.yellow(stderr));
       }
       
-      spinner.succeed('Dictionary created successfully');
+      spinner.succeed('Lexicon created successfully');
       
       // Show output location
-      const outputPath = `${handbookPath}/apis/dictionary.yaml`;
-      console.log(chalk.green(`Dictionary saved to: ${outputPath}`));
+      const outputPath = `${handbookPath}/apis/lexicon.yaml`;
+      console.log(chalk.green(`Lexicon saved to: ${outputPath}`));
       
     } catch (error: any) {
-      spinner.fail('Failed to create dictionary');
+      spinner.fail('Failed to create lexicon');
       
       if (error.message?.includes('Could not find')) {
         console.log(chalk.red('Error:'), error.message);
@@ -698,6 +738,181 @@ providerCmd
       process.exit(1);
     }
   });
+
+/**
+ * Cache command
+ */
+const cacheCmd = program
+  .command('cache')
+  .description('Manage caching configuration');
+
+cacheCmd
+  .command('enable')
+  .description('Enable execution plan caching')
+  .action(async () => {
+    try {
+      await configManager.updateGlobalConfig({ cache: { enabled: true } });
+      console.log(chalk.green('✅  Caching enabled'));
+      
+      // Check if server is running and restart it
+      const agentStatus = await agentService.getStatus();
+      if (agentStatus.running) {
+        console.log(chalk.dim('🔄 Restarting server to apply changes...'));
+        try {
+          await agentService.restart('app');
+          console.log(chalk.green('✅  Server restarted successfully'));
+        } catch (restartError: any) {
+          console.log(chalk.yellow('⚠️  Failed to restart server:'), restartError.message);
+          console.log(chalk.dim('Please restart the server manually for changes to take effect'));
+        }
+      } else {
+        console.log(chalk.dim('Server is not running. Changes will take effect when you start the server.'));
+      }
+    } catch (error: any) {
+      console.error(chalk.red('Error:'), error.message);
+      process.exit(1);
+    }
+  });
+
+cacheCmd
+  .command('disable')
+  .description('Disable execution plan caching')
+  .action(async () => {
+    try {
+      await configManager.updateGlobalConfig({ cache: { enabled: false } });
+      console.log(chalk.green('✅  Caching disabled'));
+      
+      // Check if server is running and restart it
+      const agentStatus = await agentService.getStatus();
+      if (agentStatus.running) {
+        console.log(chalk.dim('🔄 Restarting server to apply changes...'));
+        try {
+          await agentService.restart('app');
+          console.log(chalk.green('✅  Server restarted successfully'));
+        } catch (restartError: any) {
+          console.log(chalk.yellow('⚠️  Failed to restart server:'), restartError.message);
+          console.log(chalk.dim('Please restart the server manually for changes to take effect'));
+        }
+      } else {
+        console.log(chalk.dim('Server is not running. Changes will take effect when you start the server.'));
+      }
+    } catch (error: any) {
+      console.error(chalk.red('Error:'), error.message);
+      process.exit(1);
+    }
+  });
+
+cacheCmd
+  .command('list')
+  .description('List all cached execution plans')
+  .action(async () => {
+    try {
+      const { execa } = await import('execa');
+      const projectRoot = agentService.findProjectRoot();
+      const serverDir = join(projectRoot, 'packages/server');
+      const classesDir = join(serverDir, 'target/classes');
+      
+      // Get Maven classpath
+      const tempClasspathFile = join(serverDir, 'target', '.classpath.tmp');
+      await execa('mvn', [
+        'dependency:build-classpath',
+        `-Dmdep.outputFile=${tempClasspathFile}`,
+        '-q'
+      ], { cwd: serverDir, stdio: 'pipe' });
+      
+      const mavenClasspath = (await fs.readFile(tempClasspathFile, 'utf-8')).trim();
+      await fs.remove(tempClasspathFile);
+      
+      const classpath = [classesDir, mavenClasspath].join(process.platform === 'win32' ? ';' : ':');
+      
+      const { stdout } = await execa('java', [
+        '-cp', classpath,
+        'com.gentoro.onemcp.cache.CacheManagementCommand',
+        'list'
+      ], { cwd: projectRoot, stdio: 'pipe' });
+      
+      console.log(stdout);
+    } catch (error: any) {
+      console.error(chalk.red('Error:'), error.message);
+      if (error.stderr) console.error(chalk.dim(error.stderr));
+      process.exit(1);
+    }
+  });
+
+cacheCmd
+  .command('remove <cacheKey>')
+  .description('Remove a specific cached execution plan by cache key')
+  .action(async (cacheKey: string) => {
+    try {
+      const { execa } = await import('execa');
+      const projectRoot = agentService.findProjectRoot();
+      const serverDir = join(projectRoot, 'packages/server');
+      const classesDir = join(serverDir, 'target/classes');
+      
+      // Get Maven classpath
+      const tempClasspathFile = join(serverDir, 'target', '.classpath.tmp');
+      await execa('mvn', [
+        'dependency:build-classpath',
+        `-Dmdep.outputFile=${tempClasspathFile}`,
+        '-q'
+      ], { cwd: serverDir, stdio: 'pipe' });
+      
+      const mavenClasspath = (await fs.readFile(tempClasspathFile, 'utf-8')).trim();
+      await fs.remove(tempClasspathFile);
+      
+      const classpath = [classesDir, mavenClasspath].join(process.platform === 'win32' ? ';' : ':');
+      
+      const { stdout } = await execa('java', [
+        '-cp', classpath,
+        'com.gentoro.onemcp.cache.CacheManagementCommand',
+        'remove', cacheKey
+      ], { cwd: projectRoot, stdio: 'pipe' });
+      
+      console.log(chalk.green(stdout));
+    } catch (error: any) {
+      console.error(chalk.red('Error:'), error.message);
+      if (error.stderr) console.error(chalk.dim(error.stderr));
+      process.exit(1);
+    }
+  });
+
+cacheCmd
+  .command('clear')
+  .description('Clear all cached execution plans')
+  .action(async () => {
+    try {
+      const { execa } = await import('execa');
+      const projectRoot = agentService.findProjectRoot();
+      const serverDir = join(projectRoot, 'packages/server');
+      const classesDir = join(serverDir, 'target/classes');
+      
+      // Get Maven classpath
+      const tempClasspathFile = join(serverDir, 'target', '.classpath.tmp');
+      await execa('mvn', [
+        'dependency:build-classpath',
+        `-Dmdep.outputFile=${tempClasspathFile}`,
+        '-q'
+      ], { cwd: serverDir, stdio: 'pipe' });
+      
+      const mavenClasspath = (await fs.readFile(tempClasspathFile, 'utf-8')).trim();
+      await fs.remove(tempClasspathFile);
+      
+      const classpath = [classesDir, mavenClasspath].join(process.platform === 'win32' ? ';' : ':');
+      
+      const { stdout } = await execa('java', [
+        '-cp', classpath,
+        'com.gentoro.onemcp.cache.CacheManagementCommand',
+        'clear'
+      ], { cwd: projectRoot, stdio: 'pipe' });
+      
+      console.log(chalk.green(stdout));
+    } catch (error: any) {
+      console.error(chalk.red('Error:'), error.message);
+      if (error.stderr) console.error(chalk.dim(error.stderr));
+      process.exit(1);
+    }
+  });
+
 
 /**
  * Update command
@@ -897,6 +1112,8 @@ program
 async function showStatus(): Promise<void> {
   try {
     const status = await agentService.getStatus();
+    const config = await configManager.getGlobalConfig();
+    const cacheEnabled = config?.cache?.enabled ?? false;
 
     console.log();
     console.log(chalk.bold.cyan('📊 One MCP Status\n'));

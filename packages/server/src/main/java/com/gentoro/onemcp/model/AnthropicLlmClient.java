@@ -130,8 +130,9 @@ public class AnthropicLlmClient extends AbstractLlmClient {
 
   @Override
   public String runInference(
-      List<Message> messages, List<Tool> tools, InferenceEventListener listener) {
+      List<Message> messages, List<Tool> tools, Float temperature, InferenceEventListener listener) {
     InitializationContext ctx = initialize(Collections.emptyList(), tools);
+    // TODO: Use temperature parameter if provided
 
     final List<ToolUseBlock> toolCalls = new ArrayList<>();
     com.anthropic.models.messages.Message chatCompletions;
