@@ -65,24 +65,35 @@ cd packages/server && mvn test
 
 ### Service Validation
 
+**Installing OneMCP CLI in CI/CD:**
+
 ```bash
-# Build Java service
-cd packages/server && mvn package -DskipTests && cd ../..
+# Download CLI binary (Linux AMD64)
+curl -LO https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.3/onemcp-linux-amd64.tar.gz
+tar -xzf onemcp-linux-amd64.tar.gz
+sudo mv onemcp /usr/local/bin/
 
-# Build CLI
-cd packages/cli && npm run build && cd ..
+# Verify installation
+onemcp --help
 
-# Start service
-java -jar packages/server/target/onemcp-*.jar &
+# Check system requirements
+onemcp doctor
+```
 
-# Wait for the service to start
-sleep 10
+**Running validation:**
 
-# Test service (add your own validation commands)
-curl http://localhost:8080/actuator/health
+```bash
+# Start OneMCP server (Docker required)
+onemcp chat <<EOF
+Show total sales for 2024
+exit
+EOF
 
-# Stop service
-pkill -f "java -jar .*onemcp"
+# Check server status
+onemcp status
+
+# View logs if needed
+onemcp logs
 ```
 
 ### Container Validation

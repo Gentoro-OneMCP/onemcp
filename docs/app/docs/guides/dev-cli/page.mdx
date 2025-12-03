@@ -1,0 +1,530 @@
+---
+description: Developer CLI wrapper for fast local iteration during OneMCP development.
+---
+
+# Developer CLI
+
+The `onemcp-dev` wrapper provides a fast development experience for working on OneMCP locally.
+
+## Overview
+
+The developer CLI (`onemcp-dev`) is a Bash wrapper script designed for OneMCP contributors and developers who need to:
+- Iterate quickly on Java server changes
+- Debug the server locally
+- Test with custom Docker images
+- Access detailed logs and reports
+
+**Location:** `packages/dev-cli/onemcp-dev` in the repository
+
+---
+
+## Benefits
+
+### Fast Iteration
+- **10-15 second rebuild** for Java changes (vs minutes for Docker)
+- Incremental Maven builds
+- No Docker layer caching delays
+
+### Easy Debugging
+- Attach debuggers to local Java process
+- Set breakpoints in IDE
+- Step through code execution
+
+### Enhanced Logging
+- Persistent logs in `~/.onemcp/logs/`
+- Execution reports with timestamps
+- Report paths displayed after each query
+
+### ACME Examples
+- Built-in example prompts for ACME Analytics handbook
+- Learn API capabilities quickly
+- Test common queries
+
+---
+
+## Installation
+
+The developer CLI is included in the repository. No separate installation needed.
+
+**Location:** `packages/dev-cli/onemcp-dev`
+
+**Prerequisites:**
+
+1. **OneMCP repository** cloned locally
+2. **Go CLI built first** (required):
+   ```bash
+   cd packages/go-cli
+   go build -o onemcp
+   ```
+3. **Java 21** installed
+4. **Maven** installed
+5. **Docker Desktop** (for regular usage)
+6. **Podman** (optional, only for Docker mode):
+   ```bash
+   brew install podman
+   podman machine init
+   podman machine start
+   ```
+
+**Verify:**
+```bash
+cd /path/to/onemcp
+./packages/dev-cli/onemcp-dev --help
+```
+
+---
+
+## Usage
+
+### Fast Mode (Local Java)
+
+Build and run Java server locally:
+
+```bash
+./packages/dev-cli/onemcp-dev chat
+```
+
+**First run:**
+- Builds Java project with Maven
+- Starts Java server locally
+- Connects Go CLI
+- ~30 seconds initial build
+
+**Subsequent runs:**
+- Only rebuilds changed files
+- ~10-15 seconds
+- Full Java debugging available
+
+**When to use:**
+- Iterating on Java server code
+- Debugging server issues
+- Testing API changes
+- Developing new features
+
+---
+
+### Docker Mode
+
+```bash
+./packages/dev-cli/onemcp-dev chat --docker
+```
+
+**Important: Docker mode requires Podman** (not standard Docker)
+
+**Install Podman:**
+```bash
+brew install podman
+podman machine init
+podman machine start
+```
+
+**Behavior:**
+- Cleans old dev images
+- Builds base image (if needed, ~2-3 min first time)
+- Builds product image with your JAR (~20s)
+- Transfers image from Podman to Docker/OrbStack
+- Removes redundant `:latest` tags
+- Runs with custom image
+
+**When to use:**
+- Testing Docker-specific behavior
+- Validating production-like environment
+- Testing with custom base images
+- Pre-PR verification
+
+**Speed:**
+- First time: ~2-3 minutes (builds base)
+- Subsequent: ~20 seconds (reuses base)
+
+---
+
+### Clean Build
+
+Force full rebuild (clears Maven cache):
+
+```bash
+./packages/dev-cli/onemcp-dev chat --clean
+```
+
+**Use when:**
+- Dependency changes
+- Build artifacts corrupted
+- Switching Java versions
+- Troubleshooting build issues
+
+---
+
+### View Logs
+
+Show development logs:
+
+```bash
+./packages/dev-cli/onemcp-dev logs           # Last 50 lines
+./packages/dev-cli/onemcp-dev logs -n 100   # Last 100 lines
+./packages/dev-cli/onemcp-dev logs -f       # Follow in real-time
+```
+
+**Log location:** `~/.onemcp/logs/dev-latest.log`
+
+---
+
+## Features
+
+### Persistent Logging
+
+All logs and reports saved to `~/.onemcp/logs/`:
+
+```
+~/.onemcp/logs/
+├── dev-latest.log         # Latest session log
+├── dev-TIMESTAMP.log      # Archived session logs
+└── reports/               # Execution reports
+    └── execution-TIMESTAMP.txt
+```
+
+**Benefits:**
+- Logs survive crashes and exits
+- Review past sessions
+- Share logs for debugging
+- Track execution history
+
+---
+
+### Report Paths
+
+After each query, see clickable execution report path:
+
+```
+You: Show total sales for 2024
+Agent: {
+  "message": "Total revenue for 2024 calculated successfully.",
+  "total_revenue": 5640255.26
+}
+Report: /Users/you/.onemcp/logs/reports/execution-2025-12-03T10-30-45.txt
+```
+
+**Click path** to open report in editor and see:
+- Full execution plan
+- API calls made
+- Data transformations
+- Timing information
+
+**Note:** Report paths only shown in dev mode currently.
+
+---
+
+### ACME Example Prompts
+
+When using the built-in ACME Analytics handbook, see helpful examples:
+
+```
+Mock Server Active - Try These Example Queries:
+
+  > Show me electronics sales in California last quarter.
+  > List top customers by revenue.
+  > Compare revenue trends by region.
+  > What are the top-selling products this month?
+  > Show me sales data for New York vs Texas.
+
+Type "help" anytime for more commands.
+```
+
+---
+
+### Automatic Cleanup
+
+The dev CLI automatically cleans up:
+- OrientDB data directory (`orientdb-data/`) between runs
+- Docker images when switching modes
+- Stale processes
+
+**Result:** Fresh environment each run, no state pollution.
+
+---
+
+## Development Workflow
+
+### Typical Iteration Cycle
+
+1. **Make Java changes**
+   ```bash
+   # Edit server code
+   vim packages/server/src/main/java/...
+   ```
+
+2. **Test changes** (10-15s rebuild)
+   ```bash
+   ./packages/dev-cli/onemcp-dev chat
+   ```
+
+3. **Review logs**
+   ```bash
+   ./packages/dev-cli/onemcp-dev logs
+   ```
+
+4. **Check report**
+   - Click report path from chat output
+   - Review execution details
+
+5. **Iterate**
+   - Make more changes
+   - Repeat from step 2
+
+---
+
+### Debugging Java
+
+**Attach debugger:**
+
+1. Start dev CLI:
+   ```bash
+   ./packages/dev-cli/onemcp-dev chat
+   ```
+
+2. In IDE, attach to Java process:
+   - Host: `localhost`
+   - Port: `5005` (default JDWP port)
+
+3. Set breakpoints in server code
+
+4. Make queries in chat - hits breakpoints
+
+**IntelliJ IDEA:**
+1. Run → Attach to Process
+2. Select Java process
+3. Debug as usual
+
+**VS Code:**
+1. Add launch configuration:
+   ```json
+   {
+     "type": "java",
+     "request": "attach",
+     "hostName": "localhost",
+     "port": 5005
+   }
+   ```
+2. Start debugging
+
+---
+
+### Testing Docker Builds
+
+Before creating production Docker image, test locally:
+
+```bash
+# Build and test custom image
+./packages/dev-cli/onemcp-dev chat --docker
+
+# Verify image works correctly
+# Test all functionality
+
+# If issues found, fix and rebuild
+./packages/dev-cli/onemcp-dev chat --docker --clean
+```
+
+---
+
+## Comparison to Production CLI
+
+| Feature | Production CLI | Developer CLI |
+|---------|---------------|--------------|
+| Installation | Homebrew/Scoop | Repository only |
+| Java | Docker image | Local or Docker |
+| Rebuild time | – | 10-15s (local) |
+| Debugging | ❌ | ✅ |
+| Report paths | ❌ | ✅ |
+| Logs | Docker logs | `~/.onemcp/logs/` |
+| ACME examples | ✅ | ✅ |
+
+**Use production CLI for:**
+- Normal usage
+- Writing handbooks
+- Testing APIs
+- Production deployments
+
+**Use developer CLI for:**
+- OneMCP development
+- Server debugging
+- Java feature development
+- Testing local changes
+
+---
+
+## Configuration
+
+### Environment Variables
+
+- `ONEMCP_DEV_PORT` - Server port (default: 8080)
+- `ONEMCP_DEV_LOG_DIR` - Log directory (default: `~/.onemcp/logs`)
+
+**Example:**
+```bash
+ONEMCP_DEV_PORT=9090 ./packages/dev-cli/onemcp-dev chat
+```
+
+---
+
+### Custom Handbooks
+
+Use custom handbook with dev CLI:
+
+```bash
+# Set handbook directory
+export ONEMCP_HANDBOOK_DIR=/path/to/custom/handbooks
+
+# Run dev CLI
+./packages/dev-cli/onemcp-dev chat
+```
+
+---
+
+## Troubleshooting
+
+### Java Build Fails
+
+```bash
+# Clean build to reset state
+./packages/dev-cli/onemcp-dev chat --clean
+
+# Or manually
+cd packages/server
+mvn clean package
+```
+
+---
+
+### Go CLI Not Found
+
+**Error:**
+```
+Error: Go CLI not found at /path/to/go-cli/onemcp
+```
+
+**Solution:**
+```bash
+# Build the Go CLI first (required prerequisite)
+cd packages/go-cli
+go build -o onemcp
+
+# Verify it exists
+ls -la onemcp
+```
+
+---
+
+### Port Already in Use
+
+```bash
+# Find process using port 8080
+lsof -i :8080
+
+# Kill it
+kill -9 <PID>
+
+# Or use different port
+ONEMCP_DEV_PORT=9090 ./packages/dev-cli/onemcp-dev chat
+```
+
+---
+
+### Docker Mode Fails
+
+```bash
+# Ensure Docker is running
+docker ps
+
+# Clean rebuild
+./packages/dev-cli/onemcp-dev chat --docker --clean
+```
+
+**Docker mode requires Podman:**
+
+If you see:
+```
+⚠️  Docker mode requires buildah or podman (not standard Docker)
+```
+
+**Solution:**
+```bash
+# Install Podman
+brew install podman
+
+# Initialize and start VM
+podman machine init
+podman machine start
+
+# Verify Podman works
+podman ps
+
+# Then try again
+./packages/dev-cli/onemcp-dev chat --docker
+```
+
+---
+
+### Logs Not Showing
+
+```bash
+# Check log directory
+ls -la ~/.onemcp/logs/
+
+# Verify log file exists
+cat ~/.onemcp/logs/dev-latest.log
+```
+
+---
+
+## Advanced Usage
+
+### Pass-Through Commands
+
+Dev CLI passes through all standard CLI commands:
+
+```bash
+# These work with dev CLI
+./packages/dev-cli/onemcp-dev status
+./packages/dev-cli/onemcp-dev handbook list
+./packages/dev-cli/onemcp-dev provider list
+```
+
+**Note:** Dev CLI only starts server for `chat` command. Other commands don't trigger builds.
+
+---
+
+### Script Integration
+
+Use in scripts:
+
+```bash
+#!/bin/bash
+# test-api-changes.sh
+
+# Make Java changes
+sed -i 's/old/new/g' packages/server/src/main.java/...
+
+# Test changes
+./packages/dev-cli/onemcp-dev chat <<EOF
+Show total sales for 2024
+exit
+EOF
+
+# Check logs
+./packages/dev-cli/onemcp-dev logs | grep "ERROR"
+```
+
+---
+
+## Contributing
+
+The developer CLI is for OneMCP contributors. See:
+- [Contributing Guide](https://github.com/Gentoro-OneMCP/onemcp/blob/main/CONTRIBUTING.md)
+- [Development Setup](https://github.com/Gentoro-OneMCP/onemcp/blob/main/docs/development/)
+
+---
+
+## See Also
+
+- **CLI Guide:** [CLI Guide](/docs/guides/cli-guide) for production CLI usage
+- **CLI Reference:** [CLI Reference](/docs/reference/cli) for all commands
+- **Getting Started:** [Getting Started](/docs/getting-started) for end users
