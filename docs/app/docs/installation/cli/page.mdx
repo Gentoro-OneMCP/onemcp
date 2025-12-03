@@ -2,7 +2,7 @@
 title: CLI Installation
 ---
 
-## **CLI Installation**
+## CLI Installation
 
 The **OneMCP CLI** (`onemcp`) is a lightweight cross-platform tool designed to simplify how users interact with the OneMCP runtime.
 It provides a unified interface for:
@@ -16,90 +16,118 @@ It provides a unified interface for:
 The CLI is distributed as a **standalone binary**, with first-class support for:
 
 * **macOS** (Intel & Apple Silicon)
-* **Linux** (amd64, arm64, x86)
-* **Windows** (PowerShell)
+* **Linux** (AMD64)
+* **Windows** (AMD64 & ARM64)
 
 It can be used in terminals, shells, as part of automation scripts, or CI pipelines.
 
 ---
 
-## **1. Installing the CLI**
+## 1. Installing the CLI
 
-### **1.1 macOS & Linux (Homebrew)**
+### 1.1 macOS & Linux (Homebrew)
 
 The CLI is available via **Homebrew**, the simplest way to install on macOS and Linux.
 
-#### **Install**
+#### Install
 
 ```bash
+brew tap gentoro-onemcp/onemcp
 brew install onemcp
 ```
 
-#### **Upgrade**
+#### Upgrade
 
 ```bash
 brew upgrade onemcp
 ```
 
-#### **Verify**
+#### Verify
 
 ```bash
-onemcp --version
+onemcp --help
 ```
 
 ---
 
-### **1.2 Windows (PowerShell via `scoop`)**
+### 1.2 Windows (PowerShell via `scoop`)
 
 Windows users can install using **Scoop**, a popular PowerShell package manager.
 
-### **Install Scoop (if needed)**
+#### Install Scoop (if needed)
 
 ```powershell
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 iwr -useb get.scoop.sh | iex
 ```
 
-### **Install the CLI**
+#### Install the CLI
 
 ```powershell
+scoop bucket add gentoro-onemcp https://github.com/Gentoro-OneMCP/onemcp-scoop
 scoop install onemcp
 ```
 
-### **Verify**
+#### Upgrade
 
 ```powershell
-onemcp --version
+scoop update onemcp
+```
+
+#### Verify
+
+```powershell
+onemcp --help
 ```
 
 ---
 
-### **1.3 Manual Installation (All OS / Architectures)**
+### 1.3 Manual Installation
 
-For air-gapped systems, custom environments, or embedded devices, you can manually download the binary for:
+For air-gapped systems, custom environments, or if you prefer manual installation.
 
-* macOS (amd64 / arm64)
-* Linux (amd64 / arm64 / x86)
-* Windows (amd64 / arm64)
+#### Download Binaries
 
-#### **Download and install**
+Visit [GitHub Releases](https://github.com/Gentoro-OneMCP/onemcp/releases/latest) and download the appropriate binary:
+
+**Available platforms:**
+* macOS (Apple Silicon): `onemcp-darwin-arm64.tar.gz`
+* macOS (Intel): `onemcp-darwin-amd64.tar.gz`
+* Linux (AMD64): `onemcp-linux-amd64.tar.gz`
+* Windows (AMD64): `onemcp-windows-amd64.zip`
+* Windows (ARM64): `onemcp-windows-arm64.zip`
+
+#### Install on Linux/macOS
 
 ```bash
-curl -LO https://github.com/.../onemcp.zip
-unzip onemcp.zip
-chmod +x onemcp
-sudo mv onemcp /usr/local/bin/onemcp
+# Download (replace with your platform and latest version)
+curl -LO https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.3/onemcp-darwin-arm64.tar.gz
+
+# Extract
+tar -xzf onemcp-darwin-arm64.tar.gz
+
+# Install to system path
+sudo mv onemcp /usr/local/bin/
+
+# Verify
+onemcp --help
 ```
 
-Or Windows:
+#### Install on Windows
+
+1. Download the appropriate `.zip` file for your architecture
+2. Extract `onemcp.exe`
+3. Move to a directory in your `PATH` (e.g., `C:\Program Files\onemcp\`)
+4. Or add the directory to your PATH environment variable
 
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/.../onemcp.exe" -OutFile "onemcp.exe"
+# Verify
+onemcp --help
 ```
 
 ---
 
-## **2. Basic Usage**
+## 2. Basic Usage
 
 The `onemcp` tool uses the following structure:
 
@@ -107,12 +135,187 @@ The `onemcp` tool uses the following structure:
 onemcp [command] [options]
 ```
 
-### **Example**
+### Common Commands
 
 ```bash
+# Start interactive chat
 onemcp chat
+
+# Check server status
+onemcp status
+
+# View logs
+onemcp logs
+
+# Stop server
+onemcp stop
+
+# Check system requirements
+onemcp doctor
 ```
 
-This opens an interactive chat session that communicates with the active OneMCP server.
+### Getting Help
+
+```bash
+# Show all commands
+onemcp --help
+
+# Show help for specific command
+onemcp chat --help
+```
 
 ---
+
+## 3. Requirements
+
+**System requirements:**
+* **Docker Desktop** - Required to run the OneMCP server
+* **Operating System:**
+  * macOS 10.15 or later
+  * Windows 10 or later
+  * Linux with Docker support
+
+**Docker installation:**
+* [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install/)
+* [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/)
+* [Docker Engine for Linux](https://docs.docker.com/engine/install/)
+
+---
+
+## 4. Verify Installation
+
+After installation, verify everything works:
+
+```bash
+# Check CLI is installed
+onemcp --help
+
+# Check Docker is running
+docker ps
+
+# Run system check
+onemcp doctor
+```
+
+**Expected output from `onemcp doctor`:**
+```
+✓ Docker is installed
+✓ Docker daemon is running
+✓ Network connectivity OK
+✓ Configuration file valid
+✓ All requirements met
+```
+
+---
+
+## 5. Next Steps
+
+* **Quick Start:** Run `onemcp chat` to start your first session
+* **CLI Guide:** See the [CLI Guide](/docs/guides/cli-guide) for detailed usage
+* **Shell Completion:** Set up [Shell Completion](/docs/guides/shell-completion) for faster typing
+* **Configuration:** Learn about [Configuration](/docs/reference/cli#configuration)
+
+---
+
+## 6. Troubleshooting
+
+### Installation Issues
+
+**Homebrew tap not found:**
+```bash
+brew tap gentoro-onemcp/onemcp
+brew update
+brew install onemcp
+```
+
+**Scoop bucket not found:**
+```powershell
+scoop bucket add gentoro-onemcp https://github.com/Gentoro-OneMCP/onemcp-scoop
+scoop update
+scoop install onemcp
+```
+
+**Permission denied (Linux/macOS):**
+```bash
+# Install to user directory instead
+mv onemcp ~/.local/bin/
+
+# Ensure ~/.local/bin is in PATH
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Docker Issues
+
+**Docker not running:**
+```bash
+# macOS/Windows: Start Docker Desktop application
+# Linux: Start Docker daemon
+sudo systemctl start docker
+```
+
+**Docker permission denied (Linux):**
+```bash
+# Add user to docker group
+sudo usermod -aG docker $USER
+
+# Log out and back in for changes to take effect
+```
+
+For more help, see the [CLI Guide Troubleshooting](/docs/guides/cli-guide#troubleshooting) section.
+
+---
+
+## 7. Updating
+
+### Homebrew
+
+```bash
+brew upgrade onemcp
+```
+
+### Scoop
+
+```powershell
+scoop update onemcp
+```
+
+### Manual Installation
+
+1. Download the latest release
+2. Replace the existing binary
+3. Verify the new version
+
+---
+
+## 8. Uninstallation
+
+### Homebrew
+
+```bash
+brew uninstall onemcp
+brew untap gentoro-onemcp/onemcp
+```
+
+### Scoop
+
+```powershell
+scoop uninstall onemcp
+```
+
+### Manual Installation
+
+```bash
+# Linux/macOS
+sudo rm /usr/local/bin/onemcp
+
+# Windows
+# Delete onemcp.exe from installation directory
+```
+
+**Clean up configuration (optional):**
+```bash
+rm -rf ~/.onemcp
+```
+
+**Note:** This deletes all configuration. Handbooks are in `~/onemcp-handbooks` and must be deleted separately if desired.

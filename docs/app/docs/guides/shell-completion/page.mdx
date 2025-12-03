@@ -1,0 +1,346 @@
+---
+description: Set up shell completion for the OneMCP CLI to enable tab autocompletion.
+---
+
+# Shell Completion
+
+Enable tab completion for the OneMCP CLI to speed up your workflow.
+
+## What is Shell Completion?
+
+Shell completion allows you to press TAB to:
+- Auto-complete command names
+- Show available subcommands
+- Complete flags and options
+
+**Example:**
+```bash
+onemcp ha<TAB>          → autocompletes to "handbook"
+onemcp handbook <TAB>   → shows: init, list, use, current, validate
+onemcp provider <TAB>   → shows: list, set, switch
+```
+
+---
+
+## Setup Instructions
+
+### Bash
+
+**Option 1: Add to ~/.bashrc (Recommended)**
+
+```bash
+# Add this line to ~/.bashrc
+source <(onemcp completion bash)
+```
+
+Then reload:
+```bash
+source ~/.bashrc
+```
+
+**Option 2: System-wide installation**
+
+```bash
+onemcp completion bash | sudo tee /etc/bash_completion.d/onemcp
+```
+
+---
+
+### Zsh
+
+**Option 1: Add to ~/.zshrc (Recommended)**
+
+```bash
+# Add this line to ~/.zshrc
+source <(onemcp completion zsh)
+```
+
+Then reload:
+```bash
+source ~/.zshrc
+```
+
+**Option 2: Save to completion directory**
+
+```bash
+onemcp completion zsh > ~/.zsh/completion/_onemcp
+```
+
+Make sure your `~/.zshrc` includes:
+```bash
+fpath=(~/.zsh/completion $fpath)
+autoload -Uz compinit && compinit
+```
+
+---
+
+### Fish
+
+**Installation:**
+
+```bash
+onemcp completion fish > ~/.config/fish/completions/onemcp.fish
+```
+
+Fish will automatically load the completion on next shell start.
+
+**Reload immediately:**
+```bash
+source ~/.config/fish/config.fish
+```
+
+---
+
+### PowerShell
+
+**Option 1: Add to PowerShell Profile (Recommended)**
+
+1. Open your PowerShell profile:
+```powershell
+notepad $PROFILE
+```
+
+2. Add this line:
+```powershell
+onemcp completion powershell | Out-String | Invoke-Expression
+```
+
+3. Reload:
+```powershell
+. $PROFILE
+```
+
+**Option 2: Session-only (temporary)**
+
+```powershell
+onemcp completion powershell | Out-String | Invoke-Expression
+```
+
+This must be run in each new PowerShell session.
+
+---
+
+## Usage Examples
+
+After setup, completion works automatically:
+
+### Command Completion
+```bash
+onem<TAB>              → onemcp
+onemcp <TAB>           → shows all commands
+```
+
+### Subcommand Completion
+```bash
+onemcp h<TAB>          → handbook
+onemcp handbook <TAB>  → init  list  use  current  validate
+```
+
+### Provider Completion
+```bash
+onemcp provider <TAB>  → list  set  switch
+```
+
+### Flags Completion
+```bash
+onemcp logs -<TAB>     → -n  -f  --lines  --follow  --help
+```
+
+---
+
+## Verification
+
+Test that completion is working:
+
+```bash
+# Type this and press TAB twice
+onemcp <TAB><TAB>
+```
+
+You should see all available commands:
+```
+chat        handbook    logs        provider    status      update
+completion  help        doctor      reset       service     stop
+```
+
+---
+
+## Troubleshooting
+
+### Completion Not Working
+
+**Bash:**
+```bash
+# Verify completion script loaded
+type _onemcp
+
+# If not found, reload
+source ~/.bashrc
+```
+
+**Zsh:**
+```bash
+# Check fpath includes completion directory
+echo $fpath
+
+# Rebuild completion cache
+rm -f ~/.zcompdump
+compinit
+```
+
+**Fish:**
+```bash
+# Verify completion file exists
+ls ~/.config/fish/completions/onemcp.fish
+
+# Reload completions
+fish_update_completions
+```
+
+**PowerShell:**
+```powershell
+# Verify profile was loaded
+$PROFILE
+
+# Reload profile
+. $PROFILE
+```
+
+---
+
+### Completion Shows Wrong Commands
+
+This usually means you have an outdated completion script.
+
+**Solution:**
+1. Remove old completion
+2. Regenerate with latest CLI
+3. Reload shell
+
+**Example (Bash):**
+```bash
+# Remove old
+sudo rm /etc/bash_completion.d/onemcp
+
+# Regenerate
+onemcp completion bash | sudo tee /etc/bash_completion.d/onemcp
+
+# Reload
+source ~/.bashrc
+```
+
+---
+
+### Completion Slow
+
+If completion feels slow, it may be regenerating on each invocation.
+
+**Solution:** Save to a file instead of sourcing dynamically.
+
+**Before (slow):**
+```bash
+source <(onemcp completion bash)  # Regenerates each time
+```
+
+**After (fast):**
+```bash
+onemcp completion bash > ~/.onemcp-completion.bash
+source ~/.onemcp-completion.bash
+```
+
+---
+
+## Advanced Configuration
+
+### Custom Completion Behavior
+
+You can customize how completion behaves by editing the generated script.
+
+**Location depends on method:**
+- Bash: `~/.onemcp-completion.bash` or `/etc/bash_completion.d/onemcp`
+- Zsh: `~/.zsh/completion/_onemcp`
+- Fish: `~/.config/fish/completions/onemcp.fish`
+- PowerShell: Added to `$PROFILE`
+
+**Note:** Customizations will be lost if you regenerate the completion script.
+
+---
+
+## Uninstalling Completion
+
+### Bash
+
+**From ~/.bashrc:**
+```bash
+# Remove this line from ~/.bashrc
+source <(onemcp completion bash)
+
+# Reload
+source ~/.bashrc
+```
+
+**System-wide:**
+```bash
+sudo rm /etc/bash_completion.d/onemcp
+```
+
+---
+
+### Zsh
+
+**From ~/.zshrc:**
+```bash
+# Remove this line from ~/.zshrc
+source <(onemcp completion zsh)
+
+# Reload
+source ~/.zshrc
+```
+
+**Completion file:**
+```bash
+rm ~/.zsh/completion/_onemcp
+```
+
+---
+
+### Fish
+
+```bash
+rm ~/.config/fish/completions/onemcp.fish
+```
+
+---
+
+### PowerShell
+
+**Remove from profile:**
+1. Open profile: `notepad $PROFILE`
+2. Remove the completion line
+3. Save and reload: `. $PROFILE`
+
+---
+
+## Benefits
+
+**Faster workflow:**
+- No need to remember exact command names
+- Quick access to subcommands
+- Less typing overall
+
+**Fewer errors:**
+- See available options before running
+- Avoid typos in command names
+- Discover new commands
+
+**Better discoverability:**
+- Learn about commands you didn't know existed
+- Explore subcommands interactively
+
+---
+
+## Next Steps
+
+- **CLI Guide:** See [CLI Guide](/docs/guides/cli-guide) for command usage
+- **CLI Reference:** Check [CLI Reference](/docs/reference/cli) for all commands
+- **Getting Started:** Start with [Getting Started](/docs/getting-started)
