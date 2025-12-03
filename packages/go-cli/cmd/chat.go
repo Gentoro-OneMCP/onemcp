@@ -16,6 +16,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	localMode   bool
+	customImage string
+)
+
 var chatCmd = &cobra.Command{
 	Use:   "chat",
 	Short: "Open interactive chat mode",
@@ -25,6 +30,8 @@ var chatCmd = &cobra.Command{
 }
 
 func init() {
+	chatCmd.Flags().BoolVar(&localMode, "local", false, "Connect to local server (skip Docker)")
+	chatCmd.Flags().StringVar(&customImage, "image", "", "Custom Docker image to use")
 	rootCmd.AddCommand(chatCmd)
 }
 
@@ -81,74 +88,98 @@ func runChat() {
 		fmt.Println("✅ Handbook validated successfully")
 	}
 
-	// Docker & Server checks
-	ctx := context.Background()
-	dm, err := docker.NewManager()
-	if err != nil {
-		fmt.Println("❌ Error: Docker daemon not reachable")
-		fmt.Println()
-		fmt.Println("   Is Docker running? You can:")
-		fmt.Println("   • Start Docker Desktop")
-		fmt.Println("   • Check installation: docker --version")
-		fmt.Println()
-		os.Exit(1)
-	}
-
-	// Ensure Image (always pull to be safe/fresh)
-	if err := dm.EnsureImage(ctx, true); err != nil {
-		fmt.Printf("Failed to pull image: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Pull and start server
-	handbookPath := cm.GetHandbookPath(cfg.CurrentHandbook)
-
-	// Show appropriate message based on handbook type
-	if cfg.CurrentHandbook == "acme-analytics" {
-		fmt.Println("Starting OneMCP server with built-in ACME Analytics handbook...")
-	} else {
-		fmt.Printf("Starting OneMCP server with handbook: %s\n", handbookPath)
-	}
-
-	if err := dm.StartServer(ctx, cfg, handbookPath); err != nil {
-		fmt.Printf("Failed to start server: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Setup signal handler for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	// Goroutine to handle shutdown
-	go func() {
-		<-sigChan
-		fmt.Println("\n\nShutting down gracefully...")
-		// Stop container in background - don't wait
-		go dm.StopServer(context.Background())
-		// Give it a moment to start stopping, then exit
-		time.Sleep(100 * time.Millisecond)
-		os.Exit(0)
-	}()
-
-	// Also ensure we stop on normal exit
-	defer func() {
-		// Stop in background so we don't block
-		go dm.StopServer(context.Background())
-		time.Sleep(100 * time.Millisecond)
-	}()
-
-	// Wait for server to be healthy
-	fmt.Println("Waiting for server to be ready...")
-	if err := dm.WaitForHealthy(ctx, cfg.DefaultPort, 60*time.Second); err != nil {
-		fmt.Printf("Server failed to start: %v\n", err)
-		// Don't exit, maybe logs will show why, but usually we should
-		// os.Exit(1)
-	} else {
+	// Local mode - skip Docker entirely
+	if localMode {
+		fmt.Println("🔌 Connecting to local server...")
+		// Wait for server to be healthy
+		fmt.Println("Waiting for server to be ready...")
+		ctx := context.Background()
+		dm, _ := docker.NewManager() // Create manager just for health check
+		if err := dm.WaitForHealthy(ctx, cfg.DefaultPort, 60*time.Second); err != nil {
+			fmt.Printf("Server failed to start: %v\n", err)
+			fmt.Println("\nMake sure the local server is running first.")
+			os.Exit(1)
+		}
 		fmt.Println("✅ Server is ready!")
+	} else {
+		// Docker & Server checks
+		ctx := context.Background()
+		dm, err := docker.NewManager()
+		if err != nil {
+			fmt.Println("❌ Error: Docker daemon not reachable")
+			fmt.Println()
+			fmt.Println("   Is Docker running? You can:")
+			fmt.Println("   • Start Docker Desktop")
+			fmt.Println("   • Check installation: docker --version")
+			fmt.Println()
+			os.Exit(1)
+		}
+
+		// Determine which image to use
+		imageName := customImage
+		if imageName == "" {
+			imageName = docker.ImageName // Default
+			// Ensure Image (always pull to be safe/fresh for default image)
+			if err := dm.EnsureImage(ctx, true); err != nil {
+				fmt.Printf("Failed to pull image: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			// For custom images, don't pull - assume already built
+			fmt.Printf("Using custom image: %s\n", imageName)
+		}
+
+		// Pull and start server
+		handbookPath := cm.GetHandbookPath(cfg.CurrentHandbook)
+
+		// Show appropriate message based on handbook type
+		if cfg.CurrentHandbook == "acme-analytics" {
+			fmt.Println("Starting OneMCP server with built-in ACME Analytics handbook...")
+		} else {
+			fmt.Printf("Starting OneMCP server with handbook: %s\n", handbookPath)
+		}
+
+		if err := dm.StartServer(ctx, cfg, handbookPath, imageName); err != nil {
+			fmt.Printf("Failed to start server: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Setup signal handler for graceful shutdown
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+		// Goroutine to handle shutdown
+		go func() {
+			<-sigChan
+			fmt.Println("\n\nShutting down gracefully...")
+			// Stop container in background - don't wait
+			go dm.StopServer(context.Background())
+			// Give it a moment to start stopping, then exit
+			time.Sleep(100 * time.Millisecond)
+			os.Exit(0)
+		}()
+
+		// Also ensure we stop on normal exit
+		defer func() {
+			// Stop in background so we don't block
+			go dm.StopServer(context.Background())
+			time.Sleep(100 * time.Millisecond)
+		}()
+
+		// Wait for server to be healthy
+		fmt.Println("Waiting for server to be ready...")
+		if err := dm.WaitForHealthy(ctx, cfg.DefaultPort, 60*time.Second); err != nil {
+			fmt.Printf("Server failed to start: %v\n", err)
+			// Don't exit, maybe logs will show why, but usually we should
+			// os.Exit(1)
+		} else {
+			fmt.Println("✅ Server is ready!")
+		}
 	}
 
 	// 4. Start Chat
 	mode := chat.NewMode(cfg)
+	mode.ShowReports = localMode // Show reports only in local/dev mode
 	if err := mode.Start(); err != nil {
 		fmt.Printf("Chat error: %v\n", err)
 	}

@@ -41,10 +41,17 @@ type OneMCPResponse struct {
 		TotalTimeMs      int      `json:"totalTimeMs"`
 		Operations       []string `json:"operations"`
 	} `json:"statistics"`
+	ReportPath string `json:"reportPath,omitempty"` // Execution report file path
+}
+
+// Response combines the content and optional report path
+type Response struct {
+	Content    string
+	ReportPath string
 }
 
 // SendMessage sends a message to the MCP agent and returns the response
-func (c *Client) SendMessage(prompt string) (string, error) {
+func (c *Client) SendMessage(prompt string) (*Response, error) {
 	// Get timeout from config (default 240 seconds)
 	timeout := 240 * time.Second
 	if c.Config != nil && c.Config.ChatTimeout > 0 {
@@ -57,7 +64,7 @@ func (c *Client) SendMessage(prompt string) (string, error) {
 	// Check if we need to (re)connect
 	if c.Session == nil {
 		if err := c.connect(ctx); err != nil {
-			return "", err
+			return nil, err
 		}
 	}
 
@@ -74,7 +81,7 @@ func (c *Client) SendMessage(prompt string) (string, error) {
 		if ctx.Err() == context.DeadlineExceeded {
 			// Reset session on timeout to prevent server-side resource conflicts
 			c.Session = nil
-			return "", fmt.Errorf("request timed out after %d seconds - session reset for next query", c.Config.ChatTimeout)
+			return nil, fmt.Errorf("request timed out after %d seconds - session reset for next query", c.Config.ChatTimeout)
 		}
 
 		// Check if connection was closed - try to reconnect once
@@ -85,7 +92,7 @@ func (c *Client) SendMessage(prompt string) (string, error) {
 
 			// Try to reconnect
 			if reconnectErr := c.connect(ctx); reconnectErr != nil {
-				return "", fmt.Errorf("connection lost and reconnect failed: %v", reconnectErr)
+				return nil, fmt.Errorf("connection lost and reconnect failed: %v", reconnectErr)
 			}
 
 			// Retry the request once
@@ -97,15 +104,15 @@ func (c *Client) SendMessage(prompt string) (string, error) {
 			})
 
 			if err != nil {
-				return "", fmt.Errorf("request failed after reconnection: %v", err)
+				return nil, fmt.Errorf("request failed after reconnection: %v", err)
 			}
 		} else {
-			return "", err
+			return nil, err
 		}
 	}
 
 	if result.IsError {
-		return "", fmt.Errorf("tool execution error")
+		return nil, fmt.Errorf("tool execution error")
 	}
 
 	// Try to parse as OneMCP structured response
@@ -122,16 +129,19 @@ func (c *Client) SendMessage(prompt string) (string, error) {
 				}
 
 				if len(results) > 0 {
-					return strings.Join(results, "\n"), nil
+					return &Response{
+						Content:    strings.Join(results, "\n"),
+						ReportPath: resp.ReportPath,
+					}, nil
 				}
 			}
 
 			// Fallback: return raw text if JSON parsing fails
-			return tc.Text, nil
+			return &Response{Content: tc.Text}, nil
 		}
 	}
 
-	return "", fmt.Errorf("no text content in response")
+	return nil, fmt.Errorf("no text content in response")
 }
 
 // connect establishes a new MCP session with a long-lived connection context

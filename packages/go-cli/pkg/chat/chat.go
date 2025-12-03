@@ -17,8 +17,9 @@ import (
 )
 
 type Mode struct {
-	client *mcp.Client
-	config *config.GlobalConfig
+	client      *mcp.Client
+	config      *config.GlobalConfig
+	ShowReports bool // Show report paths (dev mode only)
 }
 
 func NewMode(cfg *config.GlobalConfig) *Mode {
@@ -41,6 +42,11 @@ func (m *Mode) Start() error {
 	fmt.Printf("Provider: %s\n", m.config.Provider)
 	fmt.Println("Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook")
 	fmt.Println()
+
+	// Show ACME-specific examples if using ACME handbook
+	if m.isAcmeHandbook() {
+		m.showAcmeExamples()
+	}
 
 	// Initialize readline with history support
 	rl, err := readline.New("You: ")
@@ -149,7 +155,7 @@ func (m *Mode) Start() error {
 				}
 
 				// Start new container with new handbook
-				if err := dockerMgr.StartServer(ctx, m.config, handbookPath); err != nil {
+				if err := dockerMgr.StartServer(ctx, m.config, handbookPath, ""); err != nil {
 					fmt.Printf("❌ Failed to start server with new handbook: %v\n", err)
 					fmt.Println("   Please restart chat mode manually: ./onemcp chat")
 					os.Exit(1)
@@ -205,7 +211,7 @@ func (m *Mode) Start() error {
 		}()
 
 		// Send message
-		response, err := m.client.SendMessage(input)
+		resp, err := m.client.SendMessage(input)
 
 		// Stop spinner
 		done <- true
@@ -216,8 +222,18 @@ func (m *Mode) Start() error {
 
 		if err != nil {
 			fmt.Printf("Agent Error: %v\n", err)
-		} else {
-			fmt.Printf("Agent: %s\n", response)
+			fmt.Println()
+			continue
+		}
+
+		// Display response
+		if resp.Content != "" {
+			fmt.Printf("Agent: %s\n", resp.Content)
+		}
+
+		// Display report path if available (dev mode only)
+		if m.ShowReports && resp.ReportPath != "" {
+			fmt.Printf("\033[2mReport: \033[36m%s\033[0m\n", resp.ReportPath)
 		}
 		fmt.Println()
 	}
@@ -233,6 +249,26 @@ func (m *Mode) showHelp() {
 	fmt.Println("  clear  - Clear chat history")
 	fmt.Println("  switch - Switch to a different handbook")
 	fmt.Println("  exit   - Exit chat mode")
+	fmt.Println()
+}
+
+// isAcmeHandbook checks if the current handbook is the ACME Analytics example
+func (m *Mode) isAcmeHandbook() bool {
+	handbook := strings.ToLower(m.config.CurrentHandbook)
+	return strings.Contains(handbook, "acme")
+}
+
+// showAcmeExamples displays example queries for the ACME Analytics handbook
+func (m *Mode) showAcmeExamples() {
+	fmt.Println("💡 Acme Analytics Example Queries")
+	fmt.Println()
+	fmt.Println("  > Show total sales for 2024.")
+	fmt.Println("  > Show me total revenue by category in 2024.")
+	fmt.Println("  > Show me electronics sales in California last quarter.")
+	fmt.Println("  > What are the top-selling products this month?")
+	fmt.Println("  > Show me sales data for New York vs Texas.")
+	fmt.Println()
+	fmt.Println(strings.Repeat("━", 60))
 	fmt.Println()
 }
 

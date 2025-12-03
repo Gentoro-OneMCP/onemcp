@@ -271,6 +271,6 @@ public class OrchestratorService {
             ctx.tracer().completionTokens(),
             "totalTokens",
             ctx.tracer().totalTokens()));
-    return new AssigmentResult(assignmentParts, stats, assignmentContext);
+    return new AssigmentResult(assignmentParts, stats, assignmentContext, reportPath);
   }
 }

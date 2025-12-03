@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Map;
 
 public record AssigmentResult(
-    List<Assignment> parts, Statistics statistics, AssignmentContext context) {
+    List<Assignment> parts, Statistics statistics, AssignmentContext context, String reportPath) {
   public record Assignment(
       boolean isSupported, String assignment, boolean isError, String content) {}
 

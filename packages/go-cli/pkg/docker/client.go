@@ -51,7 +51,12 @@ func (m *Manager) EnsureImage(ctx context.Context, forcePull bool) error {
 	return nil
 }
 
-func (m *Manager) StartServer(ctx context.Context, cfg *config.GlobalConfig, handbookPath string) error {
+func (m *Manager) StartServer(ctx context.Context, cfg *config.GlobalConfig, handbookPath string, imageName string) error {
+	// Use default if not provided
+	if imageName == "" {
+		imageName = ImageName
+	}
+
 	// Check if container exists
 	inspect, err := m.cli.ContainerInspect(ctx, ContainerName)
 	if err == nil {
@@ -107,7 +112,7 @@ func (m *Manager) StartServer(ctx context.Context, cfg *config.GlobalConfig, han
 	}
 
 	resp, err := m.cli.ContainerCreate(ctx, &container.Config{
-		Image: ImageName,
+		Image: imageName, // Use provided image name
 		Env:   env,
 		ExposedPorts: nat.PortSet{
 			nat.Port("8080/tcp"): struct{}{},
