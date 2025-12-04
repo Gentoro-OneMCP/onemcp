@@ -45,17 +45,17 @@ public class CreateDictionaryCommand {
         }
       }
 
-      // Create instructions.md if Agent.md exists but instructions.md doesn't (for KnowledgeBase
+      // Create instructions.md if Agent.yaml exists but instructions.md doesn't (for KnowledgeBase
       // compatibility)
-      // KnowledgeBase expects instructions.md, but CLI uses Agent.md
-      Path agentMd = handbookPath.resolve("Agent.md");
+      // KnowledgeBase expects instructions.md, but CLI uses Agent.yaml
+      Path agentMd = handbookPath.resolve("Agent.yaml");
       Path instructionsMd = handbookPath.resolve("instructions.md");
       if (java.nio.file.Files.exists(agentMd) && !java.nio.file.Files.exists(instructionsMd)) {
         try {
           java.nio.file.Files.copy(agentMd, instructionsMd);
-          log.debug("Copied Agent.md to instructions.md for KnowledgeBase compatibility");
+          log.debug("Copied Agent.yaml to instructions.md for KnowledgeBase compatibility");
         } catch (Exception e) {
-          log.warn("Could not copy Agent.md to instructions.md: {}", e.getMessage());
+          log.warn("Could not copy Agent.yaml to instructions.md: {}", e.getMessage());
           // Continue anyway - will fail validation if KnowledgeBase can't find instructions.md
         }
       }

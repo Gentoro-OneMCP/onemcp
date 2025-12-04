@@ -75,7 +75,7 @@ The test suite covers:
   - Handbook initialization and validation
   - Directory structure creation
   - CRUD operations
-  - Agent.md content management
+  - Agent.yaml content management
 
 - **Type Definitions** (`types.test.ts`)
   - Type safety validation

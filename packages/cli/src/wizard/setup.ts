@@ -59,7 +59,7 @@ export class SetupWizard {
     const isValidHandbook = await this.validateHandbookStructure(handbookPathToValidate);
     if (!isValidHandbook) {
       console.log(chalk.red('❌  Handbook validation failed. Configuration not saved.'));
-      console.log(chalk.dim('Please ensure the handbook directory exists and contains the required Agent.md file.'));
+      console.log(chalk.dim('Please ensure the handbook directory exists and contains the required Agent.yaml file.'));
       return; // Exit without saving configuration
     }
 
@@ -223,7 +223,7 @@ export class SetupWizard {
     await fs.ensureDir(`${dir}/regression`);
     await fs.ensureDir(`${dir}/state`);
 
-    // Create basic Agent.md
+    // Create basic Agent.yaml
     const agentMd = `# Agent Instructions
 
 This is your OneMCP handbook. Configure your agent's behavior here.
@@ -241,7 +241,7 @@ List the APIs your agent can interact with.
 Define how your agent should respond to requests.
 `;
 
-    await fs.writeFile(`${dir}/Agent.md`, agentMd, 'utf-8');
+    await fs.writeFile(`${dir}/Agent.yaml`, agentMd, 'utf-8');
 
     // Create example documentation
     const exampleDoc = `# Example Documentation
@@ -302,10 +302,10 @@ Add your API documentation and guides here.
         return false;
       }
 
-      // Check for required Agent.md file
-      const agentMdPath = `${handbookDir}/Agent.md`;
+      // Check for required Agent.yaml file
+      const agentMdPath = `${handbookDir}/Agent.yaml`;
       if (!(await fs.pathExists(agentMdPath))) {
-        console.log(chalk.red(`❌  Required Agent.md file not found in handbook directory`));
+        console.log(chalk.red(`❌  Required Agent.yaml file not found in handbook directory`));
         return false;
       }
 

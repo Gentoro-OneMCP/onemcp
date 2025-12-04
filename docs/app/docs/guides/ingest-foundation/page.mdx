@@ -66,7 +66,7 @@ cd ~/handbooks/my-handbook
 
 ## Required Files
 
-### 1. Agent.md (Required)
+### 1. Agent.yaml (Required)
 
 Your high-level agent instructions and operating principles:
 
@@ -148,7 +148,7 @@ Add YAML files with test queries and expected behaviors.
 
 <FileTree>
   <FileTree.Folder name="my-foundation" defaultOpen>
-    <FileTree.File name="Agent.md" />
+    <FileTree.File name="Agent.yaml" />
     <FileTree.Folder name="docs" defaultOpen>
       <FileTree.File name="overview.md" />
       <FileTree.File name="api-guide.md" />
@@ -193,7 +193,7 @@ The agent will:
 
 ## Best Practices
 
-### Agent.md Tips
+### Agent.yaml Tips
 - Be specific about the agent's purpose and scope
 - Define clear behavioral guidelines
 - List available tools and when to use them
@@ -229,7 +229,7 @@ docker run --rm \
 ```
 
 This checks for:
-- Required files (Agent.md, docs/, apis/)
+- Required files (Agent.yaml, docs/, apis/)
 - Valid OpenAPI specifications
 - Proper file formats
 - Common issues and warnings

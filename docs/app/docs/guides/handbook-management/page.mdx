@@ -50,7 +50,7 @@ onemcp handbook init my-api     # Creates ~/handbooks/my-api/
 This creates a complete handbook structure:
 <FileTree>
   <FileTree.Folder name="my-api" defaultOpen>
-    <FileTree.File name="Agent.md" />
+    <FileTree.File name="Agent.yaml" />
     <FileTree.Folder name="apis" defaultOpen>
       <FileTree.File name="..." />
     </FileTree.Folder>
@@ -125,7 +125,7 @@ Handbooks can reference different service configurations:
 onemcp service auth ecommerce-db   # Database service for ecommerce
 onemcp service auth support-api    # Support API for customer service
 
-# Each handbook can reference different services in its Agent.md
+# Each handbook can reference different services in its Agent.yaml
 # and API specifications
 ```
 
@@ -173,7 +173,7 @@ onemcp handbook init dev-analytics
 ### Maintenance
 
 - **Validation**: Regularly validate handbooks with `onemcp handbook validate`
-- **Updates**: Update handbook content (Agent.md, docs, APIs) as requirements change
+- **Updates**: Update handbook content (Agent.yaml, docs, APIs) as requirements change
 - **Backup**: Keep important handbooks backed up
 
 ### Security

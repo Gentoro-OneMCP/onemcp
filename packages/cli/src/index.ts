@@ -314,7 +314,7 @@ handbookCmd
       console.log(chalk.bold('Next steps:'));
       console.log(chalk.cyan(`  1. Add OpenAPI specs to ${dir}/apis/`));
       console.log(chalk.cyan(`  2. Add documentation to ${dir}/docs/`));
-      console.log(chalk.cyan(`  3. Update ${dir}/Agent.md`));
+      console.log(chalk.cyan(`  3. Update ${dir}/Agent.yaml`));
       console.log(chalk.cyan(`  4. Set as current handbook: onemcp handbook use ${name}`));
       console.log(chalk.cyan(`  5. Start chatting: onemcp chat`));
     } catch (error: any) {

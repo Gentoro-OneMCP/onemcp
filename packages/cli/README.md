@@ -213,7 +213,7 @@ Each One MCP service runs from a handbook directory:
 
 ```
 handbook/
-├── Agent.md                    # Instructions and behavior
+├── Agent.yaml                    # Instructions and behavior
 ├── apis/                       # OpenAPI specifications
 ├── docs/                       # Supplementary markdown docs
 ├── regression/                 # Optional test definitions

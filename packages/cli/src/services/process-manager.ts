@@ -443,7 +443,7 @@ export class ProcessManager extends EventEmitter {
 
     if (config.name === 'app') {
       errorMessage += '\n\nPossible causes:';
-      errorMessage += '\n  • Handbook directory or Agent.md file missing';
+      errorMessage += '\n  • Handbook directory or Agent.yaml file missing';
       errorMessage += '\n  • Java application failed to start due to configuration issues';
       errorMessage += '\n  • Required dependencies not available';
       errorMessage += '\n\nCheck the app service logs with: onemcp logs app';

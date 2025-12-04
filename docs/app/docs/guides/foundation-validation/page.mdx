@@ -9,7 +9,7 @@ OneMCP includes validators to ensure your foundation folder is properly structur
 ## Why Validate?
 
 Validation catches common issues before they cause runtime errors:
-- Missing required files (Agent.md, docs, APIs)
+- Missing required files (Agent.yaml, docs, APIs)
 - Invalid OpenAPI specifications
 - Malformed configuration files
 - Incomplete agent instructions
@@ -47,7 +47,7 @@ FOUNDATION_DIR="$(pwd)" mvn exec:java \
 
 ## What Gets Validated
 
-### ✅ Agent.md Requirements
+### ✅ Agent.yaml Requirements
 
 **Checks performed:**
 - **Presence**: File must exist and not be empty
@@ -59,7 +59,7 @@ FOUNDATION_DIR="$(pwd)" mvn exec:java \
 - **Content Quality**: Warns if content is too short or incomplete
 
 **Common issues:**
-- Missing Agent.md file
+- Missing Agent.yaml file
 - Empty or minimal content
 - No clear purpose statement
 - Missing behavioral guidelines
@@ -110,7 +110,7 @@ FOUNDATION_DIR="$(pwd)" mvn exec:java \
 ============================================================
 🔍 FOUNDATION VALIDATION REPORT
 ============================================================
-✅ ✓ Agent.md found and validated
+✅ ✓ Agent.yaml found and validated
 ✅ ✓ Documentation found: 2 file(s)
 ✅ ✓ OpenAPI spec api.yaml is valid
 ✅ ✓ Valid OpenAPI specification found
@@ -136,7 +136,7 @@ FOUNDATION_DIR="$(pwd)" mvn exec:java \
 🔧 Please fix the errors above before running the agent
 
 💡 To fix validation errors:
-   1. Ensure Agent.md exists and contains proper agent instructions
+   1. Ensure Agent.yaml exists and contains proper agent instructions
    2. Add at least one .md file in the docs/ directory
    3. Add valid OpenAPI specification in the apis/ directory
    4. Check the detailed error messages above for specific issues
@@ -228,12 +228,12 @@ run: validate
 
 ## Troubleshooting Validation Errors
 
-### "Agent.md not found"
+### "Agent.yaml not found"
 
 **Solution:**
 ```bash
-# Create Agent.md with minimal content
-cat > Agent.md << 'EOF'
+# Create Agent.yaml with minimal content
+cat > Agent.yaml << 'EOF'
 # My Agent
 
 ## Purpose

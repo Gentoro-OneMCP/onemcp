@@ -204,10 +204,10 @@ export class AgentService {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       if (errorMessage.includes('Foundation dir not found') ||
-          errorMessage.includes('Agent.md') ||
+          errorMessage.includes('Agent.yaml') ||
           errorMessage.includes('handbook')) {
         console.log(chalk.red('    ❌ OneMCP failed to start - handbook configuration issue'));
-        console.log(chalk.dim('      This usually happens when the handbook directory or Agent.md file is missing.'));
+        console.log(chalk.dim('      This usually happens when the handbook directory or Agent.yaml file is missing.'));
         console.log(chalk.dim('      Try running the setup wizard again or check your handbook directory.'));
         console.log(chalk.dim(`      Handbook directory: ${config?.handbookDir || 'not configured'}`));
       } else {
@@ -544,18 +544,18 @@ export class AgentService {
       const handbookName = currentHandbook ? `handbook '${currentHandbook}'` : 'configured handbook directory';
       throw new Error(
         `Handbook directory not found: ${handbookPath}\n` +
-        `Please ensure the ${handbookName} exists and contains the required Agent.md file.\n` +
+        `Please ensure the ${handbookName} exists and contains the required Agent.yaml file.\n` +
         'Try running the setup wizard again: onemcp setup'
       );
     }
 
-    // Check for required Agent.md file
-    const agentMdPath = `${handbookPath}/Agent.md`;
+    // Check for required Agent.yaml file
+    const agentMdPath = `${handbookPath}/Agent.yaml`;
     if (!fs.existsSync(agentMdPath)) {
       const handbookName = currentHandbook ? `handbook '${currentHandbook}'` : 'handbook directory';
       throw new Error(
-        `Required Agent.md file not found in ${handbookName}: ${handbookPath}\n` +
-        'The handbook must contain an Agent.md file with agent instructions.\n' +
+        `Required Agent.yaml file not found in ${handbookName}: ${handbookPath}\n` +
+        'The handbook must contain an Agent.yaml file with agent instructions.\n' +
         'Try running the setup wizard again: onemcp setup'
       );
     }

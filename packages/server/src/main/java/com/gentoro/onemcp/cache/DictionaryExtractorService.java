@@ -87,12 +87,12 @@ public class DictionaryExtractorService {
 
     // Load instructions.md if available
     String instructionsContent = "";
-    Path instructionsPath = handbookPath.resolve("Agent.md");
+    Path instructionsPath = handbookPath.resolve("Agent.yaml");
     if (Files.exists(instructionsPath)) {
       try {
         instructionsContent = Files.readString(instructionsPath);
       } catch (Exception e) {
-        log.debug("Could not load Agent.md, using empty content", e);
+        log.debug("Could not load Agent.yaml, using empty content", e);
       }
     }
 

@@ -29,7 +29,7 @@ describe('HandbookManager', () => {
 
       expect(fs.ensureDir).toHaveBeenCalled();
       expect(fs.writeFile).toHaveBeenCalledWith(
-        expect.stringContaining('Agent.md'),
+        expect.stringContaining('Agent.yaml'),
         expect.any(String),
         'utf-8'
       );
@@ -77,7 +77,7 @@ describe('HandbookManager', () => {
         if (typeof path === 'string' && path.includes('/config/handbook.yaml')) {
           return Promise.resolve(false);
         }
-        // Return true for all other paths (handbook dirs, Agent.md, etc.)
+        // Return true for all other paths (handbook dirs, Agent.yaml, etc.)
         return Promise.resolve(true);
       });
 
@@ -100,7 +100,7 @@ describe('HandbookManager', () => {
       const pathExistsSpy = jest.spyOn(fs, 'pathExists');
       pathExistsSpy
         .mockResolvedValueOnce(true as never) // handbook dir exists
-        .mockResolvedValueOnce(true as never) // Agent.md exists
+        .mockResolvedValueOnce(true as never) // Agent.yaml exists
         .mockResolvedValueOnce(true as never) // apis/ directory exists (required check)
         .mockResolvedValueOnce(true as never) // docs/ directory exists (recommended check)
         .mockResolvedValueOnce(true as never) // state/ directory exists (recommended check)
@@ -125,16 +125,16 @@ describe('HandbookManager', () => {
       expect(result.errors.length).toBeGreaterThan(0);
     });
 
-    it('should return errors if Agent.md is missing', async () => {
+    it('should return errors if Agent.yaml is missing', async () => {
       const pathExistsSpy = jest.spyOn(fs, 'pathExists');
       pathExistsSpy
         .mockResolvedValueOnce(true as never)  // handbook dir exists
-        .mockResolvedValueOnce(false as never); // Agent.md missing
+        .mockResolvedValueOnce(false as never); // Agent.yaml missing
 
       const result = await handbookManager.validate('test-handbook');
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('Agent.md'))).toBe(true);
+      expect(result.errors.some(e => e.includes('Agent.yaml'))).toBe(true);
     });
   });
 });

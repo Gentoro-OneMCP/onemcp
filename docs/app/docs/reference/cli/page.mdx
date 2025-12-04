@@ -384,7 +384,7 @@ onemcp handbook init <name>
 **Directory Structure Created:**
 ```
 ~/onemcp-handbooks/<name>/
-├── Agent.md              # AI instructions template
+├── Agent.yaml              # AI instructions template
 ├── README.md             # Handbook overview template
 ├── getting-started.md    # Quick start template
 └── openapi/              # OpenAPI specs directory
@@ -401,7 +401,7 @@ onemcp handbook init customer-api
 # 
 # Next steps:
 #   1. Add OpenAPI spec to openapi/ directory
-#   2. Customize Agent.md with instructions
+#   2. Customize Agent.yaml with instructions
 #   3. Run: onemcp handbook validate customer-api
 ```
 
@@ -712,7 +712,7 @@ nano ~/.onemcp/config.yaml
 **Structure:**
 ```
 handbook/
-├── Agent.md              # AI instructions
+├── Agent.yaml              # AI instructions
 ├── README.md             # Handbook overview
 ├── getting-started.md    # Quick start guide
 ├── openapi/              # OpenAPI specs (REQUIRED)
@@ -725,7 +725,7 @@ handbook/
 - `openapi/` directory with at least one `.yaml` file
 
 **Recommended:**
-- `Agent.md` - Instructions for the AI agent
+- `Agent.yaml` - Instructions for the AI agent
 
 **Optional:**
 - `README.md`, `getting-started.md` - Documentation

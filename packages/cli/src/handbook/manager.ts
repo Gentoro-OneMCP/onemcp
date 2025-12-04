@@ -29,9 +29,9 @@ export class HandbookManager {
     await fs.ensureDir(`${dir}/regression`);
     await fs.ensureDir(`${dir}/state`);
 
-    // Create Agent.md
+    // Create Agent.yaml
     const agentMd = this.getDefaultAgentInstructions(name);
-    await fs.writeFile(`${dir}/Agent.md`, agentMd, 'utf-8');
+    await fs.writeFile(`${dir}/Agent.yaml`, agentMd, 'utf-8');
 
     // Create README
     const readme = this.getDefaultReadme(name);
@@ -44,7 +44,7 @@ This handbook contains the configuration and documentation for your OneMCP.
 
 ## Structure
 
-- **Agent.md** - Agent behavior and instructions
+- **Agent.yaml** - Agent behavior and instructions
 - **apis/** - OpenAPI specifications for your services
 - **docs/** - Additional documentation and guides
 - **config/** - Configuration files
@@ -55,7 +55,7 @@ This handbook contains the configuration and documentation for your OneMCP.
 
 1. Add your OpenAPI specifications to the \`apis/\` directory
 2. Add documentation to the \`docs/\` directory
-3. Update \`Agent.md\` with your agent's instructions
+3. Update \`Agent.yaml\` with your agent's instructions
 4. Configure service authentication with \`onemcp service auth <service-name>\`
 `;
     await fs.writeFile(`${dir}/docs/getting-started.md`, exampleDoc, 'utf-8');
@@ -86,9 +86,9 @@ This handbook contains the configuration and documentation for your OneMCP.
     }
 
     // Check required files
-    const agentMdPath = `${dir}/Agent.md`;
+    const agentMdPath = `${dir}/Agent.yaml`;
     if (!(await fs.pathExists(agentMdPath))) {
-      errors.push('Missing required file: Agent.md');
+      errors.push('Missing required file: Agent.yaml');
     }
 
     // Check required directories
@@ -162,7 +162,7 @@ This handbook contains the configuration and documentation for your OneMCP.
   }
 
   /**
-   * Get default Agent.md content
+   * Get default Agent.yaml content
    */
   private getDefaultAgentInstructions(name: string): string {
     return `# ${name} Agent Instructions
@@ -217,7 +217,7 @@ OneMCP handbook for ${name}.
 
 1. Add your OpenAPI specifications to \`apis/\`
 2. Add documentation to \`docs/\`
-3. Configure Agent.md with your instructions
+3. Configure Agent.yaml with your instructions
 
 ## Usage
 
@@ -278,9 +278,9 @@ See the \`docs/\` directory for additional documentation.
 
     await fs.copy(resolvedSource, targetDir);
 
-    // Rename instructions.md to Agent.md if needed
+    // Rename instructions.md to Agent.yaml if needed
     const instructionsPath = `${targetDir}/instructions.md`;
-    const agentPath = `${targetDir}/Agent.md`;
+    const agentPath = `${targetDir}/Agent.yaml`;
 
     if (await fs.pathExists(instructionsPath)) {
       await fs.move(instructionsPath, agentPath, { overwrite: true });
