@@ -94,9 +94,17 @@ export class AgentService {
       console.log(chalk.dim(`  Setting CACHE_ENABLED=${cacheEnabled ? 'true' : 'false'} (from config.cache.enabled=${config?.cache?.enabled})`));
     }
     
+    // Determine handbook path (same logic as updateEnvironmentForCurrentHandbook)
+    const currentHandbook = config?.currentHandbook;
+    let handbookPath = config?.handbookDir || paths.handbooksDir;
+    if (currentHandbook) {
+      handbookPath = paths.getHandbookPath(currentHandbook);
+    }
+    
     const initialEnv = {
       SERVER_PORT: port.toString(),
-      FOUNDATION_DIR: config?.handbookDir || paths.handbooksDir,
+      FOUNDATION_DIR: handbookPath,
+      HANDBOOK_DIR: handbookPath, // Set HANDBOOK_DIR so server uses actual path, not classpath fallback
       OPENAI_API_KEY: config?.apiKeys?.openai || '',
       GEMINI_API_KEY: config?.apiKeys?.gemini || '',
       ANTHROPIC_API_KEY: config?.apiKeys?.anthropic || '',

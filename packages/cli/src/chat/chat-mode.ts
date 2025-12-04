@@ -21,6 +21,7 @@ export class ChatMode {
   private globalConfig: GlobalConfig | null = null;
   private lastReportPath: string | null = null;
   private lastUserMessage: string | null = null;
+  private lastCacheKey: string | null = null;
   private cacheEnabled: boolean = true;
 
   /**
@@ -242,27 +243,42 @@ export class ChatMode {
     }).start();
 
     try {
-      // Extract cache key from the last report
-      const cacheKey = await this.extractCacheKeyFromLastReport();
+      // Use stored cache key if available, otherwise try to extract from report
+      let cacheKey = this.lastCacheKey;
       
       if (!cacheKey) {
-        spinner.fail('Could not find cache key in last report. No previous execution found.');
+        // Fallback: try to extract from report
+        cacheKey = await this.extractCacheKeyFromLastReport();
+      }
+      
+      if (!cacheKey) {
+        spinner.fail('Could not find cache key. No previous execution found.');
         console.log();
         return;
       }
 
-      // Delete the cache file
+      // Delete the cache file(s) - could be .json or .ts format
       const fs = (await import('fs-extra')).default;
       const { join } = await import('path');
       
       const cacheDir = paths.cacheDir;
-      const cacheFile = join(cacheDir, `${cacheKey}.json`);
+      const jsonCacheFile = join(cacheDir, `${cacheKey}.json`);
+      const tsCacheFile = join(cacheDir, `${cacheKey}.ts`);
       
-      if (await fs.pathExists(cacheFile)) {
-        await fs.remove(cacheFile);
+      let deletedAny = false;
+      if (await fs.pathExists(jsonCacheFile)) {
+        await fs.remove(jsonCacheFile);
+        deletedAny = true;
+      }
+      if (await fs.pathExists(tsCacheFile)) {
+        await fs.remove(tsCacheFile);
+        deletedAny = true;
+      }
+      
+      if (deletedAny) {
         spinner.succeed(`Deleted cached plan: ${cacheKey}`);
       } else {
-        spinner.succeed(`Cache file not found: ${cacheKey}.json (may already be deleted)`);
+        spinner.succeed(`Cache file not found: ${cacheKey} (may already be deleted)`);
       }
       
       console.log();
@@ -865,6 +881,19 @@ export class ChatMode {
       // Extract total tokens from summary
       const tokensMatch = reportContent.match(/Total Tokens:\s*(\d+)\+(\d+)=(\d+)/);
       const totalTokens = tokensMatch ? parseInt(tokensMatch[3], 10) : null;
+      
+      // Extract cache key from report (for replan command)
+      // Look for "Cache Key: ..." in the execution plan section
+      const cacheKeyMatch = reportContent.match(/Cache Key:\s*([^\s\n]+)/);
+      if (cacheKeyMatch && cacheKeyMatch[1]) {
+        this.lastCacheKey = cacheKeyMatch[1].trim();
+      } else {
+        // Fallback: try to find cache_key in JSON format
+        const cacheKeyJsonMatch = reportContent.match(/"cache_key"\s*:\s*"([^"]+)"/);
+        if (cacheKeyJsonMatch && cacheKeyJsonMatch[1]) {
+          this.lastCacheKey = cacheKeyJsonMatch[1].trim();
+        }
+      }
       
       // Build compact summary line
       const parts: string[] = [];

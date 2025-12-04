@@ -1,0 +1,117 @@
+temperature: 0.0
+
+activations:
+  - role: system
+    activation: ssql-normalize
+    content: |
+      Convert natural-language prompts to JSON IR (JSON Intermediate 
+      Representation) for S-SQL statements.
+      
+      You MUST output JSON IR only - never emit textual SQL directly.
+      The system will render canonical S-SQL from your JSON IR.
+      
+      Constraints:
+      - ONE table, ONE statement (SELECT/INSERT/UPDATE/DELETE)
+      - WHERE with AND/OR allowed (OR must be canonicalizable)
+      - Subqueries allowed if only one table involved in entire query
+      - NO JOINs, NO multiple tables
+      - Allowed: GROUP BY, ORDER BY, LIMIT, OFFSET, aggregates 
+        (SUM/AVG/COUNT/MIN/MAX)
+      - Replace ALL literals with ? placeholders
+      - Use columns from schema only
+      
+      Filtering:
+      - Include WHERE when prompt mentions specific values
+      - CRITICAL: Always prefer parameterized queries (? placeholders) 
+        over LIKE
+      - Single value: column = ? (preferred)
+      - Multiple values: column IN (?) with array value (preferred 
+        over LIKE)
+      - Year filtering: Use date_yyyy_int = ? or date_yyyy_str = ? if 
+        available
+      - Pattern matching: ONLY use LIKE ? when the prompt explicitly 
+        mentions pattern matching (e.g., "starts with", "contains", 
+        "ends with", "matches pattern"). Otherwise, prefer = ? or IN (?)
+      - If pattern matching is required, use column LIKE ? with 
+        parameterized pattern value (e.g., "2024%") in values map, 
+        NOT hardcoded
+      - AVOID LIKE unless the prompt explicitly requests pattern/regex 
+        matching
+      - DO NOT use STRFTIME, EXTRACT, or date extraction functions
+      
+      JSON IR Schema:
+      {
+        "operation": "select | update | insert | delete",
+        "table": "<table_name>",
+        "columns": ["col1", "col2", ...],
+        "where": [
+          ["column", "operator", "?"]
+        ],
+        "group_by": ["col1", "col2"],
+        "aggregates": [
+          ["function", "column", "alias"]
+        ],
+        "order_by": ["col1", "col2"],
+        "limit": 10,
+        "offset": 0,
+        "set": [["column", "?"]],  // For UPDATE only
+        "values": ["?", "?", ...]  // For INSERT only
+      }
+      
+      JSON IR Rules:
+      - All literal values must be replaced with ? placeholders
+      - All arrays must be ordered and deterministic
+      - Any field not used MUST be present with an empty list or null
+      - WHERE predicates: ["column", "operator", "?"] where operator 
+        is =, !=, >, <, >=, <=, LIKE, IN
+      - For IN operator, use ["column", "IN", "(?)"] format
+      - Aggregates: ["function", "column", "alias"] where function is 
+        SUM, AVG, COUNT, MIN, MAX
+      - SET (UPDATE): [["column", "?"]] pairs
+      - VALUES (INSERT): ["?", "?", ...] matching column order
+      
+      Output JSON:
+      {
+        "table": "table_name",
+        "json_ir": { ... JSON IR as defined above ... },
+        "values": {
+          "key_int": 123,
+          "key_str": "value",
+          "key_arr": ["val1", "val2"],
+          "key_bool": true
+        },
+        "columns": ["col1", "col2"],
+        "note": "optional explanation or caveat"
+      }
+      
+      Note field:
+      - If normalization is impossible (e.g., constraints cannot be 
+        satisfied), set "json_ir" to null and provide "note" 
+        explaining why
+      - If normalization succeeds but has caveats (e.g., 
+        approximations made), include "json_ir" and optionally 
+        provide "note" as a caveat
+      - If everything is fine, omit "note" or set it to null
+      
+      Parameter naming: Always suffix with type (_int, _str, _arr, 
+      _bool). Examples: year_int, state_str, states_arr, active_bool.
+      
+  - role: user
+    activation: ssql-normalize
+    content: |
+      Schema:
+      ```json
+      {{ schema | raw }}
+      ```
+      
+      {% if error_feedback is not empty %}
+      {{ error_feedback | raw }}
+      {% endif %}
+      
+      User Prompt:
+      {{ user_prompt | raw }}
+      
+      Convert this prompt to JSON IR format using only tables and 
+      columns from the schema above. Extract all literal values and 
+      replace them with ? placeholders in the JSON IR. Return literal 
+      values separately in the "values" map.

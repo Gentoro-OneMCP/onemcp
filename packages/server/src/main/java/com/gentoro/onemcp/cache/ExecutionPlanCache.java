@@ -13,8 +13,7 @@ import java.util.Optional;
 /**
  * Cache for execution plans, stored as JSON files in ONEMCP_HOME_DIR/cache.
  *
- * <p>Each cached plan is stored in a file named {@code <cache_key>.json} where
- * the cache key is derived from the {@link PromptSchema}.
+ * <p>Each cached plan is stored in a file named {@code <cache_key>.json}.
  *
  * <p>The cache treats {@link ExecutionPlan} as opaque - it doesn't inspect the
  * plan's contents, just serializes/deserializes it.
@@ -92,23 +91,23 @@ public class ExecutionPlanCache {
     }
   }
 
+
   /**
-   * Look up a cached plan with execution metadata.
+   * Look up a cached plan by cache key directly (for SQL-based caching).
    *
-   * @param schema the PromptSchema (uses its cacheKey)
+   * @param cacheKey the cache key (e.g., MD5 hash of canonical SQL)
    * @return Optional containing the plan result with metadata if found, empty otherwise
    */
-  public Optional<CachedPlanResult> lookupWithMetadata(PromptSchema schema) {
-    if (schema == null || schema.getCacheKey() == null) {
-      log.warn("Cannot lookup plan: schema or cacheKey is null");
+  public Optional<CachedPlanResult> lookupByCacheKey(String cacheKey) {
+    if (cacheKey == null || cacheKey.isEmpty()) {
+      log.warn("Cannot lookup plan: cacheKey is null or empty");
       return Optional.empty();
     }
-
-    String cacheKey = schema.getCacheKey();
+    
     Path planFile = cacheDir.resolve(cacheKey + ".json");
 
     if (!Files.exists(planFile)) {
-      log.debug("Cache MISS for PSK: {}", cacheKey);
+      log.debug("Cache MISS for cache key: {}", cacheKey);
       return Optional.empty();
     }
 
@@ -125,15 +124,15 @@ public class ExecutionPlanCache {
       int failedAttempts = cached.failedAttempts != null ? cached.failedAttempts : 0;
       
       if (executionSucceeded) {
-        log.info("Cache HIT for PSK: {} (cached at {})", cacheKey, cached.createdAt);
+        log.info("Cache HIT for cache key: {} (cached at {})", cacheKey, cached.createdAt);
       } else {
-        log.info("Cache HIT for PSK: {} (cached at {}, FAILED - {} attempts)", 
+        log.info("Cache HIT for cache key: {} (cached at {}, FAILED - {} attempts)", 
             cacheKey, cached.createdAt, failedAttempts);
       }
       
       return Optional.of(new CachedPlanResult(plan, executionSucceeded, lastError, failedAttempts));
     } catch (Exception e) {
-      log.error("Failed to load cached plan for PSK: {}", cacheKey, e);
+      log.error("Failed to load cached plan for cache key: {}", cacheKey, e);
       // Delete corrupted cache file
       try {
         Files.deleteIfExists(planFile);
@@ -145,35 +144,24 @@ public class ExecutionPlanCache {
     }
   }
 
-  /**
-   * Store a plan in the cache.
-   *
-   * @param schema the PromptSchema (uses its cacheKey)
-   * @param plan the ExecutionPlan to cache
-   */
-  public void store(PromptSchema schema, ExecutionPlan plan) {
-    store(schema, plan, true, null);
-  }
 
   /**
-   * Store a plan in the cache with execution status.
+   * Store a plan in the cache by cache key directly (for SQL-based caching).
    *
-   * @param schema the PromptSchema (uses its cacheKey)
+   * @param cacheKey the cache key (e.g., MD5 hash of canonical SQL)
    * @param plan the ExecutionPlan to cache
    * @param executionSucceeded whether execution succeeded
    * @param errorMessage error message if execution failed (null if succeeded)
    */
-  public void store(PromptSchema schema, ExecutionPlan plan, boolean executionSucceeded, String errorMessage) {
-    if (schema == null || schema.getCacheKey() == null) {
-      log.warn("Cannot store plan: schema or cacheKey is null");
+  public void storeByCacheKey(String cacheKey, ExecutionPlan plan, boolean executionSucceeded, String errorMessage) {
+    if (cacheKey == null || cacheKey.isEmpty()) {
+      log.warn("Cannot store plan: cacheKey is null or empty");
       return;
     }
     if (plan == null) {
       log.warn("Cannot store plan: plan is null");
       return;
     }
-
-    String cacheKey = schema.getCacheKey();
     Path planFile = cacheDir.resolve(cacheKey + ".json");
 
     try {
@@ -223,32 +211,6 @@ public class ExecutionPlanCache {
     }
   }
 
-  /**
-   * Check if a plan exists in the cache.
-   *
-   * @param schema the PromptSchema
-   * @return true if a cached plan exists
-   */
-  public boolean exists(PromptSchema schema) {
-    if (schema == null || schema.getCacheKey() == null) {
-      return false;
-    }
-    Path planFile = cacheDir.resolve(schema.getCacheKey() + ".json");
-    return Files.exists(planFile);
-  }
-
-  /**
-   * Remove a cached plan.
-   *
-   * @param schema the PromptSchema
-   * @return true if the plan was removed
-   */
-  public boolean remove(PromptSchema schema) {
-    if (schema == null || schema.getCacheKey() == null) {
-      return false;
-    }
-    return removeByCacheKey(schema.getCacheKey());
-  }
 
   /**
    * Remove a cached plan by cache key.

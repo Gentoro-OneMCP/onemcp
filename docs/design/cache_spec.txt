@@ -1,1 +1,515 @@
- 
+Proposal for Execution Plan Cache
+Version 12.0 — S-SQL + Transducer + Placeholder-Driven Normalization
+
+PART I — DESIGN SPECIFICATION
+(Defines the architecture for normalizing prompts, generating S-SQL, caching intent, and producing execution plans.)
+
+1. System Goal
+The system must convert an arbitrary natural-language prompt into:
+A deterministic, canonical S-SQL statement representing the meaning of the prompt
+
+
+A structured Prompt Schema (PS) that includes:
+
+
+the S-SQL with placeholders (?)
+
+
+extracted literal values
+
+
+referenced table
+
+
+referenced columns
+
+
+a stable cache key (hash of canonical S-SQL)
+
+
+A TypeScript execution plan that calls real API endpoints
+
+
+This separates intent normalization (via S-SQL) from API execution planning.
+
+2. Architecture Overview
+OpenAPI
+   ↓
+Transducer → tables + columns + endpoint index
+   ↓
+Prompt
+   ↓
+Normalizer → S-SQL + placeholders + extracted values
+   ↓
+Canonicalizer (inside Normalizer)
+   ↓
+Prompt Schema (PS) + cache key
+   ↓
+Planner → TypeScript Execution Plan
+
+3. The Transducer
+The Transducer converts an OpenAPI specification into a conceptual domain representation consisting of:
+Tables (semantic entities inferred from endpoint descriptions)
+
+
+Columns (flattened fields, assigned to tables)
+
+
+Endpoint mappings (table → associated endpoints)
+
+
+3.1 Transducer Outputs
+A. Conceptual Schema
+conceptual_schema.yaml
+Example:
+tables:
+  repo:
+    columns:
+      - repo_name
+      - owner_login
+      - created_yyyy_mm_dd
+  issue:
+    columns:
+      - issue_title
+      - issue_state
+B. Endpoint Files
+One file per table:
+cache/transducer/tables/<table>.json
+Containing all associated endpoints.
+Example:
+{
+  "table": "repo",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/repos/{owner}/{repo}",
+      "summary": "Get repository",
+      "description": "Retrieve a repository",
+      "params": {...}
+    }
+  ]
+}
+3.2 Transducer Lookup Methods
+At runtime, the Transducer exposes:
+get_columns(table: string): string[]
+get_endpoints(table: string): EndpointInfo[]
+
+Normalizer uses get_columns()
+
+
+Planner uses get_endpoints()
+
+
+3.3 How the Transducer Builds the Schema
+Extract summaries/descriptions of all endpoints
+
+
+Feed all descriptions to the LLM (in a unified summary)
+
+
+LLM outputs:
+
+
+list of tables
+
+
+mapping of endpoints → tables
+
+
+Transducer writes tables/<table>.json
+
+
+Transducer performs field extraction (flattening, suffix rules)
+
+
+Assigns fields to tables
+
+
+Writes conceptual_schema.yaml
+
+
+No merge passes required.
+The entire conceptual model is generated at once.
+
+4. S-SQL (Semantic SQL)
+4.1 Purpose
+S-SQL expresses user intent in a small, deterministic, SQL-like language that directly operates on the Transducer schema.
+4.2 Allowed Constructs
+One table only
+
+
+SELECT, INSERT, UPDATE, DELETE
+
+
+WHERE with AND only
+
+
+ORDER BY
+
+
+GROUP BY
+
+
+LIMIT, OFFSET
+
+
+Aggregates: SUM, AVG, COUNT, MIN, MAX
+
+
+4.3 Disallowed
+JOIN
+
+
+OR
+
+
+Multiple tables
+
+
+Subqueries
+
+
+Multiple statements
+
+
+4.4 Example S-SQL (with placeholders)
+SELECT repo_name FROM repo WHERE owner_login = ? ORDER BY repo_name LIMIT 10
+
+5. Placeholder & Value Extraction Model
+The Normalizer must extract literal values and replace them with ? placeholders.
+Example prompt:
+“Show repos owned by octocat.”
+Normalizer must output:
+S-SQL:   SELECT repo_name FROM repo WHERE owner_login = ? ORDER BY repo_name
+VALUES:  ["octocat"]
+This ensures:
+deterministic SQL
+
+
+stable cache keys
+
+
+separation of structure vs. runtime values
+
+
+
+6. Canonicalization (Performed Inside the Normalizer)
+The Normalizer canonicalizes the placeholderized S-SQL:
+keywords UPPERCASE
+
+
+table/column lowercase
+
+
+predicates sorted
+
+
+SET clause sorted
+
+
+GROUP BY and ORDER BY fields sorted
+
+
+whitespace collapsed into a single line
+
+
+no trailing semicolon
+
+
+Example canonical form:
+SELECT repo_name FROM repo WHERE owner_login = ? ORDER BY repo_name
+
+7. Cache Key
+Generated directly from the canonical S-SQL:
+cache_key = md5(canonical_ssql)
+Literal values do not affect the cache key.
+This ensures that two prompts with identical intent but different parameters share the same key.
+
+8. Prompt Schema (PS)
+The Normalizer returns this object:
+{
+  "table": "repo",
+  "ssql": "SELECT repo_name FROM repo WHERE owner_login = ? ORDER BY repo_name",
+  "values": ["octocat"],
+  "columns": ["repo_name", "owner_login"],
+  "cache_key": "md5hash..."
+}
+Field purpose:
+Field
+Meaning
+table
+The table used in S-SQL
+ssql
+S-SQL with placeholder ?
+values
+Literal values in order
+columns
+All columns referenced in S-SQL
+cache_key
+Deterministic hash of canonical S-SQL
+
+
+9. Normalizer
+9.1 Responsibilities
+chooses exactly one table
+
+
+retrieves allowed columns via get_columns(table)
+
+
+extracts literal values
+
+
+inserts ? placeholders
+
+
+builds valid S-SQL
+
+
+canonicalizes S-SQL
+
+
+outputs Prompt Schema
+
+
+9.2 Rejection Conditions
+The Normalizer MUST reject prompts when:
+multiple tables are required
+
+
+intent is ambiguous
+
+
+required column not in schema
+
+
+more than one action required
+
+
+values cannot be normalized
+
+
+S-SQL cannot be canonicalized
+
+
+9.3 LLM Instruction for Normalizer
+You are an S-SQL Normalizer.
+
+
+Your task is to convert natural-language prompts into ONE valid S-SQL statement.
+
+
+Use these rules:
+
+
+1. Choose exactly ONE table.
+2. Use only columns returned by get_columns(table).
+3. Allowed statements: SELECT, INSERT, UPDATE, DELETE.
+4. Allowed constructs: WHERE (AND only), ORDER BY, GROUP BY,
+   LIMIT, OFFSET, aggregates (SUM, AVG, COUNT, MIN, MAX).
+5. Disallowed: JOIN, OR, subqueries, multiple statements.
+6. Replace all literal values with ? placeholders.
+7. Extract the literal values separately in the same order.
+8. Canonicalize the S-SQL: uppercase keywords, sorted predicates,
+   lowercase identifiers, one-line output.
+
+
+Output JSON:
+{
+  "table": "...",
+  "ssql": "...",
+  "values": [...],
+  "columns": [...],
+  "canonical_ssql": "...",
+  "cache_key": "..."
+}
+
+10. Planner
+10.1 Purpose
+The Planner converts S-SQL + values + endpoint mappings into executable TypeScript.
+10.2 Input
+Planner receives:
+PS.table
+
+
+PS.ssql
+
+
+PS.values
+
+
+get_endpoints(table)
+
+
+original natural-language prompt
+
+
+10.3 Responsibilities
+Parse the S-SQL AST
+
+
+Determine operation type
+
+
+Select best endpoint(s) for the operation
+
+
+Build API calls
+
+
+Interpolate extracted values into API call parameters
+
+
+Implement filtering/aggregation locally as needed
+
+
+Return a single TypeScript function
+
+
+10.4 Output
+export async function run(client) {
+  // direct API invocation derived from S-SQL
+  return result;
+}
+10.5 Planner Errors (Cacheable)
+Includes:
+No usable endpoint
+
+
+Operation unsupported
+
+
+Aggregation unsupported
+
+
+Sorting unsupported
+
+
+Type mismatch
+
+
+Missing required API fields
+
+
+These are keyed by cache_key.
+
+PART II — IMPLEMENTATION GUIDANCE
+(Instructions for coding agents implementing the Transducer, Normalizer, Planner.)
+
+11. Transducer Implementation Steps (Revised)
+11.1 Phase 1 — Endpoint Description Catalog
+Extract from OpenAPI:
+paths
+
+
+HTTP verbs
+
+
+summaries
+
+
+descriptions
+
+
+Write to disk:
+cache/transducer/endpoints_descriptions.json
+11.2 Phase 2 — Conceptual Schema Generation
+Feed all endpoint descriptions to the LLM.
+The LLM returns:
+tables:
+  repo: [list of endpoint identifiers]
+  issue: [... endpoints ...]
+Write:
+conceptual_schema.yaml (table list only)
+
+
+cache/transducer/tables/<table>.json (endpoint index)
+
+
+11.3 Phase 3 — Column Extraction
+Parse:
+endpoint parameters
+
+
+path variables
+
+
+request bodies
+
+
+response schemas
+
+
+Flatten fields into:
+lower_snake_case
+Assign fields to tables heuristically or via LLM.
+Write updated conceptual_schema.yaml containing columns.
+11.4 Phase 4 — Lookup Methods
+Build:
+get_columns(table)
+get_endpoints(table)
+
+12. Placeholder Extraction Logic
+Literal types include:
+strings
+
+
+numbers
+
+
+booleans
+
+
+dates (normalized based on suffix rules)
+
+
+Extraction order MUST match their appearance in the S-SQL.
+
+13. Canonicalization Algorithm
+Performed in the Normalizer:
+Remove literal values → replace with ?
+
+
+Uppercase SQL keywords
+
+
+Lowercase table/column identifiers
+
+
+Lexicographically sort:
+
+
+WHERE predicates
+
+
+GROUP BY columns
+
+
+ORDER BY columns
+
+
+SET clauses
+
+
+Collapse whitespace to a single line
+
+
+Remove trailing semicolon
+
+
+
+14. Caching Notes
+Cache keys refer only to structure, not values.
+This means:
+Repeated prompts w/ different values → same EP
+
+
+Planner failures are cached
+
+
+Cache entries are stable and reproducible
+
+
+
+
+

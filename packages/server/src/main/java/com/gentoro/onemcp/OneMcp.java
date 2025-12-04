@@ -123,6 +123,11 @@ public class OneMcp {
       new ActuatorService(this).register();
       // Register MCP servlet
       new McpServer(this).register();
+      // Register TypeScript bridge servlet
+      httpServer.getContextHandler().addServlet(
+          new org.eclipse.jetty.ee10.servlet.ServletHolder(
+              new com.gentoro.onemcp.cache.TypeScriptBridgeServlet()),
+          "/api/execute-operation");
 
       // Start Jetty (non-blocking)
       httpServer.start();

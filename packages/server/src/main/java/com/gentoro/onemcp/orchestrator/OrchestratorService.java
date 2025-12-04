@@ -13,13 +13,14 @@ import com.gentoro.onemcp.indexing.GraphContextTuple;
 import com.gentoro.onemcp.memory.ValueStore;
 import com.gentoro.onemcp.messages.AssigmentResult;
 import com.gentoro.onemcp.messages.AssignmentContext;
-import com.gentoro.onemcp.plan.ExecutionPlan;
-import com.gentoro.onemcp.cache.ExecutionPlanCache;
-import com.gentoro.onemcp.cache.PromptLexicon;
+import com.gentoro.onemcp.cache.ConceptualSchema;
+import com.gentoro.onemcp.cache.TransducerService;
+import com.gentoro.onemcp.cache.SsqlNormalizer;
+import com.gentoro.onemcp.cache.SsqlCanonicalizer;
+import com.gentoro.onemcp.cache.Planner;
 import com.gentoro.onemcp.cache.PromptSchema;
-import com.gentoro.onemcp.cache.PromptSchemaNormalizer;
-import com.gentoro.onemcp.cache.PromptSchemaWorkflow;
-import com.gentoro.onemcp.cache.LexiconExtractorService;
+import com.gentoro.onemcp.cache.TypeScriptExecutionEngine;
+import com.gentoro.onemcp.cache.TypeScriptPlanCache;
 import com.gentoro.onemcp.orchestrator.progress.NoOpProgressSink;
 import com.gentoro.onemcp.orchestrator.progress.ProgressSink;
 import com.gentoro.onemcp.utility.JacksonUtility;
@@ -27,6 +28,8 @@ import com.gentoro.onemcp.utility.StdoutUtility;
 import com.gentoro.onemcp.utility.StringUtility;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 import java.nio.file.Paths;
 import java.util.*;
 
@@ -41,8 +44,9 @@ public class OrchestratorService {
     this.oneMcp = oneMcp;
     
     // Read cache enabled setting from configuration
-    // The config should already have the env var interpolated: ${env:CACHE_ENABLED:-false}
-    boolean configValue = oneMcp.configuration().getBoolean("orchestrator.cache.enabled", false);
+    // The config should already have the env var interpolated: ${env:CACHE_ENABLED:-true}
+    // Default to true (caching enabled) since that's the new recommended path
+    boolean configValue = oneMcp.configuration().getBoolean("orchestrator.cache.enabled", true);
     
     // Also check environment variable directly as primary source (since config interpolation might not work)
     // This ensures we respect the CACHE_ENABLED env var that the CLI sets
@@ -114,7 +118,7 @@ public class OrchestratorService {
    * <p>Routes to either:
    * <ul>
    *   <li>Legacy path: Uses orchestrator.PlanGenerationService (current implementation)
-   *   <li>Caching path: Uses plan.PlanGenerationService + cache package (when orchestrator.cache.enabled=true)
+   *   <li>Caching path: Uses Planner + cache package (when orchestrator.cache.enabled=true)
    * </ul>
    */
   public AssigmentResult handlePrompt(String prompt, ProgressSink progress) {
@@ -185,8 +189,8 @@ public class OrchestratorService {
       int steps = plan.has("steps") && plan.get("steps").isArray() ? plan.get("steps").size() : 0;
       progress.endStageOk("plan", Map.of("steps", steps));
 
-      // Log execution plan for reporting (caching disabled, so no cache status)
-      oneMcp.inferenceLogger().logExecutionPlan(planJson, null);
+      // Log execution plan for reporting (will be updated with cache status later)
+      // Don't log here - wait until we know the cache status
 
       // Prepare operations stage (we can’t know execution count precisely here)
       OperationRegistry operationRegistry = new OperationRegistry();
@@ -331,9 +335,9 @@ public class OrchestratorService {
   }
 
   /**
-   * Caching path: Uses plan.PlanGenerationService + cache package.
+   * Caching path: Uses S-SQL-based caching (cache_spec v10.0).
    * 
-   * <p>Flow: Prompt → Normalize → PromptSchema → Cache lookup → Plan generation → Execute → Cache result
+   * <p>Flow: Prompt → Normalize (S-SQL) → Canonicalize → Cache Key → Planner → TypeScript → ExecutionPlan → Execute → Cache result
    */
   private AssigmentResult handlePromptWithCache(String prompt, ProgressSink progress) {
     // Generate execution ID and start execution tracking
@@ -352,119 +356,214 @@ public class OrchestratorService {
     }
 
     try {
-      // 1. Load or generate lexicon
-      progress.beginStage("normalize", "Normalizing prompt", 1);
-      StdoutUtility.printNewLine(oneMcp, "Normalizing prompt to schema.");
+      // Determine cache directories
+      Path cacheDir = getCacheDirectory(handbookPath);
+      Path endpointInfoDir = cacheDir.resolve("endpoint_info");
       
-      PromptLexicon lexicon;
+      // 1. Load or generate conceptual schema
+      progress.beginStage("transducer", "Loading/Generating Conceptual Schema", 1);
+      StdoutUtility.printNewLine(oneMcp, "Loading/Generating conceptual schema.");
+      
+      ConceptualSchema schema;
       try {
-        lexicon = loadOrGenerateLexicon(handbookPath);
+        schema = loadOrGenerateConceptualSchema(handbookPath, endpointInfoDir);
       } catch (HandbookException e) {
-        // Re-throw HandbookException as-is (it already has a good error message)
+        // Re-throw HandbookException as-is (already has proper error message)
         throw e;
       } catch (Exception e) {
-        // Wrap other exceptions
+        // Wrap other exceptions with cause message included
+        String errorMsg = "Failed to load or generate conceptual schema: " + e.getMessage();
+        if (e.getCause() != null && e.getCause().getMessage() != null) {
+          errorMsg += " (Caused by: " + e.getCause().getMessage() + ")";
+        }
+        throw new HandbookException(errorMsg, e);
+      }
+      if (schema == null || schema.getTables().isEmpty()) {
         throw new HandbookException(
-            "Failed to load or generate lexicon: " + e.getMessage(), e);
+            "Failed to load or generate conceptual schema. Please check logs for details.");
       }
-      if (lexicon == null) {
-        throw new HandbookException(
-            "Failed to load or generate lexicon. Please check logs for details.");
-      }
+      progress.endStageOk("transducer", Map.of("tables", schema.getTables().size()));
 
-      // 2. Normalize prompt to PromptSchema
-      PromptSchemaNormalizer normalizer = new PromptSchemaNormalizer(oneMcp);
-      PromptSchemaWorkflow workflow = normalizer.normalize(prompt, lexicon);
+      // 2. Normalize prompt to S-SQL and produce Prompt Schema (PS)
+      progress.beginStage("normalize", "Normalizing prompt to S-SQL", 1);
+      StdoutUtility.printNewLine(oneMcp, "Normalizing prompt to S-SQL.");
       
-      // For now, handle single-step workflows (first step)
-      if (workflow.getSteps() == null || workflow.getSteps().isEmpty()) {
-        throw new ExecutionException("Normalization produced no steps");
-      }
-      PromptSchema schema = workflow.getSteps().get(0).getPs();
-      if (schema == null) {
-        throw new ExecutionException("First step has no PromptSchema");
+      SsqlNormalizer normalizer = new SsqlNormalizer(oneMcp);
+      PromptSchema ps = normalizer.normalize(prompt, schema);
+      
+      // Check if normalization failed
+      boolean normalizationFailed = ps.getSsql() == null || ps.getSsql().trim().isEmpty();
+      String normalizationNote = ps.getNote();
+      
+      if (normalizationFailed) {
+        String errorMsg = normalizationNote != null && !normalizationNote.trim().isEmpty()
+            ? normalizationNote
+            : "Normalization failed: Could not convert prompt to S-SQL";
+        log.warn("Normalization failed: {}", errorMsg);
+        progress.endStageError("normalize", "NORMALIZATION_FAILED", Map.of("note", errorMsg));
+        // Return the explanation as the result (normalization failures are cached)
+        AssignmentContext context = new AssignmentContext();
+        context.setRefinedAssignment(errorMsg);
+        return new AssigmentResult(
+            java.util.Collections.emptyList(),
+            new AssigmentResult.Statistics(0, 0, 0, 0, java.util.Collections.emptyList(), null),
+            context);
       }
       
-      log.info("Normalized prompt to schema with cache key: {}", schema.getCacheKey());
-      progress.endStageOk("normalize", Map.of("cacheKey", schema.getCacheKey()));
+      log.info("Normalized prompt to S-SQL: {}", ps.getSsql());
+      if (normalizationNote != null && !normalizationNote.trim().isEmpty()) {
+        log.info("Normalization note (caveat): {}", normalizationNote);
+      }
+      progress.endStageOk("normalize", Map.of("ssql", ps.getSsql()));
 
-      // 3. Check cache for existing plan
-      ExecutionPlan plan = null;
+      // 3. Canonicalize S-SQL and generate cache key
+      progress.beginStage("canonicalize", "Canonicalizing S-SQL", 1);
+      StdoutUtility.printNewLine(oneMcp, "Canonicalizing S-SQL.");
+      
+      SsqlCanonicalizer canonicalizer = new SsqlCanonicalizer();
+      String canonicalSsql = canonicalizer.canonicalize(ps.getSsql());
+      // Cache key is based ONLY on canonical S-SQL, not parameter values
+      // The TypeScript plan is parameterized and uses values at runtime
+      // Different parameter values (e.g., 2024 vs 2023) should use the same cached plan
+      String cacheKey = canonicalizer.generateCacheKey(canonicalSsql);
+      log.info("Canonical S-SQL: {}", canonicalSsql);
+      log.info("S-SQL-based cache key: {}", cacheKey);
+      progress.endStageOk("canonicalize", Map.of("cacheKey", cacheKey));
+
+      // 4. Check cache for existing TypeScript plan
+      String typescriptCode = null;
       boolean cacheHit = false;
-      Optional<ExecutionPlanCache.CachedPlanResult> cachedResult = Optional.empty();
-      ExecutionPlanCache cache = new ExecutionPlanCache(handbookPath);
+      Optional<TypeScriptPlanCache.CachedPlanResult> cachedResult = Optional.empty();
+      TypeScriptPlanCache planCache = new TypeScriptPlanCache(cacheDir);
       
       progress.beginStage("cache", "Checking cache", 1);
       
-      cachedResult = cache.lookupWithMetadata(schema);
+      cachedResult = planCache.lookupByCacheKey(cacheKey);
       if (cachedResult.isPresent()) {
         cacheHit = true;
-        plan = cachedResult.get().plan;
-        log.info("Cache HIT for PSK: {}", schema.getCacheKey());
+        typescriptCode = cachedResult.get().typescriptCode;
+        // Use normalization metadata from cache if available, otherwise use from PS
+        if (cachedResult.get().normalizationNote != null) {
+          normalizationNote = cachedResult.get().normalizationNote;
+        }
+        if (cachedResult.get().normalizationFailed) {
+          normalizationFailed = true;
+          // If normalization failed, return the explanation immediately
+          String errorMsg = normalizationNote != null && !normalizationNote.trim().isEmpty()
+              ? normalizationNote
+              : "Normalization failed: Could not convert prompt to S-SQL";
+          log.warn("Cached plan has normalization failure: {}", errorMsg);
+          AssignmentContext context = new AssignmentContext();
+          context.setRefinedAssignment(errorMsg);
+          return new AssigmentResult(
+              java.util.Collections.emptyList(),
+              new AssigmentResult.Statistics(0, 0, 0, 0, java.util.Collections.emptyList(), null),
+              context);
+        }
+        // Check if cached plan has no code but has a note (shouldn't happen, but handle gracefully)
+        if ((typescriptCode == null || typescriptCode.trim().isEmpty()) && 
+            normalizationNote != null && !normalizationNote.trim().isEmpty()) {
+          log.info("Cached plan has no code but has note: {}", normalizationNote);
+          assignmentParts.add(
+              new AssigmentResult.Assignment(
+                  true, prompt, false, normalizationNote));
+          oneMcp.inferenceLogger().logFinalResponse(normalizationNote);
+          
+          long totalTimeMs = System.currentTimeMillis() - start;
+          AssigmentResult.Statistics stats =
+              new AssigmentResult.Statistics(0, 0, 0, totalTimeMs, calledOperations, null);
+          AssigmentResult result = new AssigmentResult(assignmentParts, stats, null);
+          oneMcp.inferenceLogger().logAssigmentResult(result);
+          oneMcp.inferenceLogger().completeExecution(executionId, totalTimeMs, true);
+          return result;
+        }
+        log.info("Cache HIT for S-SQL cache key: {} (executionSucceeded: {}, failedAttempts: {})", 
+            cacheKey, cachedResult.get().executionSucceeded, cachedResult.get().failedAttempts);
         if (!cachedResult.get().executionSucceeded && cachedResult.get().failedAttempts > 0) {
-          log.warn("Cached plan previously failed ({} attempts). Will retry execution.", 
+          log.warn("Cached plan previously failed ({} attempts). Will retry execution.",
               cachedResult.get().failedAttempts);
         }
       } else {
-        log.info("Cache MISS for PSK: {}", schema.getCacheKey());
+        log.info("Cache MISS for S-SQL cache key: {}", cacheKey);
       }
       progress.endStageOk("cache", Map.of("hit", cacheHit));
+      log.debug("Cache lookup result: hit={}, typescriptCode={}", cacheHit, typescriptCode != null ? "present" : "null");
 
-      // 4. Generate plan if cache miss (with retry support)
-      String executionError = null;
-      if (cachedResult.isPresent() && !cachedResult.get().executionSucceeded) {
-        executionError = cachedResult.get().lastError;
-      }
-      
-      if (plan == null) {
+      // 5. Generate TypeScript plan if cache miss
+      if (typescriptCode == null) {
         progress.beginStage("plan", "Generating execution plan", 1);
-        StdoutUtility.printNewLine(oneMcp, "Generating execution plan.");
+        StdoutUtility.printNewLine(oneMcp, "Generating execution plan from S-SQL.");
         
-        com.gentoro.onemcp.plan.PlanContext planContext = 
-            new com.gentoro.onemcp.plan.PlanContext(oneMcp, new ValueStore());
-        com.gentoro.onemcp.plan.PlanGenerationService planGenerator = 
-            new com.gentoro.onemcp.plan.PlanGenerationService(planContext);
+        Planner planner = new Planner(oneMcp, endpointInfoDir);
+        typescriptCode = planner.plan(ps, prompt);
+        log.info("Generated TypeScript plan (length: {})", typescriptCode.length());
         
-        plan = planGenerator.generatePlan(prompt, schema, executionError);
-        log.info("Generated plan for PSK: {}", schema.getCacheKey());
         progress.endStageOk("plan", Map.of("steps", "generated"));
         
-        // CRITICAL: Cache the plan IMMEDIATELY after generation, before execution
-        // The plan must contain placeholders ({{params.X}}) and JsonPath expressions ($.['node'].['field'])
-        // These will be hydrated/applied at execution time with values from the PromptSchema
-        cache.store(schema, plan, false, null); // Store as pending (will be updated after execution)
-        log.debug("Cached newly generated plan (with placeholders) for PSK: {}", schema.getCacheKey());
+        // Cache the TypeScript plan IMMEDIATELY after generation, before execution
+        // Include normalization metadata (note and failed status)
+        planCache.storeByCacheKey(cacheKey, typescriptCode, false, null, normalizationNote, normalizationFailed);
+        log.debug("Cached newly generated TypeScript plan for S-SQL cache key: {}", cacheKey);
       }
 
-      // Log execution plan for reporting (whether from cache or newly generated)
+      // Log TypeScript plan for reporting (whether from cache or newly generated)
       // CRITICAL: Always log the plan so it appears in the report
-      if (plan == null) {
-        log.error("Cannot log execution plan: plan is null for PSK: {}", schema.getCacheKey());
-        throw new ExecutionException("Execution plan is null - cannot proceed");
+      // If no code but there's a note, return with just the note
+      if (typescriptCode == null || typescriptCode.trim().isEmpty()) {
+        if (normalizationNote != null && !normalizationNote.trim().isEmpty()) {
+          // Plan has no code but has a note - return with just the note
+          log.info("Plan has no code but has note: {}", normalizationNote);
+          assignmentParts.add(
+              new AssigmentResult.Assignment(
+                  true, prompt, false, normalizationNote));
+          oneMcp.inferenceLogger().logFinalResponse(normalizationNote);
+          
+          // Build the result
+          long totalTimeMs = System.currentTimeMillis() - start;
+          AssigmentResult.Statistics stats =
+              new AssigmentResult.Statistics(0, 0, 0, totalTimeMs, calledOperations, null);
+          AssigmentResult result = new AssigmentResult(assignmentParts, stats, null);
+          oneMcp.inferenceLogger().logAssigmentResult(result);
+          oneMcp.inferenceLogger().completeExecution(executionId, totalTimeMs, true);
+          return result;
+        } else {
+          // No code and no note - this shouldn't happen if normalization succeeded
+          log.error("Cannot log execution plan: typescriptCode is null or empty and no note");
+          throw new ExecutionException("TypeScript plan is null - cannot proceed");
+        }
       }
       
       try {
-        String planJson = plan.toJson();
-        if (planJson == null || planJson.trim().isEmpty()) {
-          log.error("Execution plan JSON is null or empty for PSK: {}", schema.getCacheKey());
-          planJson = "{\"error\": \"Plan serialization failed\"}";
+        // Include PS (Prompt Schema) information in the plan JSON
+        Map<String, Object> planData = new HashMap<>();
+        planData.put("typescript", typescriptCode);
+        planData.put("ssql", ps.getSsql());
+        planData.put("table", ps.getTable());
+        planData.put("values", ps.getValues() != null ? ps.getValues() : java.util.Collections.emptyMap());
+        planData.put("columns", ps.getColumns() != null ? ps.getColumns() : java.util.Collections.emptyList());
+        planData.put("cache_key", cacheKey);
+        if (normalizationNote != null && !normalizationNote.trim().isEmpty()) {
+          planData.put("note", normalizationNote);
         }
-        oneMcp.inferenceLogger().logExecutionPlan(planJson, cacheHit);
-        log.debug("Logged execution plan for PSK: {} (cache hit: {}, length: {})", 
-            schema.getCacheKey(), cacheHit, planJson.length());
+        
+        String planJson = JacksonUtility.getJsonMapper().writeValueAsString(planData);
+        // Use logExecutionPlanNew to ensure it's a separate event (will be updated with result/error later)
+        oneMcp.inferenceLogger().logExecutionPlanNew(planJson, null, null, cacheHit);
+        log.debug("Logged TypeScript plan with PS info (cache hit: {}, length: {})", 
+            cacheHit, typescriptCode.length());
       } catch (Exception e) {
-        log.error("Failed to log execution plan for PSK: {}", schema.getCacheKey(), e);
+        log.error("Failed to log execution plan", e);
         // Try to log an error message as the plan
         try {
-          oneMcp.inferenceLogger().logExecutionPlan(
-              "{\"error\": \"Failed to serialize plan: " + e.getMessage() + "\"}");
+          oneMcp.inferenceLogger().logExecutionPlanNew(
+              "{\"error\": \"Failed to serialize plan: " + e.getMessage() + "\"}", null, null, null);
         } catch (Exception e2) {
           log.error("Failed to log error plan", e2);
         }
         // Continue execution even if logging fails
       }
 
-      // 5. Execute plan
+      // 6. Execute TypeScript plan
       progress.beginStage("exec", "Executing plan", 1);
       StdoutUtility.printNewLine(oneMcp, "Executing plan.");
       
@@ -497,27 +596,44 @@ public class OrchestratorService {
                 });
       }
 
-      // Execute the plan with retry logic for API failures
+      // Execute TypeScript directly using TypeScriptExecutionEngine
+      TypeScriptExecutionEngine tsEngine = new TypeScriptExecutionEngine(operationRegistry, cacheDir.resolve("ts-temp"), oneMcp);
+      
       String outputStr = null;
       boolean executionRetried = false;
-      int maxExecutionRetries = 2; // Initial attempt + 1 retry
+      int maxExecutionRetries = 1; // Only one attempt unless there's an actual error
       
       for (int execAttempt = 1; execAttempt <= maxExecutionRetries; execAttempt++) {
+        long execStartTime = System.currentTimeMillis();
         try {
-          outputStr = plan.execute(schema, operationRegistry);
+          outputStr = tsEngine.execute(typescriptCode, operationRegistry, ps.getValues());
+          long execDuration = System.currentTimeMillis() - execStartTime;
+          
+          // Log execution phase with duration
+          oneMcp.inferenceLogger().logExecutionPhase(execAttempt, execDuration, true, null);
           if (outputStr == null || outputStr.trim().isEmpty()) {
-            log.error("Plan execution returned null or empty result for PSK: {}", schema.getCacheKey());
-            log.debug("Plan was from cache: {}", cacheHit && execAttempt == 1);
+            log.error("Plan execution returned null or empty result (attempt {}, cache hit: {})", 
+                execAttempt, cacheHit && execAttempt == 1);
             throw new ExecutionException("Plan execution returned null or empty result");
           }
           success = true;
           progress.endStageOk("exec", Map.of("result", "success"));
           
-          // Log execution result with the current plan
+          // Log execution result with the current plan (create new event, don't update existing)
           try {
-            String planJson = plan.toJson();
+            // Include PS information in the plan JSON
+            Map<String, Object> planData = new HashMap<>();
+            planData.put("typescript", typescriptCode);
+            planData.put("ssql", ps.getSsql());
+            planData.put("table", ps.getTable());
+            planData.put("values", ps.getValues() != null ? ps.getValues() : java.util.Collections.emptyMap());
+            planData.put("columns", ps.getColumns() != null ? ps.getColumns() : java.util.Collections.emptyList());
+            planData.put("cache_key", cacheKey);
+            
+            String planJson = JacksonUtility.getJsonMapper().writeValueAsString(planData);
             if (planJson != null && !planJson.trim().isEmpty()) {
-              oneMcp.inferenceLogger().logExecutionPlan(planJson, outputStr, null);
+              // Always create new event for each attempt (don't update existing)
+              oneMcp.inferenceLogger().logExecutionPlanNew(planJson, outputStr, null, cacheHit && execAttempt == 1);
             }
           } catch (Exception logErr) {
             log.warn("Failed to log plan execution result", logErr);
@@ -529,14 +645,28 @@ public class OrchestratorService {
           String errorMsg = ExceptionUtil.extractErrorMessage(e);
           // Use full stack trace for logging
           String fullError = ExceptionUtil.formatCompactStackTrace(e);
-          log.error("Plan execution failed for PSK: {} (attempt {}/{}, cache hit: {})", 
-              schema.getCacheKey(), execAttempt, maxExecutionRetries, cacheHit && execAttempt == 1, e);
+          log.error("Plan execution failed (attempt {}/{}, cache hit: {})", 
+              execAttempt, maxExecutionRetries, cacheHit && execAttempt == 1, e);
+          
+          // Log execution phase with error
+          long execDuration = System.currentTimeMillis() - execStartTime;
+          oneMcp.inferenceLogger().logExecutionPhase(execAttempt, execDuration, false, errorMsg);
           
           // Log execution error with the current plan (use clean error message, not stack trace)
           try {
-            String planJson = plan.toJson();
+            // Include PS information in the plan JSON
+            Map<String, Object> planData = new HashMap<>();
+            planData.put("typescript", typescriptCode);
+            planData.put("ssql", ps.getSsql());
+            planData.put("table", ps.getTable());
+            planData.put("values", ps.getValues() != null ? ps.getValues() : java.util.Collections.emptyMap());
+            planData.put("columns", ps.getColumns() != null ? ps.getColumns() : java.util.Collections.emptyList());
+            planData.put("cache_key", cacheKey);
+            
+            String planJson = JacksonUtility.getJsonMapper().writeValueAsString(planData);
             if (planJson != null && !planJson.trim().isEmpty()) {
-              oneMcp.inferenceLogger().logExecutionPlan(planJson, null, errorMsg);
+              // Always create new event for each attempt (don't update existing)
+              oneMcp.inferenceLogger().logExecutionPlanNew(planJson, null, errorMsg, cacheHit && execAttempt == 1);
             }
           } catch (Exception logErr) {
             log.warn("Failed to log plan execution error", logErr);
@@ -550,26 +680,31 @@ public class OrchestratorService {
           
           if (execAttempt < maxExecutionRetries && isApiError) {
             log.info("API failure detected (HTTP error or API error). Regenerating plan with error feedback (attempt {})", execAttempt);
-            executionError = errorMsg;
             executionRetried = true;
             
-            // Regenerate plan with error feedback
+            // Regenerate TypeScript plan
             progress.beginStage("plan", "Regenerating plan after API failure", 1);
-            com.gentoro.onemcp.plan.PlanContext planContext = 
-                new com.gentoro.onemcp.plan.PlanContext(oneMcp, new ValueStore());
-            com.gentoro.onemcp.plan.PlanGenerationService planGenerator = 
-                new com.gentoro.onemcp.plan.PlanGenerationService(planContext);
+            Planner planner = new Planner(oneMcp, endpointInfoDir);
+            typescriptCode = planner.plan(ps, prompt);
             
-            plan = planGenerator.generatePlan(prompt, schema, executionError);
             cacheHit = false; // Next attempt uses new plan
-            log.info("Regenerated plan for PSK: {} (retry attempt {})", schema.getCacheKey(), execAttempt + 1);
+            log.info("Regenerated S-SQL-based TypeScript plan (retry attempt {})", execAttempt + 1);
             progress.endStageOk("plan", Map.of("steps", "regenerated", "retry", execAttempt + 1));
             
             // Re-log the new plan (without result yet - will be logged after execution)
             try {
-              String planJson = plan.toJson();
+              // Include PS information in the plan JSON
+              Map<String, Object> planData = new HashMap<>();
+              planData.put("typescript", typescriptCode);
+              planData.put("ssql", ps.getSsql());
+              planData.put("table", ps.getTable());
+              planData.put("values", ps.getValues() != null ? ps.getValues() : java.util.Collections.emptyMap());
+              planData.put("columns", ps.getColumns() != null ? ps.getColumns() : java.util.Collections.emptyList());
+              planData.put("cache_key", cacheKey);
+              
+              String planJson = JacksonUtility.getJsonMapper().writeValueAsString(planData);
               if (planJson != null && !planJson.trim().isEmpty()) {
-                oneMcp.inferenceLogger().logExecutionPlan(planJson, false); // Regenerated plan is always a cache miss
+                oneMcp.inferenceLogger().logExecutionPlanNew(planJson, null, null, false); // Regenerated plan is always a cache miss
               }
             } catch (Exception logErr) {
               log.warn("Failed to log regenerated plan", logErr);
@@ -580,7 +715,7 @@ public class OrchestratorService {
           } else {
             // Last attempt failed or non-API error - cache failure and throw
             success = false;
-            cache.store(schema, plan, false, errorMsg);
+            planCache.storeByCacheKey(cacheKey, typescriptCode, false, errorMsg, normalizationNote, normalizationFailed);
             progress.endStageError("exec", e.getClass().getSimpleName(), Map.of());
             throw e;
           }
@@ -591,13 +726,10 @@ public class OrchestratorService {
         throw new ExecutionException("Plan execution failed after all retry attempts");
       }
 
-      // 6. Update cache with execution status (plan was already cached after generation)
-      // The plan itself doesn't change - it still has placeholders and JsonPath expressions
-      // We're just updating the execution status metadata
+      // 7. Update cache with execution status (plan was already cached during generation)
       if (success) {
-        // Update cache metadata to mark as successful (plan content unchanged)
-        cache.store(schema, plan, true, null);
-        log.info("Updated cache status to SUCCESS for PSK: {}", schema.getCacheKey());
+        planCache.storeByCacheKey(cacheKey, typescriptCode, true, null, normalizationNote, normalizationFailed);
+        log.info("Updated cache status to SUCCESS for S-SQL cache key: {}", cacheKey);
       }
 
       log.trace("Generated answer:\n{}", StringUtility.formatWithIndent(outputStr, 4));
@@ -608,12 +740,20 @@ public class OrchestratorService {
                   (System.currentTimeMillis() - start),
                   StringUtility.formatWithIndent(outputStr, 4)));
 
+      // Attach note to result if present (caveat)
+      String finalOutput = outputStr;
+      if (normalizationNote != null && !normalizationNote.trim().isEmpty()) {
+        // Append note as a caveat to the result
+        finalOutput = outputStr + "\n\nNote: " + normalizationNote;
+        log.info("Attached normalization note (caveat) to result");
+      }
+
       assignmentParts.add(
           new AssigmentResult.Assignment(
-              true, prompt, false, outputStr));
+              true, prompt, false, finalOutput));
       
-      // Log final response
-      oneMcp.inferenceLogger().logFinalResponse(outputStr);
+      // Log final response (with note if present)
+      oneMcp.inferenceLogger().logFinalResponse(finalOutput);
       
     } catch (Exception e) {
       StdoutUtility.printError(oneMcp, "Could not handle assignment properly", e);
@@ -655,67 +795,69 @@ public class OrchestratorService {
   }
 
   /**
-   * Load lexicon from cache directory, or generate it automatically if not available.
-   * Lexicon is stored in ONEMCP_HOME_DIR/cache/lexicon.yaml
+   * Get cache directory path.
    */
-  private PromptLexicon loadOrGenerateLexicon(Path handbookPath) {
-    // Determine cache directory (same logic as ExecutionPlanCache)
-    Path cacheDir;
+  private Path getCacheDirectory(Path handbookPath) {
     String cacheDirEnv = System.getenv("ONEMCP_CACHE_DIR");
     if (cacheDirEnv != null && !cacheDirEnv.isBlank()) {
-      cacheDir = Paths.get(cacheDirEnv);
-    } else {
-      String homeDir = System.getenv("ONEMCP_HOME_DIR");
-      if (homeDir != null && !homeDir.isBlank()) {
-        cacheDir = Paths.get(homeDir, "cache");
-      } else {
-        String userHome = System.getProperty("user.home");
-        if (userHome != null && !userHome.isBlank()) {
-          cacheDir = Paths.get(userHome, ".onemcp", "cache");
-        } else {
-          // Final fallback: handbook/cache (should not happen in normal operation)
-          cacheDir = handbookPath.resolve("cache");
-        }
-      }
+      return Paths.get(cacheDirEnv);
     }
+    String homeDir = System.getenv("ONEMCP_HOME_DIR");
+    if (homeDir != null && !homeDir.isBlank()) {
+      return Paths.get(homeDir, "cache");
+    }
+    String userHome = System.getProperty("user.home");
+    if (userHome != null && !userHome.isBlank()) {
+      return Paths.get(userHome, ".onemcp", "cache");
+    }
+    // Final fallback: handbook/cache
+    return handbookPath.resolve("cache");
+  }
+
+  /**
+   * Load schema from cache directory, or generate it automatically if not available.
+   * Schema is stored in ONEMCP_HOME_DIR/cache/conceptual_schema.yaml
+   * Endpoint indexes are stored in ONEMCP_HOME_DIR/cache/endpoint_info/<table_name>.json
+   */
+  private ConceptualSchema loadOrGenerateConceptualSchema(Path handbookPath, Path endpointInfoDir) {
+    Path cacheDir = getCacheDirectory(handbookPath);
+    Path schemaPath = cacheDir.resolve("conceptual_schema.yaml");
     
-    Path lexiconPath = cacheDir.resolve("lexicon.yaml");
-    
-    // Try to load existing lexicon
-    if (Files.exists(lexiconPath)) {
+    // Try to load existing conceptual schema
+    if (Files.exists(schemaPath)) {
       try {
-        LexiconExtractorService extractor = new LexiconExtractorService(oneMcp);
-        PromptLexicon lexicon = extractor.loadLexicon(lexiconPath);
-        if (lexicon != null) {
-          log.info("Loaded lexicon from: {}", lexiconPath);
-          return lexicon;
+        ConceptualSchema schema = JacksonUtility.getYamlMapper()
+            .readValue(schemaPath.toFile(), ConceptualSchema.class);
+        if (schema != null && !schema.getTables().isEmpty()) {
+          log.info("Loaded conceptual schema from: {}", schemaPath);
+          return schema;
         }
       } catch (Exception e) {
-        log.warn("Failed to load lexicon from {}: {}", lexiconPath, e.getMessage());
+        log.warn("Failed to load conceptual schema from {}: {}", schemaPath, e.getMessage());
       }
     }
     
-    // Lexicon doesn't exist - generate it automatically
-    log.info("Lexicon not found at: {}. Generating automatically...", lexiconPath);
+    // Schema doesn't exist - generate it automatically using transducer
+    log.info("Schema not found at: {}. Generating automatically using transducer (v12.0)...", schemaPath);
     try {
-      // Ensure cache directory exists
+      // Ensure cache directories exist
       Files.createDirectories(cacheDir);
+      Files.createDirectories(endpointInfoDir);
       
-      // Generate lexicon using LexiconExtractorService
-      LexiconExtractorService extractor = new LexiconExtractorService(oneMcp);
-      PromptLexicon lexicon = extractor.extractLexicon(handbookPath);
+      // Generate schema using TransducerService (cache_spec v12.0)
+      // This implements single-pass extraction with 4 phases
+      TransducerService transducer = new TransducerService(oneMcp, cacheDir);
+      ConceptualSchema schema = transducer.extractConceptualSchema(handbookPath, endpointInfoDir);
       
-      // Save to cache directory
-      extractor.saveLexicon(lexicon, lexiconPath);
-      log.info("Generated and saved lexicon to: {}", lexiconPath);
+      log.info("Successfully generated conceptual schema: {} tables", schema.getTables().size());
       
-      return lexicon;
+      return schema;
     } catch (Exception e) {
-      log.error("Failed to generate lexicon: {}", e.getMessage(), e);
-      // Re-throw with more context so the error message is clearer
+      log.error("Failed to generate conceptual schema: {}", e.getMessage(), e);
       throw new HandbookException(
-          "Failed to generate lexicon: " + e.getMessage() + 
+          "Failed to generate conceptual schema: " + e.getMessage() + 
           (e.getCause() != null ? " (Caused by: " + e.getCause().getMessage() + ")" : ""), e);
     }
   }
+
 }

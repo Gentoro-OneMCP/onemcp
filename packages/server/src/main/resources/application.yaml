@@ -73,7 +73,7 @@ orchestrator:
   # Enable caching path (uses plan package + cache package)
   # When false, uses legacy path (orchestrator.PlanGenerationService)
   cache:
-    enabled: ${env:CACHE_ENABLED:-false}
+    enabled: ${env:CACHE_ENABLED:-true}
 
 graph:
   indexing:

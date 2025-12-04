@@ -275,6 +275,15 @@ public class InferenceLogger {
   }
 
   /**
+   * Get the current execution ID from thread-local.
+   * 
+   * @return current execution ID, or null if not set
+   */
+  public String getCurrentExecutionId() {
+    return currentExecutionId.get();
+  }
+
+  /**
    * Start tracking an execution.
    *
    * @param executionId unique execution identifier
@@ -353,6 +362,7 @@ public class InferenceLogger {
           // Generate and write report
           String reportContent = generateTextReport(executionId, events, durationMs, success, startTimeMs);
           Files.writeString(reportPath, reportContent);
+          log.debug("Report written to: {} (size: {} bytes)", reportPath, reportContent.length());
 
           currentReportPath.set(reportPathStr);
           log.info("Execution completed: {} (report: {})", executionId, reportPath);
@@ -484,14 +494,23 @@ public class InferenceLogger {
     
     // Check execution plan cache status (preferred over LLM cache status)
     Boolean planCacheHit = null;
+    int planEventCount = 0;
     for (ExecutionEvent event : events) {
       if ("execution_plan".equals(event.type)) {
-        Object planCacheHitObj = event.data.get("planCacheHit");
+        planEventCount++;
+        Object planCacheHitObj = event.data != null ? event.data.get("planCacheHit") : null;
+        log.debug("Found execution_plan event #{}: planCacheHit={}", planEventCount, planCacheHitObj);
         if (planCacheHitObj instanceof Boolean) {
           planCacheHit = (Boolean) planCacheHitObj;
+          log.debug("Using planCacheHit={} from execution_plan event", planCacheHit);
           break; // Use first plan's cache status
         }
       }
+    }
+    if (planEventCount == 0) {
+      log.debug("No execution_plan events found in events list");
+    } else if (planCacheHit == null) {
+      log.debug("Found {} execution_plan event(s) but none had planCacheHit set", planEventCount);
     }
 
     // Determine cache status for header
@@ -512,14 +531,70 @@ public class InferenceLogger {
     sb.append("  Status:              [").append(success ? "SUCCESS" : "FAILED").append("]\n");
     sb.append("  API Calls:           ").append(apiCalls).append("\n");
     sb.append("  Errors:              ").append(errors).append("\n");
+    
+    // Execution Plan Statistics
+    int planCount = 0;
+    int planCacheHits = 0;
+    int planCacheMisses = 0;
+    int planErrors = 0;
+    int planSuccesses = 0;
+    for (ExecutionEvent event : events) {
+      if ("execution_plan".equals(event.type)) {
+        planCount++;
+        if (event.data != null) {
+          Object planCacheHitObj = event.data.get("planCacheHit");
+          if (planCacheHitObj instanceof Boolean) {
+            if ((Boolean) planCacheHitObj) {
+              planCacheHits++;
+            } else {
+              planCacheMisses++;
+            }
+          }
+          if (event.data.containsKey("error") && event.data.get("error") != null) {
+            planErrors++;
+          }
+          if (event.data.containsKey("executionResult") && event.data.get("executionResult") != null) {
+            planSuccesses++;
+          }
+        }
+      }
+    }
+    if (planCount > 0) {
+      sb.append("  Execution Plans:     ").append(planCount);
+      if (planCacheHits > 0 || planCacheMisses > 0) {
+        sb.append(" (").append(planCacheHits).append(" cache hit");
+        if (planCacheHits != 1) sb.append("s");
+        if (planCacheMisses > 0) {
+          sb.append(", ").append(planCacheMisses).append(" miss");
+          if (planCacheMisses != 1) sb.append("es");
+        }
+        sb.append(")");
+      }
+      sb.append("\n");
+      if (planErrors > 0 || planSuccesses > 0) {
+        sb.append("  Plan Results:        ");
+        if (planSuccesses > 0) {
+          sb.append(planSuccesses).append(" success");
+          if (planSuccesses != 1) sb.append("es");
+        }
+        if (planErrors > 0) {
+          if (planSuccesses > 0) sb.append(", ");
+          sb.append(planErrors).append(" error");
+          if (planErrors != 1) sb.append("s");
+        }
+        sb.append("\n");
+      }
+    }
     sb.append("\n");
 
-    // LLM and API Calls
+    // LLM, Execution, and API Calls
     int llmCallNum = 1;
+    int execCallNum = 1;
     int apiCallNum = 1;
     long totalPromptTokens = 0;
     long totalCompletionTokens = 0;
     long totalLLMDuration = 0;
+    long totalExecutionDuration = 0;
 
     // Track phase counts for retry numbering
     Map<String, Integer> phaseCounts = new HashMap<>();
@@ -573,6 +648,31 @@ public class InferenceLogger {
         String tokenStr =
             String.format("Tokens: %d+%d=%d", promptT, completionT, promptT + completionT);
         sb.append(String.format("%-30s %8s | %s", callLabel, durationStr, tokenStr)).append("\n");
+      }
+    }
+
+    // Execution Calls (TypeScript execution)
+    for (ExecutionEvent event : events) {
+      if ("execution_phase".equals(event.type)) {
+        Object duration = event.data.get("durationMs");
+        Object attempt = event.data.get("attempt");
+        Object execSuccessObj = event.data.get("success");
+        Object error = event.data.get("error");
+        
+        long dur = 0;
+        if (duration instanceof Number) {
+          dur = ((Number) duration).longValue();
+          totalExecutionDuration += dur;
+        }
+        
+        int attemptNum = attempt instanceof Number ? ((Number) attempt).intValue() : execCallNum;
+        boolean execSucceeded = execSuccessObj instanceof Boolean ? (Boolean) execSuccessObj : true;
+        String errorStr = error != null ? error.toString() : null;
+        
+        String execLabel = String.format("  Execution %d:", execCallNum++);
+        String durationStr = dur > 0 ? String.format("%6dms", dur) : "   N/A";
+        String statusStr = execSucceeded ? "success" : (errorStr != null ? "error: " + errorStr : "failed");
+        sb.append(String.format("%-20s %8s   %s", execLabel, durationStr, statusStr)).append("\n");
       }
     }
 
@@ -789,38 +889,142 @@ public class InferenceLogger {
         // Always show plan section, even if empty (so errors are visible)
         if (plan != null && !plan.toString().trim().isEmpty()) {
           String planStr = plan.toString();
-          // Try to pretty-print JSON
+          // Try to extract and pretty-print plan data from JSON
           try {
             Object parsed = JacksonUtility.getJsonMapper().readValue(planStr, Object.class);
-            planStr =
-                JacksonUtility.getJsonMapper()
+            // Check if it's a JSON object with plan data
+            if (parsed instanceof Map) {
+              @SuppressWarnings("unchecked")
+              Map<String, Object> planMap = (Map<String, Object>) parsed;
+              
+              // Show PS (Prompt Schema) information first
+              sb.append("┌─ PROMPT SCHEMA (PS) ──────────────────────────────────────────────────\n");
+              if (planMap.containsKey("ssql")) {
+                sb.append("│ S-SQL: ").append(String.valueOf(planMap.get("ssql"))).append("\n");
+              }
+              if (planMap.containsKey("table")) {
+                sb.append("│ Table: ").append(String.valueOf(planMap.get("table"))).append("\n");
+              }
+              if (planMap.containsKey("values")) {
+                Object valuesObj = planMap.get("values");
+                String valuesStr = JacksonUtility.getJsonMapper().writeValueAsString(valuesObj);
+                sb.append("│ Values: ").append(valuesStr).append("\n");
+              }
+              if (planMap.containsKey("columns")) {
+                Object columnsObj = planMap.get("columns");
+                String columnsStr = JacksonUtility.getJsonMapper().writeValueAsString(columnsObj);
+                sb.append("│ Columns: ").append(columnsStr).append("\n");
+              }
+              if (planMap.containsKey("cache_key")) {
+                sb.append("│ Cache Key: ").append(String.valueOf(planMap.get("cache_key"))).append("\n");
+              }
+              sb.append("\n");
+              
+              // Show TypeScript code
+              Object typescriptObj = planMap.get("typescript");
+              if (typescriptObj != null) {
+                sb.append("┌─ TYPESCRIPT PLAN ───────────────────────────────────────────────────\n");
+                String typescriptCode = typescriptObj.toString();
+                // Pretty-print the TypeScript code (basic formatting)
+                typescriptCode = formatTypeScriptCode(typescriptCode);
+                String[] lines = typescriptCode.split("\n");
+                for (String line : lines) {
+                  if (line.isEmpty()) {
+                    sb.append("│\n");
+                  } else {
+                    int maxWidth = 76;
+                    if (line.length() <= maxWidth) {
+                      sb.append("│ ").append(line).append("\n");
+                    } else {
+                      int start = 0;
+                      while (start < line.length()) {
+                        int end = Math.min(start + maxWidth, line.length());
+                        String chunk = line.substring(start, end);
+                        sb.append("│ ").append(chunk).append("\n");
+                        start = end;
+                      }
+                    }
+                  }
+                }
+                sb.append("\n");
+              } else {
+                // No TypeScript, show full JSON
+                sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
+                planStr = JacksonUtility.getJsonMapper()
                     .writerWithDefaultPrettyPrinter()
                     .writeValueAsString(parsed);
+                String[] lines = planStr.split("\n");
+                for (String line : lines) {
+                  if (line.isEmpty()) {
+                    sb.append("│\n");
+                  } else {
+                    int maxWidth = 76;
+                    if (line.length() <= maxWidth) {
+                      sb.append("│ ").append(line).append("\n");
+                    } else {
+                      int start = 0;
+                      while (start < line.length()) {
+                        int end = Math.min(start + maxWidth, line.length());
+                        String chunk = line.substring(start, end);
+                        sb.append("│ ").append(chunk).append("\n");
+                        start = end;
+                      }
+                    }
+                  }
+                }
+                sb.append("\n");
+              }
+            } else {
+              // Not a map, use regular JSON pretty-printing
+              planStr = JacksonUtility.getJsonMapper()
+                  .writerWithDefaultPrettyPrinter()
+                  .writeValueAsString(parsed);
+              sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
+              String[] lines = planStr.split("\n");
+              for (String line : lines) {
+                if (line.isEmpty()) {
+                  sb.append("│\n");
+                } else {
+                  int maxWidth = 76;
+                  if (line.length() <= maxWidth) {
+                    sb.append("│ ").append(line).append("\n");
+                  } else {
+                    int start = 0;
+                    while (start < line.length()) {
+                      int end = Math.min(start + maxWidth, line.length());
+                      String chunk = line.substring(start, end);
+                      sb.append("│ ").append(chunk).append("\n");
+                      start = end;
+                    }
+                  }
+                }
+              }
+              sb.append("\n");
+            }
           } catch (Exception e) {
             // Not JSON, use as-is
-          }
-          
-          sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
-          String[] lines = planStr.split("\n");
-          for (String line : lines) {
-            if (line.isEmpty()) {
-              sb.append("│\n");
-            } else {
-              int maxWidth = 76;
-              if (line.length() <= maxWidth) {
-                sb.append("│ ").append(line).append("\n");
+            sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
+            String[] lines = planStr.split("\n");
+            for (String line : lines) {
+              if (line.isEmpty()) {
+                sb.append("│\n");
               } else {
-                int start = 0;
-                while (start < line.length()) {
-                  int end = Math.min(start + maxWidth, line.length());
-                  String chunk = line.substring(start, end);
-                  sb.append("│ ").append(chunk).append("\n");
-                  start = end;
+                int maxWidth = 76;
+                if (line.length() <= maxWidth) {
+                  sb.append("│ ").append(line).append("\n");
+                } else {
+                  int start = 0;
+                  while (start < line.length()) {
+                    int end = Math.min(start + maxWidth, line.length());
+                    String chunk = line.substring(start, end);
+                    sb.append("│ ").append(chunk).append("\n");
+                    start = end;
+                  }
                 }
               }
             }
+            sb.append("\n");
           }
-          sb.append("\n");
         } else {
           // Show plan section even if empty, so execution result/error is visible
           sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
@@ -828,128 +1032,140 @@ public class InferenceLogger {
           sb.append("\n");
         }
 
-        // Execution Result - always show if there's an error or result
+        // Execution Result - show error or result for this attempt
+        // Each attempt gets its own result section
+        boolean hasError = error != null && !error.toString().trim().isEmpty();
+        boolean hasResult = executionResult != null && !executionResult.toString().trim().isEmpty();
         
-        if (error != null && !error.toString().trim().isEmpty()) {
+        if (hasError || hasResult) {
           sb.append("┌─ EXECUTION RESULT ─────────────────────────────────────────────────────────\n");
-          sb.append("│ [ERROR]\n");
-          String errorStr = error.toString();
           
-          // Strategy: Extract the most useful error message
-          // 1. First try to extract from API call events (most reliable - direct from response body)
-          // 2. Then try to extract from error message if it contains "API error:"
-          // 3. Fall back to cleaned exception message
-          
-          String apiErrorMsg = extractApiErrorFromEvents(events, -1);
-          
-          if (apiErrorMsg == null || apiErrorMsg.trim().isEmpty()) {
-            // Try to extract from error message itself if it contains "API error:"
-            if (errorStr.contains("API error:")) {
-              int apiErrorIndex = errorStr.indexOf("API error:");
-              String afterApiError = errorStr.substring(apiErrorIndex + "API error:".length()).trim();
-              // Extract the actual error message (may have HTTP status prefix)
-              if (afterApiError.startsWith("HTTP ")) {
-                // Format: "API error: HTTP 400: Missing required fields..."
-                int colonIndex = afterApiError.indexOf(':', "HTTP ".length());
-                if (colonIndex > 0 && colonIndex < afterApiError.length() - 1) {
-                  apiErrorMsg = afterApiError.substring(colonIndex + 1).trim();
-                } else {
-                  // No second colon, use everything after "HTTP XXX"
-                  apiErrorMsg = afterApiError;
-                }
-              } else {
-                // Format: "API error: Missing required fields..."
-                apiErrorMsg = afterApiError;
-              }
-            }
-          }
-          
-          if (apiErrorMsg != null && !apiErrorMsg.trim().isEmpty()) {
-            // Use the API error message from response body instead of generic exception
-            errorStr = apiErrorMsg;
-            log.debug("Using extracted API error message: {}", apiErrorMsg);
-          } else {
-            log.debug("No API error message found, using exception message: {}", errorStr);
-            // Clean up error string - remove stack trace information
-            // If it looks like a compact stack trace (contains " > "), extract just the error message
-            if (errorStr.contains(" > ")) {
-              // Try to extract just the first meaningful part (exception type and message)
-              // Look for patterns like "ClassName: message" or just "ClassName"
-              String[] parts = errorStr.split(" > ");
-              if (parts.length > 0) {
-                String firstPart = parts[0].trim();
-                // If first part contains a colon, try to extract message
-                int colonIndex = firstPart.indexOf(':');
-                if (colonIndex > 0 && colonIndex < firstPart.length() - 1) {
-                  String className = firstPart.substring(0, colonIndex).trim();
-                  String message = firstPart.substring(colonIndex + 1).trim();
-                  // Only use if message doesn't look like a file path or stack trace
-                  if (!message.contains("(") && !message.contains(".java")) {
-                    errorStr = className + ": " + message;
+          if (hasError) {
+            sb.append("│ [ERROR]\n");
+            String errorStr = error.toString();
+            
+            // Strategy: Extract the most useful error message
+            // 1. First try to extract from API call events (most reliable - direct from response body)
+            // 2. Then try to extract from error message if it contains "API error:"
+            // 3. Fall back to cleaned exception message
+            
+            String apiErrorMsg = extractApiErrorFromEvents(events, -1);
+            
+            if (apiErrorMsg == null || apiErrorMsg.trim().isEmpty()) {
+              // Try to extract from error message itself if it contains "API error:"
+              if (errorStr.contains("API error:")) {
+                int apiErrorIndex = errorStr.indexOf("API error:");
+                String afterApiError = errorStr.substring(apiErrorIndex + "API error:".length()).trim();
+                // Extract the actual error message (may have HTTP status prefix)
+                if (afterApiError.startsWith("HTTP ")) {
+                  // Format: "API error: HTTP 400: Missing required fields..."
+                  int colonIndex = afterApiError.indexOf(':', "HTTP ".length());
+                  if (colonIndex > 0 && colonIndex < afterApiError.length() - 1) {
+                    apiErrorMsg = afterApiError.substring(colonIndex + 1).trim();
                   } else {
-                    errorStr = className;
+                    // No second colon, use everything after "HTTP XXX"
+                    apiErrorMsg = afterApiError;
                   }
                 } else {
-                  // No colon, just use the first part (likely just class name)
-                  errorStr = firstPart;
+                  // Format: "API error: Missing required fields..."
+                  apiErrorMsg = afterApiError;
                 }
               }
             }
-          }
-          
-          String[] errorLines = errorStr.split("\n");
-          for (String line : errorLines) {
-            if (line.isEmpty()) {
-              sb.append("│\n");
+            
+            if (apiErrorMsg != null && !apiErrorMsg.trim().isEmpty()) {
+              // Use the API error message from response body instead of generic exception
+              errorStr = apiErrorMsg;
+              log.debug("Using extracted API error message: {}", apiErrorMsg);
             } else {
-              int maxWidth = 76;
-              if (line.length() <= maxWidth) {
-                sb.append("│ ").append(line).append("\n");
-              } else {
-                int start = 0;
-                while (start < line.length()) {
-                  int end = Math.min(start + maxWidth, line.length());
-                  String chunk = line.substring(start, end);
-                  sb.append("│ ").append(chunk).append("\n");
-                  start = end;
+              log.debug("No API error message found, using exception message: {}", errorStr);
+              // Clean up error string - remove stack trace information
+              // If it looks like a compact stack trace (contains " > "), extract just the error message
+              if (errorStr.contains(" > ")) {
+                // Try to extract just the first meaningful part (exception type and message)
+                // Look for patterns like "ClassName: message" or just "ClassName"
+                String[] parts = errorStr.split(" > ");
+                if (parts.length > 0) {
+                  String firstPart = parts[0].trim();
+                  // If first part contains a colon, try to extract message
+                  int colonIndex = firstPart.indexOf(':');
+                  if (colonIndex > 0 && colonIndex < firstPart.length() - 1) {
+                    String className = firstPart.substring(0, colonIndex).trim();
+                    String message = firstPart.substring(colonIndex + 1).trim();
+                    // Only use if message doesn't look like a file path or stack trace
+                    if (!message.contains("(") && !message.contains(".java")) {
+                      errorStr = className + ": " + message;
+                    } else {
+                      errorStr = className;
+                    }
+                  } else {
+                    // No colon, just use the first part (likely just class name)
+                    errorStr = firstPart;
+                  }
                 }
               }
             }
-          }
-          sb.append("\n");
-        } else if (executionResult != null && !executionResult.toString().trim().isEmpty()) {
-          sb.append("┌─ EXECUTION RESULT ─────────────────────────────────────────────────────────\n");
-          String resultStr = executionResult.toString();
-          // Try to parse and pretty-print as JSON
-          try {
-            Object parsed = JacksonUtility.getJsonMapper().readValue(resultStr, Object.class);
-            resultStr =
-                JacksonUtility.getJsonMapper()
-                    .writerWithDefaultPrettyPrinter()
-                    .writeValueAsString(parsed);
-          } catch (Exception e) {
-            // Not JSON, use as-is
-          }
-          String[] resultLines = resultStr.split("\n");
-          for (String line : resultLines) {
-            if (line.isEmpty()) {
-              sb.append("│\n");
-            } else {
-              int maxWidth = 76;
-              if (line.length() <= maxWidth) {
-                sb.append("│ ").append(line).append("\n");
+            
+            String[] errorLines = errorStr.split("\n");
+            for (String line : errorLines) {
+              if (line.isEmpty()) {
+                sb.append("│\n");
               } else {
-                int start = 0;
-                while (start < line.length()) {
-                  int end = Math.min(start + maxWidth, line.length());
-                  String chunk = line.substring(start, end);
-                  sb.append("│ ").append(chunk).append("\n");
-                  start = end;
+                int maxWidth = 76;
+                if (line.length() <= maxWidth) {
+                  sb.append("│ ").append(line).append("\n");
+                } else {
+                  int start = 0;
+                  while (start < line.length()) {
+                    int end = Math.min(start + maxWidth, line.length());
+                    String chunk = line.substring(start, end);
+                    sb.append("│ ").append(chunk).append("\n");
+                    start = end;
+                  }
                 }
               }
             }
+            sb.append("\n");
+            
+            // If this attempt failed but there's a result (from a later attempt), note it
+            if (hasResult && planEvents.size() > 1) {
+              sb.append("│ [Note: A later attempt succeeded]\n");
+              sb.append("\n");
+            }
+          } else if (hasResult) {
+            // Show result (only if no error for this attempt)
+            String resultStr = executionResult.toString();
+            // Try to parse and pretty-print as JSON
+            try {
+              Object parsed = JacksonUtility.getJsonMapper().readValue(resultStr, Object.class);
+              resultStr =
+                  JacksonUtility.getJsonMapper()
+                      .writerWithDefaultPrettyPrinter()
+                      .writeValueAsString(parsed);
+            } catch (Exception e) {
+              // Not JSON, use as-is
+            }
+            String[] resultLines = resultStr.split("\n");
+            for (String line : resultLines) {
+              if (line.isEmpty()) {
+                sb.append("│\n");
+              } else {
+                int maxWidth = 76;
+                if (line.length() <= maxWidth) {
+                  sb.append("│ ").append(line).append("\n");
+                } else {
+                  int start = 0;
+                  while (start < line.length()) {
+                    int end = Math.min(start + maxWidth, line.length());
+                    String chunk = line.substring(start, end);
+                    sb.append("│ ").append(chunk).append("\n");
+                    start = end;
+                  }
+                }
+              }
+            }
+            sb.append("\n");
           }
-          sb.append("\n");
         }
         
         planNum++;
@@ -1492,6 +1708,73 @@ public class InferenceLogger {
     logExecutionPlan(planJson, executionResult, error, null);
   }
 
+  /**
+   * Log execution plan as a new event, or update the most recent plan event if it doesn't have a result/error yet.
+   * Use this when logging each attempt separately.
+   */
+  public void logExecutionPlanNew(String planJson, String executionResult, String error, Boolean planCacheHit) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) {
+      log.warn("Cannot log execution plan: executionId is null");
+      return;
+    }
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        // If we're adding a result/error and have a plan JSON, try to update the most recent plan event
+        // that doesn't have a result/error yet (this handles the case where plan was logged first, then result/error)
+        if ((executionResult != null || error != null) && planJson != null && !planJson.trim().isEmpty()) {
+          // Find the most recent execution_plan event that doesn't have a result or error
+          for (int i = events.size() - 1; i >= 0; i--) {
+            ExecutionEvent event = events.get(i);
+            if ("execution_plan".equals(event.type) && event.data != null) {
+              boolean hasResult = event.data.containsKey("executionResult") && event.data.get("executionResult") != null;
+              boolean hasError = event.data.containsKey("error") && event.data.get("error") != null;
+              if (!hasResult && !hasError) {
+                // Found a plan event without result/error - update it
+                event.data.put("plan", planJson);
+                if (executionResult != null) {
+                  event.data.put("executionResult", executionResult);
+                }
+                if (error != null) {
+                  event.data.put("error", error);
+                }
+                if (planCacheHit != null) {
+                  event.data.put("planCacheHit", planCacheHit);
+                }
+                log.debug("Updated existing execution plan event with result/error (executionId: {}, hasResult: {}, hasError: {}, planCacheHit: {})", 
+                    executionId, executionResult != null, error != null, planCacheHit);
+                return;
+              }
+            }
+          }
+        }
+        
+        // No existing event to update, or we're logging a new plan - create a new event
+        Map<String, Object> data = new HashMap<>();
+        data.put("plan", planJson != null ? planJson : "");
+        if (executionResult != null) {
+          data.put("executionResult", executionResult);
+        }
+        if (error != null) {
+          data.put("error", error);
+        }
+        if (planCacheHit != null) {
+          data.put("planCacheHit", planCacheHit);
+        }
+        events.add(
+            new ExecutionEvent("execution_plan", executionId, Instant.now().toString(), data));
+        log.debug("Execution plan logged as new event (length: {}, executionId: {}, hasResult: {}, hasError: {}, planCacheHit: {})", 
+            planJson != null ? planJson.length() : 0, executionId, executionResult != null, error != null, planCacheHit);
+      } else {
+        log.warn("Cannot log execution plan: events list is null for executionId: {}", executionId);
+      }
+    } else {
+      log.debug("Execution plan not logged: report mode disabled");
+    }
+  }
+
   public void logExecutionPlan(String planJson, String executionResult, String error, Boolean planCacheHit) {
     String executionId = currentExecutionId.get();
     if (executionId == null) {
@@ -1502,9 +1785,10 @@ public class InferenceLogger {
     if (reportModeEnabled) {
       List<ExecutionEvent> events = executionEvents.get(executionId);
       if (events != null) {
-        // If we have ONLY a result/error (no plan JSON), try to update the most recent plan event
-        // This is for adding execution results to an already-logged plan
+        // Try to update the most recent plan event if we're just adding cache status or results
+        // This handles cases where plan was logged early and we're now adding cache status
         if ((executionResult != null || error != null) && (planJson == null || planJson.trim().isEmpty())) {
+          // We're only adding execution results to an existing plan (no plan JSON provided)
           // Find the most recent execution_plan event and update it
           for (int i = events.size() - 1; i >= 0; i--) {
             ExecutionEvent event = events.get(i);
@@ -1516,13 +1800,36 @@ public class InferenceLogger {
               if (error != null) {
                 event.data.put("error", error);
               }
-              log.debug("Updated execution plan with result (executionId: {}, hasResult: {}, hasError: {})", 
-                  executionId, executionResult != null, error != null);
+              if (planCacheHit != null) {
+                event.data.put("planCacheHit", planCacheHit);
+              }
+              log.debug("Updated execution plan with result (executionId: {}, hasResult: {}, hasError: {}, planCacheHit: {})", 
+                  executionId, executionResult != null, error != null, planCacheHit);
               return;
             }
           }
-          // If no plan event found, log a new one (shouldn't happen, but handle gracefully)
           log.warn("No existing plan event found to update with result (executionId: {})", executionId);
+        } else if (planCacheHit != null && planJson != null && !planJson.trim().isEmpty()) {
+          // We have both plan and cache status - try to update existing event first
+          // (This handles the case where plan was logged early without cache status)
+          for (int i = events.size() - 1; i >= 0; i--) {
+            ExecutionEvent event = events.get(i);
+            if ("execution_plan".equals(event.type) && event.data != null) {
+              // Update the existing event's data map
+              event.data.put("plan", planJson);
+              if (executionResult != null) {
+                event.data.put("executionResult", executionResult);
+              }
+              if (error != null) {
+                event.data.put("error", error);
+              }
+              event.data.put("planCacheHit", planCacheHit);
+              log.debug("Updated execution plan with cache status (executionId: {}, planCacheHit: {})", 
+                  executionId, planCacheHit);
+              return;
+            }
+          }
+          // No existing event found - will create new one below
         }
         
         // Log new plan event - either we have a plan JSON, or we couldn't find an existing event to update
@@ -1536,6 +1843,9 @@ public class InferenceLogger {
         }
         if (planCacheHit != null) {
           data.put("planCacheHit", planCacheHit);
+          log.debug("Setting planCacheHit to {} in execution plan event", planCacheHit);
+        } else {
+          log.debug("planCacheHit is null - not setting cache status in execution plan event");
         }
         events.add(
             new ExecutionEvent("execution_plan", executionId, Instant.now().toString(), data));
@@ -1566,6 +1876,36 @@ public class InferenceLogger {
     }
 
     log.debug("Phase change: {}", phase);
+  }
+
+  /**
+   * Log execution phase (TypeScript execution) with duration and result.
+   */
+  public void logExecutionPhase(int attempt, long durationMs, boolean success, String error) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) return;
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("attempt", attempt);
+        data.put("durationMs", durationMs);
+        data.put("success", success);
+        if (error != null) {
+          data.put("error", error);
+        }
+        events.add(
+            new ExecutionEvent(
+                "execution_phase", executionId, Instant.now().toString(), data));
+      }
+    }
+
+    log.info(
+        "Execution phase completed (attempt: {}, duration: {}ms, success: {})",
+        attempt,
+        durationMs,
+        success);
   }
 
   public void logStepExecutionResult(String stepId, Object result) {
@@ -1735,6 +2075,59 @@ public class InferenceLogger {
 
     // If only 1 line matches, don't elide (not significant enough)
     return current;
+  }
+
+  /**
+   * Format TypeScript code for pretty printing in reports.
+   */
+  private String formatTypeScriptCode(String code) {
+    if (code == null || code.trim().isEmpty()) {
+      return code;
+    }
+    
+    // Unescape JSON string if needed
+    if (code.startsWith("\"") && code.endsWith("\"")) {
+      try {
+        code = JacksonUtility.getJsonMapper().readValue(code, String.class);
+      } catch (Exception e) {
+        // Not a JSON string, use as-is
+      }
+    }
+    
+    // Replace escaped newlines with actual newlines
+    code = code.replace("\\n", "\n");
+    code = code.replace("\\t", "  ");
+    
+    // Basic formatting: ensure consistent indentation
+    StringBuilder formatted = new StringBuilder();
+    int indent = 0;
+    String[] lines = code.split("\n");
+    
+    for (String line : lines) {
+      String trimmed = line.trim();
+      if (trimmed.isEmpty()) {
+        formatted.append("\n");
+        continue;
+      }
+      
+      // Decrease indent before closing braces
+      if (trimmed.startsWith("}") || trimmed.startsWith("]")) {
+        indent = Math.max(0, indent - 2);
+      }
+      
+      // Add indentation
+      for (int i = 0; i < indent; i++) {
+        formatted.append(" ");
+      }
+      formatted.append(trimmed).append("\n");
+      
+      // Increase indent after opening braces
+      if (trimmed.endsWith("{") || trimmed.endsWith("[")) {
+        indent += 2;
+      }
+    }
+    
+    return formatted.toString().trim();
   }
 
   /**
