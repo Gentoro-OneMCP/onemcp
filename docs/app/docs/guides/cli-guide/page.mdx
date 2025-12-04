@@ -145,13 +145,49 @@ onemcp doctor
 
 ### Update
 
-Update to latest CLI version.
+Update OneMCP Docker image and get CLI update instructions.
 
 ```bash
 onemcp update
 ```
 
-Pulls latest OneMCP Docker image.
+**What it does:**
+- Detects how the CLI was installed (Homebrew/Scoop/Manual)
+- Shows appropriate update instructions for the CLI binary
+- Pulls the latest OneMCP Docker image
+
+**Example output:**
+```
+📌 To update the OneMCP CLI:
+
+  Homebrew:
+    brew upgrade onemcp
+
+📦 Updating OneMCP Docker image...
+latest: Pulling from admingentoro/gentoro
+✅ Docker image updated successfully!
+```
+
+**To update the CLI itself:**
+- **Homebrew:** `brew upgrade onemcp`
+- **Scoop:** `scoop update onemcp`
+- **Manual:** Download from [GitHub Releases](https://github.com/Gentoro-OneMCP/onemcp/releases/latest)
+
+**Note:** The `update` command updates the Docker image. To update the CLI binary, follow the instructions shown.
+
+---
+
+### Version
+
+Show CLI version.
+
+```bash
+onemcp version
+# or
+onemcp --version
+```
+
+Displays the installed CLI version.
 
 ---
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/gentoro/onemcp/go-cli/pkg/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -12,10 +13,10 @@ var cfgFile string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "onemcp",
-	Short: "CLI for Gentoro One MCP - Connect APIs to AI models",
-	Long: `Gentoro One MCP CLI
-Connect your APIs to AI models via the Model Context Protocol.`,
+	Use:     "onemcp",
+	Short:   "CLI for Gentoro One MCP - Connect APIs to AI models",
+	Long:    `Gentoro One MCP CLI\nConnect your APIs to AI models via the Model Context Protocol.`,
+	Version: version.Version,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -56,4 +57,3 @@ func initConfig() {
 		fmt.Fprintln(os.Stderr, "Using config file:", viper.ConfigFileUsed())
 	}
 }
-
