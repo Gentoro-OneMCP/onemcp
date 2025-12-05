@@ -64,7 +64,8 @@ public class OpenApiCurator {
                                                   "contentType",
                                                   content.getKey(),
                                                   "schema",
-                                                  content.getValue().getSchema())));
+                                                  content.getValue().getSchema()))
+                                      .toList());
                             }
 
                             opEntry.put(

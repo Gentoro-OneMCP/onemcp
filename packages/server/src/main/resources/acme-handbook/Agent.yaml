@@ -169,6 +169,10 @@ apis:
           - kind: Retrieve
             description: |
               Can be **RETRIEVED** (filtered/all) and combined with **Product** data.
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData
 
       - name: Product
         aliases:
@@ -185,6 +189,10 @@ apis:
         operations:
           - kind: Retrieve
             description: "Can be **RETRIEVED** (filtered/all) and combined with **Category** and **Order** data."
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData
 
       - name: Customer
         aliases:
@@ -201,6 +209,10 @@ apis:
         operations:
           - kind: Retrieve
             description: "Can be **RETRIEVED** (filtered/all) and combined with **Region** and **Order** data."
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData
 
       - name: Order
         aliases:
@@ -217,6 +229,10 @@ apis:
         operations:
           - kind: Retrieve
             description: "Can be **RETRIEVED** (filtered/all) and combined with **Customer** and **Product** data."
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData
 
       - name: Region
         description: "A geographical location from a customer's address. *Example: CA, San Francisco.*"
@@ -227,3 +243,7 @@ apis:
         operations:
           - kind: Retrieve
             description: "Can be **RETRIEVED** (filtered/all) and combined with **Customer** data"
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData
