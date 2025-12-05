@@ -126,11 +126,11 @@ public class HandbookImpl implements Handbook {
                       log.info("Loading unlinked API: {} ", location().relativize(file));
                       Service service = new Service(this, file);
                       final Api apiDef = service.getApiDef();
-                      apiDef.clearEntities();
 
                       ManagementService managementService = new ManagementService(this.oneMcp);
                       EntityGenerationResult result = managementService.generateEntities(apiDef);
 
+                      Map<String, Entity> entityMap = new HashMap<>();
                       result
                           .getEntities()
                           .forEach(
@@ -139,6 +139,7 @@ public class HandbookImpl implements Handbook {
                                 entityDef.setName(entity.getEntityName());
                                 entityDef.setDescription(entity.getDescription());
 
+                                Map<String, EntityOperation> operationMap = new HashMap<>();
                                 entity
                                     .getOperations()
                                     .forEach(
@@ -148,6 +149,7 @@ public class HandbookImpl implements Handbook {
                                           operationDef.setKind(operation.getOperationType());
                                           operationDef.setDescription(operation.getDefinition());
 
+                                          Map<String, OpenApiRel> openApiRelMap = new HashMap<>();
                                           operation
                                               .getApiPaths()
                                               .forEach(
@@ -189,24 +191,35 @@ public class HandbookImpl implements Handbook {
                                                             .findFirst()
                                                             .orElse(null));
                                                     if (Objects.nonNull(openApiRel.getOperationId())
-                                                        && !openApiRel.getOperationId().isEmpty())
-                                                      operationDef.addOpenApiRel(openApiRel);
-                                                    else {
+                                                        && !openApiRel.getOperationId().isEmpty()) {
+                                                      openApiRelMap.put(
+                                                          openApiRel.getOperationId(), openApiRel);
+                                                    } else {
                                                       log.warn(
                                                           "Could not locate corresponding OpenAPI Operation for: path = [{}], method = [{}]",
                                                           apiPath.getPath(),
                                                           apiPath.getHttpMethod());
                                                     }
                                                   });
-                                          if (Objects.nonNull(operationDef.getOpenApiRels())
-                                              && !operationDef.getOpenApiRels().isEmpty()) {
-                                            entityDef.addOperation(operationDef);
+
+                                          if (!openApiRelMap.isEmpty()) {
+                                            openApiRelMap
+                                                .values()
+                                                .forEach(operationDef::addOpenApiRel);
+                                            operationMap.put(operationDef.getKind(), operationDef);
                                           } else {
                                             log.warn(
                                                 "Skipping operation mapping: [{}]",
                                                 operationDef.getKind());
                                           }
                                         });
+
+                                for (var operationDef : operationMap.values()) {
+                                  if (operationDef.getOpenApiRels() != null
+                                      && !operationDef.getOpenApiRels().isEmpty()) {
+                                    entityDef.addOperation(operationDef);
+                                  }
+                                }
 
                                 entity
                                     .getRelationships()
@@ -222,7 +235,7 @@ public class HandbookImpl implements Handbook {
 
                                 if (Objects.nonNull(entityDef.getOperations())
                                     && !entityDef.getOperations().isEmpty()) {
-                                  apiDef.addEntity(entityDef);
+                                  entityMap.put(entityDef.getName(), entityDef);
                                 } else {
                                   log.warn(
                                       "Skipping entity mapping due to lake of linked operations: path = [{}]",
@@ -230,14 +243,16 @@ public class HandbookImpl implements Handbook {
                                 }
                               });
 
+                      apiDef.clearEntities();
+                      entityMap.values().forEach(apiDef::addEntity);
+
                       this.agent.addApi(apiDef);
                       RegressionSuite regressionSuite =
                           managementService.generateRegressionSuite(apiDef);
                       if (Objects.nonNull(regressionSuite)
                           && Objects.nonNull(regressionSuite.getTests())
                           && !regressionSuite.getTests().isEmpty()) {
-                        saveYaml(
-                            regressionSuite, "regression-suites/" + apiDef.getSlug() + ".yaml");
+                        saveYaml(regressionSuite, "regression-suite/" + apiDef.getSlug() + ".yaml");
                       }
                       persistAgentYaml.set(true);
                     }
