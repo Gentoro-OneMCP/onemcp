@@ -1,6 +1,7 @@
 package com.gentoro.onemcp.management.async;
 
 import com.gentoro.onemcp.OneMcp;
+import com.gentoro.onemcp.exception.ExceptionUtil;
 import com.gentoro.onemcp.management.archive.IoUtil;
 import com.gentoro.onemcp.management.archive.TarReader;
 import com.gentoro.onemcp.utility.FileUtility;
@@ -75,6 +76,7 @@ public final class HandbookJobManager {
       Path extracted = job.tempDirectory.resolve("extracted");
       Files.createDirectories(extracted);
 
+      job.details = "Extracting archive to staging directory";
       try (var in = Files.newInputStream(archive)) {
         TarReader.extractTarGzipSecure(in, extracted);
       }
@@ -91,7 +93,7 @@ public final class HandbookJobManager {
     } catch (Exception e) {
       log.error("Handbook upload failed", e);
       job.status = HandbookJobStatus.FAILED;
-      job.errorMessage = e.getMessage();
+      job.details = ExceptionUtil.formatCompactStackTrace(e);
     } finally {
       IoUtil.silentDeleteDir(job.tempDirectory);
     }

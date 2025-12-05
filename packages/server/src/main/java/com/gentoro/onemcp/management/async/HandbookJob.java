@@ -18,7 +18,7 @@ public final class HandbookJob {
   public final Path tempDirectory;
 
   public volatile HandbookJobStatus status;
-  public volatile String errorMessage;
+  public volatile String details;
 
   public HandbookJob(String jobId, Path tempDirectory) {
     this.jobId = jobId;

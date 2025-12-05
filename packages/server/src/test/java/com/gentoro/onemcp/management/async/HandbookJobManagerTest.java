@@ -71,6 +71,6 @@ class HandbookJobManagerTest {
     }
 
     assertEquals(HandbookJobStatus.FAILED, job.status);
-    assertNotNull(job.errorMessage);
+    assertNotNull(job.details);
   }
 }
