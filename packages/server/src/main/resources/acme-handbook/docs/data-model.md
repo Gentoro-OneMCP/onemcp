@@ -1,15 +1,3 @@
----
-title: "Data Model - Sales Analytics API"
-entities: 
-  - Product
-  - Order
-  - Category
-  - Sales
-  - Customer
-  - Region
-author: "ACME"
----
-
 # Data Model - Sales Analytics API
 
 This document describes the complete data model for the Sales Analytics API, including all available fields, their types, and relationships.

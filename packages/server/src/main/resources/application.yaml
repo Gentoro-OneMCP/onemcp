@@ -74,6 +74,7 @@ graph:
   # Document chunking configuration used by HandbookGraphService
   chunking:
     markdown:
+      naiveExtraction: ${env:GRAPH_CHUNKING_MARKDOWN_NAIVE_EXTRACTION:-true}
       # Strategy for Markdown chunking (future use): heading | paragraph | sliding-window
       strategy: ${env:GRAPH_CHUNKING_MARKDOWN_STRATEGY:-paragraph}
       # Target tokens per chunk (approx; used by default MarkdownChunker)

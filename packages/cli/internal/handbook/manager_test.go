@@ -291,7 +291,7 @@ func TestValidateStructure(t *testing.T) {
 			}
 
 			manager := NewManager(nil)
-			err = manager.ValidateStructure(tmpDir)
+			err = manager.ValidateStructure(tmpDir, true)
 
 			if tt.wantError && err == nil {
 				t.Error("Expected error but got none")

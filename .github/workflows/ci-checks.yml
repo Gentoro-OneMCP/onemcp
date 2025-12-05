@@ -170,7 +170,8 @@ jobs:
         # Set required environment variables for OneMCP
         export OPENAI_API_KEY="test-key-for-ci"
         export SPRING_PROFILES_ACTIVE="test"
-
+        export 
+        
         # Start service in a detached screen session
         screen -dmS onemcp_service java -jar "$ONEMCP_JAR" 
         ONEMCP_PID=$!

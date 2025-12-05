@@ -24,7 +24,7 @@ type Manager struct {
 }
 
 // SKIP_DOCKER Meant for testing purposes only, bypasses Docker operations
-const SKIP_DOCKER = true
+const SKIP_DOCKER = false
 
 // NewManager creates a new ServerManager instance
 func NewManager() (*Manager, error) {
@@ -126,6 +126,8 @@ func (m *Manager) Start(ctx context.Context, config interfaces.ServerConfig) err
 	if config.ModelAPIKey != "" {
 		env = append(env, fmt.Sprintf("%s_API_KEY=%s", config.Model, config.ModelAPIKey))
 	}
+
+	env = append(env, "GRAPH_CHUNKING_MARKDOWN_NAIVE_EXTRACTION=false")
 
 	// Create container configuration
 	containerConfig := &container.Config{

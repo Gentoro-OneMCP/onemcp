@@ -1,15 +1,3 @@
----
-title: "Sales Analytics API - Overview"
-entities:
-  - Product
-  - Order
-  - Category
-  - Sales
-  - Customer
-  - Region
-author: "ACME"
----
-
 # Sales Analytics API - Overview
 
 ## Introduction

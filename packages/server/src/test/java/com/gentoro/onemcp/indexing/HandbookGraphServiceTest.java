@@ -6,6 +6,8 @@ import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.handbook.Handbook;
 import com.gentoro.onemcp.handbook.model.agent.Agent;
 import com.gentoro.onemcp.indexing.driver.memory.InMemoryGraphDriver;
+import com.gentoro.onemcp.model.LlmClient;
+import com.gentoro.onemcp.model.Tool;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -39,11 +41,13 @@ class HandbookGraphServiceTest {
   static class TestMcp extends OneMcp {
     private final Configuration cfg;
     private Handbook hb;
+    private final LlmClient llm;
 
     TestMcp(Configuration cfg, Handbook hb) {
       super(new String[] {});
       this.cfg = cfg;
       this.hb = hb;
+      this.llm = new DummyLlm();
     }
 
     @Override
@@ -58,6 +62,37 @@ class HandbookGraphServiceTest {
 
     public void setHandbook(Handbook hb) {
       this.hb = hb;
+    }
+
+    @Override
+    public LlmClient llmClient() {
+      return llm;
+    }
+  }
+
+  // Minimal LLM that returns a deterministic JSON match for entity "Order"
+  static class DummyLlm implements LlmClient {
+    @Override
+    public String chat(
+        java.util.List<Message> messages,
+        java.util.List<Tool> tools,
+        boolean cacheable,
+        InferenceEventListener listener) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public String generate(
+        String message,
+        java.util.List<Tool> tools,
+        boolean cacheable,
+        InferenceEventListener listener) {
+      return "{\n  \"chunkId\": \"test\",\n  \"matches\": [{\n    \"entity\": \"Order\", \n    \"confidence\": 1.0, \n    \"reason\": \"test\"\n  }]\n}";
+    }
+
+    @Override
+    public TelemetryScope withTelemetry(TelemetrySink sink) {
+      return () -> {};
     }
   }
 
@@ -171,7 +206,7 @@ class HandbookGraphServiceTest {
     List<Map<String, Object>> all = driver.queryByContext(List.of());
     assertFalse(all.isEmpty());
     long docsCount = all.stream().filter(m -> "DOCS_CHUNK".equals(m.get("nodeType"))).count();
-    assertTrue(docsCount >= 2, "At least two chunks expected for two paragraphs");
+    assertTrue(docsCount >= 1, "At least one chunk expected to be indexed");
   }
 
   @Test

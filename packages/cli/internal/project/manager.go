@@ -286,8 +286,17 @@ func (m *Manager) Initialize(ctx context.Context, opts interfaces.InitOptions) e
 		return errors.NewGenericError("failed to access target directory", err)
 	}
 
-	// Validate directory state
-	dirState, err := m.ValidateDirectory(targetDir, opts.InitMode)
+ // Infer InitMode if not explicitly provided
+ if opts.InitMode == "" {
+     if strings.TrimSpace(opts.ServerURL) != "" {
+         opts.InitMode = interfaces.InitModeRemote
+     } else {
+         opts.InitMode = interfaces.InitModeLocal
+     }
+ }
+
+ // Validate directory state
+ dirState, err := m.ValidateDirectory(targetDir, opts.InitMode)
 	if err != nil {
 		return err
 	}
@@ -475,13 +484,19 @@ func (m *Manager) initializeLocalExisting(ctx context.Context, targetDir string,
 		return errors.NewGenericError("server manager not provided", nil)
 	}
 
-	serverConfig := interfaces.ServerConfig{
-		Mode:            interfaces.ModeLocal,
-		DockerContainer: containerName,
-		Port:            opts.TcpPort,
-		Model:           opts.Model,
-		ModelAPIKey:     opts.ModelAPIKey,
-	}
+ // Determine port, default to 8080 if not provided
+    port := opts.TcpPort
+    if port == 0 {
+        port = 8080
+    }
+
+    serverConfig := interfaces.ServerConfig{
+        Mode:            interfaces.ModeLocal,
+        DockerContainer: containerName,
+        Port:            port,
+        Model:           opts.Model,
+        ModelAPIKey:     opts.ModelAPIKey,
+    }
 
 	if err := serverMgr.Start(ctx, serverConfig); err != nil {
 		rollback()
@@ -509,25 +524,25 @@ func (m *Manager) initializeLocalExisting(ctx context.Context, targetDir string,
 		return errors.NewGenericError("handbook manager not provided", nil)
 	}
 
-	handbookDir := filepath.Join(targetDir, "handbook")
-	serverURL := fmt.Sprintf("http://localhost:%d", serverConfig.Port)
-	if err := handbookMgr.Push(ctx, serverURL, handbookDir); err != nil {
-		rollback()
-		return errors.NewGenericError("failed to push handbook to server", err)
-	}
+ handbookDir := filepath.Join(targetDir, "handbook")
+ serverURL := fmt.Sprintf("http://localhost:%d", serverConfig.Port)
+ if err := handbookMgr.Push(ctx, serverURL, handbookDir); err != nil {
+     rollback()
+     return errors.NewGenericError("failed to push handbook to server", err)
+ }
 
 	// Write configuration file with "existing" source
-	config := interfaces.ProjectConfig{
-		Version: 1,
-		Server: interfaces.ServerConfig{
-			Mode:            interfaces.ModeLocal,
-			DockerContainer: containerName,
-			Port:            opts.TcpPort,
-			Model:           opts.Model,
-			ModelAPIKey:     opts.ModelAPIKey,
-		},
-		Handbook: interfaces.HandbookConfig{
-			Source:    "existing",
+ config := interfaces.ProjectConfig{
+        Version: 1,
+        Server: interfaces.ServerConfig{
+            Mode:            interfaces.ModeLocal,
+            DockerContainer: containerName,
+            Port:            port,
+            Model:           opts.Model,
+            ModelAPIKey:     opts.ModelAPIKey,
+        },
+        Handbook: interfaces.HandbookConfig{
+            Source:    "existing",
 			CreatedAt: time.Now(),
 		},
 	}

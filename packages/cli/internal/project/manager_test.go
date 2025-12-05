@@ -549,7 +549,7 @@ func (m *mockHandbookManager) InstallAcmeTemplate(targetDir string) error {
 	return m.installError
 }
 
-func (m *mockHandbookManager) ValidateStructure(handbookDir string) error {
+func (m *mockHandbookManager) ValidateStructure(handbookDir string, softCheck bool) error {
 	return nil
 }
 

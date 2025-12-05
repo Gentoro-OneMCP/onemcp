@@ -1,12 +1,17 @@
 package com.gentoro.onemcp.indexing;
 
 import com.gentoro.onemcp.OneMcp;
+import com.gentoro.onemcp.exception.IoException;
 import com.gentoro.onemcp.handbook.Handbook;
 import com.gentoro.onemcp.handbook.model.agent.Api;
-import com.gentoro.onemcp.indexing.docs.MarkdownChunker;
+import com.gentoro.onemcp.indexing.docs.Chunk;
+import com.gentoro.onemcp.indexing.docs.EntityExtractor;
+import com.gentoro.onemcp.indexing.docs.EntityMatch;
+import com.gentoro.onemcp.indexing.docs.SemanticMarkdownChunker;
 import com.gentoro.onemcp.indexing.driver.memory.InMemoryGraphDriver;
 import com.gentoro.onemcp.indexing.model.KnowledgeNodeType;
 import com.gentoro.onemcp.indexing.openapi.OpenApiToNodes;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -23,7 +28,6 @@ public class HandbookGraphService implements AutoCloseable {
 
   private final OneMcp oneMcp;
   private final GraphDriver driver;
-  private final MarkdownChunker markdownChunker;
   private final OpenApiToNodes openApiToNodes;
 
   public HandbookGraphService(OneMcp oneMcp) {
@@ -33,23 +37,6 @@ public class HandbookGraphService implements AutoCloseable {
   public HandbookGraphService(OneMcp oneMcp, GraphDriver driver) {
     this.oneMcp = oneMcp;
     this.driver = Objects.requireNonNull(driver, "driver");
-
-    MarkdownChunker.Strategy strategy = MarkdownChunker.Strategy.PARAGRAPH;
-    try {
-      String s =
-          oneMcp
-              .configuration()
-              .getString("graph.indexing.chunking.markdown.strategy", "paragraph");
-      if (s != null) {
-        switch (s.toLowerCase(Locale.ROOT)) {
-          case "heading" -> strategy = MarkdownChunker.Strategy.HEADING;
-          case "sliding-window", "sliding_window", "slidingwindow" -> strategy =
-              MarkdownChunker.Strategy.SLIDING_WINDOW;
-          default -> strategy = MarkdownChunker.Strategy.PARAGRAPH;
-        }
-      }
-    } catch (Exception ignored) {
-    }
 
     int windowSize = 500;
     try {
@@ -64,7 +51,6 @@ public class HandbookGraphService implements AutoCloseable {
     } catch (Exception ignored) {
     }
 
-    this.markdownChunker = new MarkdownChunker(strategy, windowSize, overlap);
     this.openApiToNodes = new OpenApiToNodes();
   }
 
@@ -127,15 +113,49 @@ public class HandbookGraphService implements AutoCloseable {
   }
 
   private void addDocChunks(Path file, List<GraphNodeRecord> batch) {
-    for (MarkdownChunker.Chunk c : markdownChunker.chunkFile(file)) {
+    // --- 1) Setup chunker (minTokens, maxTokens, overlapTokens)
+    SemanticMarkdownChunker chunker =
+        new SemanticMarkdownChunker(
+            150, // min tokens
+            450, // max tokens
+            40 // overlap tokens (approx)
+            );
+
+    List<Chunk> chunks;
+    try {
+      // Chunk the file
+      chunks = chunker.chunkFile(file);
+      log.info("Produced {} chunks:", chunks.size());
+      for (var c : chunks) {
+        log.trace(" - {} | {} | len={}", c.id(), c.sectionPath(), c.content().length());
+      }
+    } catch (IOException e) {
+      throw new IoException(
+          "Failed while attempting to generate documentation chunks for " + file, e);
+    }
+
+    EntityExtractor extractor =
+        new EntityExtractor(
+            oneMcp,
+            oneMcp.handbook().apis().values().stream()
+                .flatMap(api -> api.getEntities().stream())
+                .toList());
+
+    // Extract entities for each chunk
+    for (var c : chunks) {
+      var res = extractor.extract(c);
+      log.info("Chunk: {} -> matches: {}", c.id(), res.getMatches().size());
+      for (var m : res.getMatches()) {
+        log.trace("   - {} ({}}) : {}%n", m.getEntity(), m.getConfidence(), m.getReason());
+      }
       GraphNodeRecord n =
           new GraphNodeRecord(
-                  key("doc", file.toString(), Integer.toString(c.contentMarkdown().hashCode())),
+                  key("doc", file.toString(), Integer.toString(c.content().hashCode())),
                   KnowledgeNodeType.DOCS_CHUNK)
-              .setDocPath(c.docPath())
-              .setEntities(c.entities())
-              .setOperations(c.operations())
-              .setContent(c.contentMarkdown())
+              .setDocPath(c.fileName())
+              .setEntities(res.getMatches().stream().map(EntityMatch::getEntity).toList())
+              .setOperations(Collections.emptyList())
+              .setContent(c.content())
               .setContentFormat("markdown");
       batch.add(n);
     }
