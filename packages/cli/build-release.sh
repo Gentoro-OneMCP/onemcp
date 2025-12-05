@@ -21,30 +21,30 @@ mkdir -p ${BUILD_DIR}
 
 # Build for Mac Apple Silicon (M1/M2/M3)
 echo "Building for macOS ARM64..."
-GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp main.go
+GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp cmd/onemcp/main.go
 tar -czf ${BUILD_DIR}/onemcp-darwin-arm64.tar.gz -C ${BUILD_DIR} onemcp
 rm ${BUILD_DIR}/onemcp
 
 # Build for Mac Intel
 echo "Building for macOS AMD64..."
-GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp main.go
+GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp cmd/onemcp/main.go
 tar -czf ${BUILD_DIR}/onemcp-darwin-amd64.tar.gz -C ${BUILD_DIR} onemcp
 rm ${BUILD_DIR}/onemcp
 
 # Build for Linux
 echo "Building for Linux AMD64..."
-GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp main.go
+GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp cmd/onemcp/main.go
 tar -czf ${BUILD_DIR}/onemcp-linux-amd64.tar.gz -C ${BUILD_DIR} onemcp
 rm ${BUILD_DIR}/onemcp
 
 # Build for Windows
 echo "Building for Windows AMD64..."
-GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp.exe main.go
+GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp.exe cmd/onemcp/main.go
 cd ${BUILD_DIR} && zip -q onemcp-windows-amd64.zip onemcp.exe && cd ..
 rm ${BUILD_DIR}/onemcp.exe
 
 echo "Building for Windows ARM64..."
-GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp.exe main.go
+GOOS=windows GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ${BUILD_DIR}/onemcp.exe cmd/onemcp/main.go
 cd ${BUILD_DIR} && zip -q onemcp-windows-arm64.zip onemcp.exe && cd ..
 rm ${BUILD_DIR}/onemcp.exe
 
