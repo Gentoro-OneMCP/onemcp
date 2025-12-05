@@ -38,7 +38,7 @@ public final class HandbookStatusServlet extends HttpServlet {
     ObjectNode node = mapper.createObjectNode();
     node.put("jobId", job.jobId);
     node.put("status", job.status.toString());
-    if (job.errorMessage != null) node.put("error", job.errorMessage);
+    if (job.details != null) node.put("details", job.details);
 
     resp.setStatus(200);
     resp.setContentType("application/json");
