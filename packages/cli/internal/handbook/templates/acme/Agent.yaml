@@ -1,0 +1,248 @@
+# Optionally, provide a complete history of releases for this agent.
+releases:
+  - version: "0.0.1"
+    author:
+      name: ACME Corporation
+    date: "2023-01-01"
+    description: "Initial version"
+
+# ========================================================================
+#                               GUARDRAILS
+# ========================================================================
+guardrails:
+  # Purpose: Constrain the agent to operate *only* within the ACME Sales Analytics API.
+  # This is an autonomous agent: it MUST NOT ask the user questions or request clarification.
+  # It MUST either: (a) execute the in-scope parts of the assignment or (b) reject the assignment.
+  policies:
+
+    # --------------------------------------------------------------------
+    - id: scope.limits
+      phase:
+        - context
+        - plan
+      description: |
+        The agent MUST ONLY perform tasks supported by the ACME Sales Analytics API,
+        including:
+        - Querying sales data using the /query endpoint
+        - Retrieving field metadata using the /fields endpoint
+        - Using the entities defined in this specification:
+          Category, Product, Customer, Order, Region
+        - Performing only Retrieve or Compute operations as noted in the entity definitions
+
+        If the request does not map directly to these capabilities,
+        the agent MUST reject the assignment.
+
+    # --------------------------------------------------------------------
+    - id: reject.out.of.scope
+      phase:
+        - context
+        - plan
+      description: |
+        The agent MUST reject ANY instruction that falls outside the API’s supported domain,
+        including:
+        - Creative writing, general dialogue, or subjective/opinion-based queries
+        - Requests to modify, update, delete, or create data
+        - Requests involving unknown fields, unknown entities, unknown relationships
+        - Requests for business insights or predictions not computable via the API
+        - Access to external services, systems, or databases beyond the ACME API
+
+        The agent MUST NOT attempt to answer partially.  
+        It MUST refuse the unsupported instruction(s) explicitly.
+
+    # --------------------------------------------------------------------
+    - id: isolate.unsupported.instructions
+      phase:
+        - context
+        - plan
+      description: |
+        If a user assignment contains BOTH supported and unsupported instructions:
+
+        1. The agent MUST isolate all **supported** instructions that map to API capabilities.
+        2. The agent MUST prepare a plan ONLY for the supported instructions.
+        3. The agent MUST reject EACH unsupported instruction individually.
+
+        The agent MUST NOT:
+        - combine unsupported instructions with supported ones
+        - attempt to infer missing information for unsupported parts
+        - silently ignore unsupported parts
+
+        The agent MUST state clearly which parts were executed and which were refused.
+
+    # --------------------------------------------------------------------
+    - id: enforce.entity.mapping
+      phase:
+        - context
+        - plan
+      description: |
+        The agent MUST validate that every requested operation is tied to:
+        - A defined entity (Category, Product, Customer, Order, Region)
+        - A valid field from the OpenAPI schema
+        - A supported operator or aggregation
+
+        If ANY part of the assignment references something unmappable,
+        the agent MUST reject that part.
+
+    # --------------------------------------------------------------------
+    - id: prevent.hallucination
+      phase:
+        - context
+        - plan
+      description: |
+        The agent MUST NOT:
+        - Invent fields, operators, relationships, or entities
+        - Fill missing user context through guesses or inference
+        - Generate unsupported query structures or transformations
+        - Produce synthetic or hypothetical data
+
+        If the agent lacks the necessary explicit context to perform a step,
+        it MUST reject the assignment (or the affected part), NOT ask for clarification.
+
+    # --------------------------------------------------------------------
+    - id: safe.defaults
+      phase:
+        - plan
+      description: |
+        When building API requests, the agent MUST:
+        - Use only valid fields, operators, limits, and aggregates
+        - Respect all min/max constraints (filters, fields, aggregates)
+        - Use only supported query formats
+        - Avoid assumptions about datasets outside the schema
+
+        If safe defaults cannot resolve a missing value without assumptions,
+        the agent MUST reject the assignment.
+
+    # --------------------------------------------------------------------
+    - id: no.clarification.allowed
+      phase:
+        - context
+        - plan
+      description: |
+        This is a fully autonomous agent.  
+        The agent MUST NOT ask the user for clarification, missing details,
+        or to restate information.
+
+        If the user prompt lacks sufficient explicit information AND cannot
+        be executed strictly using the API specification, the agent MUST reject it.
+
+    # --------------------------------------------------------------------
+    - id: data.privacy
+      description: |
+        The agent MUST NOT infer personal or private customer data outside the fields
+        explicitly defined in the API schema.
+        Only documented attributes may be used.
+
+# ========================================================================
+#                               API DEFINITIONS
+# ========================================================================
+
+apis:
+  - slug: sales-analytics-api
+    name: Sales Analytics API
+    ref: sales-analytics-api.yaml
+    baseUrls:
+      - http://localhost:8080/acme
+    description: |
+      A comprehensive data analytics API for exploring e-commerce sales data. 
+      This API provides powerful querying capabilities to analyze sales performance,
+      customer behavior, product trends, and regional insights. 
+      
+      ## Key Features
+      - **Flexible Filtering**: Filter data using field operators (equals, greater than, contains, etc.)
+      - **Field Selection**: Choose exactly which fields to include in results
+      - **Aggregations**: Calculate sums, averages, counts, min/max values
+      - **Real-time Data**: Access to live sales data with historical context
+
+    entities:
+      - name: Category
+        aliases:
+          - terms: [Group]
+            description: "In the context of a collection of products, Category can also be referred as Group."
+        openApiTag: Category
+        description: |
+          A collection of products sharing attributes. *Example: Electronics, Clothing.*
+        relationships:
+          - name: Product
+            type: toMany
+            description: |
+              A category can contain multiple products.
+        operations:
+          - kind: Retrieve
+            description: |
+              Can be **RETRIEVED** (filtered/all) and combined with **Product** data.
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData
+      - name: Product
+        aliases:
+          - terms: [Item]
+            description: "In the context of an Order, a `Product` can also be referred as an `Item`."
+        description: "The items purchased. *Example: iPad, iPhone.*"
+        relationships:
+          - name: Order
+            type: toMany
+            description: "A Product can be bought multiple times, being part of multiple Orders."
+          - name: Category
+            type: toOne
+            description: "A Product always belongs to a Category."
+        operations:
+          - kind: Retrieve
+            description: "Can be **RETRIEVED** (filtered/all) and combined with **Category** and **Order** data."
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData
+
+      - name: Customer
+        aliases:
+          - terms: [Buyer, Client]
+            description: "In the context of an Order, a `Customer` can also be referred as a `Buyer` or `Client`."
+        description: "The buyers placing orders. Contains personal info, addresses, and region."
+        relationships:
+          - name: Order
+            type: toMany
+            description: "A Customer can place multiple Orders."
+          - name: Region
+            type: toOne
+            description: "A Customer lives in a specific region."
+        operations:
+          - kind: Retrieve
+            description: "Can be **RETRIEVED** (filtered/all) and combined with **Region** and **Order** data."
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData
+
+      - name: Order
+        aliases:
+          - terms: [Purchase]
+            description: "The act of placing an Order is also referred as a Purchase."
+        description: "Represents one order's details (items, quantity, buyer, revenue)."
+        relationships:
+          - name: Customer
+            type: toOne
+            description: "An Order always belongs to a Customer."
+          - name: Product
+            type: toMany
+            description: "An Order can contain multiple Products."
+        operations:
+          - kind: Retrieve
+            description: "Can be **RETRIEVED** (filtered/all) and combined with **Customer** and **Product** data."
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData
+
+      - name: Region
+        description: "A geographical location from a customer's address. *Example: CA, San Francisco.*"
+        relationships:
+          - name: Customer
+            type: toMany
+            description: "A Region can contain multiple Customers living there"
+        operations:
+          - kind: Retrieve
+            description: "Can be **RETRIEVED** (filtered/all) and combined with **Customer** data"
+            openApiRels:
+              - path: "/query"
+                httpMethod: POST
+                operationId: querySalesData

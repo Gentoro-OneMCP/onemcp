@@ -1,0 +1,255 @@
+name: "Analytics assignments"
+version: 0.0.1
+tests:
+  - display-name: total sales
+    prompt: |
+      What is the total sales in 2024?
+    assert: |
+      Check if a number is produced.
+
+  - display-name: revenue by category
+    prompt: |
+      Which customers placed at least one order in May, 2024? Return customer's name and gender.
+    assert: |
+      Check if names and genders are produced.
+
+  - display-name: average order value in 2024
+    prompt: |
+      What is the average order value in 2024? Return a single number.
+    assert: |
+      Check if a single numeric value is produced.
+
+  - display-name: distinct customers in 2024
+    prompt: |
+      How many distinct customers placed at least one order in 2024? Return a single number.
+    assert: |
+      Check if a single integer is produced.
+
+  - display-name: monthly revenue 2024
+    prompt: |
+      Show total revenue by month for 2024. Return columns: month (YYYY-MM), revenue. Sort by month ascending.
+    assert: |
+      Check if a table with columns 'month' and 'revenue' is produced, months in 2024 only, sorted ascending by month.
+
+  - display-name: revenue by category 2024
+    prompt: |
+      What is the total revenue by product category in 2024? Return columns: category, revenue. Sort by revenue descending.
+    assert: |
+      Check if a table with columns 'category' and 'revenue' is produced, sorted by revenue descending.
+
+  - display-name: top 5 customers by revenue 2024
+    prompt: |
+      List the top 5 customers by total revenue in 2024. Return columns: customer_name, revenue. Sort by revenue descending and limit to 5.
+    assert: |
+      Check if a table with columns 'customer_name' and 'revenue' is produced, sorted by revenue descending with at most 5 rows.
+
+  - display-name: top 5 products by quantity 2024
+    prompt: |
+      Which are the top 5 products by total quantity sold in 2024? Return columns: product_name, total_quantity. Sort by total_quantity descending.
+    assert: |
+      Check if a table with columns 'product_name' and 'total_quantity' is produced, sorted by total_quantity descending and limited to 5.
+
+  - display-name: orders by weekday 2024
+    prompt: |
+      How many orders were placed on each weekday in 2024? Return columns: weekday, orders. Sort by weekday in calendar order (Mon..Sun).
+    assert: |
+      Check if a table with columns 'weekday' and 'orders' is produced, weekdays covering only 2024 data.
+
+  - display-name: active customers by month 2024
+    prompt: |
+      Show the count of distinct purchasing customers by month in 2024. Return columns: month (YYYY-MM), active_customers. Sort by month ascending.
+    assert: |
+      Check if a table with columns 'month' and 'active_customers' is produced, months in 2024 only, sorted ascending.
+
+  - display-name: repeat customers 2024
+    prompt: |
+      Which customers placed at least three orders in 2024? Return columns: customer_name, orders_2024. Sort by orders_2024 descending.
+    assert: |
+      Check if a table with columns 'customer_name' and 'orders_2024' is produced and every value in orders_2024 is >= 2.
+
+  - display-name: first purchase date per customer
+    prompt: |
+      For each customer, show the date of their first ever purchase. Return columns: customer_name, first_purchase_date. Sort by first_purchase_date ascending.
+    assert: |
+      Check if a table with columns 'customer_name' and 'first_purchase_date' is produced, sorted by first_purchase_date ascending.
+
+  - display-name: customer lifetime revenue
+    prompt: |
+      Show total lifetime revenue per customer. Return columns: customer_name, lifetime_revenue. Sort by lifetime_revenue descending.
+    assert: |
+      Check if a table with columns 'customer_name' and 'lifetime_revenue' is produced, sorted by lifetime_revenue descending.
+
+  - display-name: revenue contribution by product 2024
+    prompt: |
+      For 2024, show each product's revenue and its percentage of total 2024 revenue. Return columns: product_name, revenue, revenue_pct.
+    assert: |
+      Check if a table with columns 'product_name', 'revenue', and 'revenue_pct' is produced and revenue_pct sums approximately to 100% (±1%).
+
+  - display-name: highest single order value 2024
+    prompt: |
+      What is the highest single order total value in 2024? Return the order id (or identifier) and its total value.
+    assert: |
+      Check if a row with an order identifier and a numeric total value is produced; confirm it is the maximum among 2024 orders.
+
+  - display-name: median order value 2024
+    prompt: |
+      What is the median order value for orders placed in 2024? Return a single number.
+    assert: |
+      Check if a single numeric value is produced representing the median of the set of 2024 order totals.
+
+  - display-name: average items per order 2024
+    prompt: |
+      What is the average number of items (sum of quantities) per order in 2024? Return a single number.
+    assert: |
+      Check if a single numeric value is produced.
+
+  - display-name: discounts usage 2024
+    prompt: |
+      In 2024, how many orders used a discount and what was the average discount per order? Return columns: orders_with_discount, avg_discount_per_order.
+    assert: |
+      Check if two numeric values are produced: count of discounted orders and average discount per order.
+
+  - display-name: revenue by gender 2024
+    prompt: |
+      Show total 2024 revenue by customer gender. Return columns: gender, revenue. Sort by revenue descending.
+    assert: |
+      Check if a table with columns 'gender' and 'revenue' is produced, sorted by revenue descending.
+
+  - display-name: customers who purchased in May 2024
+    prompt: |
+      Which customers placed at least one order in May, 2024? Return customer's name and gender.
+    assert: |
+      Check if names and genders are produced.
+
+
+  - display-name: product price summary
+    prompt: |
+      Show the minimum, average, and maximum unit price per category across all products. Return columns: category, min_price, avg_price, max_price.
+    assert: |
+      Check if a table with columns 'category', 'min_price', 'avg_price', and 'max_price' is produced, with min <= avg <= max for each row.
+
+  - display-name: unsold products in 2024
+    prompt: |
+      List products that did not sell at all in 2024. Return columns: product_name, category.
+    assert: |
+      Check if a table with columns 'product_name' and 'category' is produced, and none of these products appear in 2024 sales.
+
+  - display-name: customers buying multiple categories 2024
+    prompt: |
+      Which customers bought products from at least 3 distinct categories in 2024? Return columns: customer_name, distinct_categories.
+    assert: |
+      Check if a table with columns 'customer_name' and 'distinct_categories' is produced, and all distinct_categories values are >= 3.
+
+  - display-name: customer recency as of 2024-12-31
+    prompt: |
+      As of 2024-12-31, what is each customer's most recent purchase date? Return columns: customer_name, last_purchase_date. Sort by last_purchase_date descending.
+    assert: |
+      Check if a table with columns 'customer_name' and 'last_purchase_date' is produced, sorted by last_purchase_date descending.
+
+  - display-name: monthly cumulative revenue 2024
+    prompt: |
+      Show cumulative revenue over the months in 2024. Return columns: month (YYYY-MM), monthly_revenue, cumulative_revenue. Sort by month ascending.
+    assert: |
+      Check if a table with 'month', 'monthly_revenue', and 'cumulative_revenue' is produced for 2024 months only, sorted ascending.
+
+  - display-name: top 10 customers in May 2024
+    prompt: |
+      In May 2024, who are the top 10 customers by revenue? Return columns: customer_name, revenue. Sort by revenue descending and limit to 10.
+    assert: |
+      Check if a table with columns 'customer_name' and 'revenue' is produced, sorted by revenue descending, with at most 10 rows.
+
+  - display-name: order count and revenue per customer 2024
+    prompt: |
+      For 2024, show each customer's number of orders and total revenue. Return columns: customer_name, orders, revenue. Sort by revenue descending.
+    assert: |
+      Check if a table with columns 'customer_name', 'orders', and 'revenue' is produced, sorted by revenue descending.
+
+  - display-name: average days to second purchase
+    prompt: |
+      For customers who made at least two purchases ever, compute the number of days between their first and second purchase. Return columns: customer_name, days_to_second_purchase. Sort by days_to_second_purchase ascending.
+    assert: |
+      Check if a table with columns 'customer_name' and 'days_to_second_purchase' is produced; all values are non-negative and sorted ascending.
+
+  - display-name: most frequently purchased category 2024
+    prompt: |
+      Which category had the most orders in 2024? Return columns: category, orders.
+    assert: |
+      Check if a single row or a small set of tied rows with columns 'category' and 'orders' is produced representing the maximum order count in 2024.
+
+  - display-name: average quantity per order by category 2024
+    prompt: |
+      In 2024, what is the average quantity per order for each category? Return columns: category, avg_quantity_per_order. Sort by category ascending.
+    assert: |
+      Check if a table with columns 'category' and 'avg_quantity_per_order' is produced, sorted by category ascending.
+
+  - display-name: product performance summary 2024
+    prompt: |
+      Provide a 2024 performance summary per product: total_orders, total_quantity, revenue. Return columns: product_name, total_orders, total_quantity, revenue. Sort by revenue descending.
+    assert: |
+      Check if a table with columns 'product_name', 'total_orders', 'total_quantity', and 'revenue' is produced, sorted by revenue descending.
+
+  - display-name: cart size distribution 2024
+    prompt: |
+      For 2024, show the distribution of total items per order (sum of quantities). Return columns: items_in_order, orders. Sort by items_in_order ascending.
+    assert: |
+      Check if a table with columns 'items_in_order' and 'orders' is produced, sorted ascending by items_in_order.
+
+  - display-name: revenue per customer per month 2024
+    prompt: |
+      Show each customer's revenue per month in 2024. Return columns: customer_name, month (YYYY-MM), revenue. Sort by customer_name asc, month asc.
+    assert: |
+      Check if a table with columns 'customer_name', 'month', and 'revenue' is produced, sorted by customer then month ascending.
+
+  - display-name: category-seasonality 2024 H1 vs H2
+    prompt: |
+      Compare each category's revenue between H1 2024 (Jan–Jun) and H2 2024 (Jul–Dec). Return columns: category, revenue_h1, revenue_h2, delta.
+    assert: |
+      Check if a table with columns 'category', 'revenue_h1', 'revenue_h2', and 'delta' is produced; delta = revenue_h2 - revenue_h1.
+
+  - display-name: customer gender distribution
+    prompt: |
+      What is the distribution of customers by gender? Return columns: gender, customers.
+    assert: |
+      Check if a table with columns 'gender' and 'customers' is produced, counting all customers in the dataset.
+
+  - display-name: order gap analysis 2024
+    prompt: |
+      Find all customers that placed at least two orders in 2024, and compute the average number of days between their consecutive orders during 2024. Return columns: customer_name, avg_days_between_orders.
+    assert: |
+      Check if a table with columns 'customer_name' and 'avg_days_between_orders' is produced; values are non-negative.
+
+  - display-name: peak sales day 2024
+    prompt: |
+      What calendar date in 2024 had the highest total revenue? Return columns: date, revenue.
+    assert: |
+      Check if a single row is produced with a 2024 date and the maximum revenue for that year.
+
+  - display-name: low-performing products 2024
+    prompt: |
+      Which products are in the bottom 10% by 2024 revenue? Return columns: product_name, revenue.
+    assert: |
+      Check if a table with columns 'product_name' and 'revenue' is produced; all rows should have revenue at or below the 10th percentile of 2024 product revenues.
+
+  - display-name: basket category diversity 2024
+    prompt: |
+      In 2024, what is the average number of distinct categories per order (consider all items in the order)? Return a single number.
+    assert: |
+      Check if a single numeric value is produced.
+
+  - display-name: customers purchasing the same product repeatedly 2024
+    prompt: |
+      Which customers bought the same product on at least 3 separate orders in 2024? Return columns: customer_name, product_name, orders_with_product.
+    assert: |
+      Check if a table with columns 'customer_name', 'product_name', and 'orders_with_product' is produced; all counts are >= 3.
+
+  - display-name: cross-sell pairs 2024 (co-purchased by customers)
+    prompt: |
+      Identify the top 10 product pairs that were purchased by the same customers in 2024 (across any of their orders). Return columns: product_a, product_b, customers_count. Sort by customers_count descending.
+    assert: |
+      Check if a table with columns 'product_a', 'product_b', and 'customers_count' is produced, sorted by customers_count desc, limited to 10.
+
+  - display-name: customers with returns placeholder
+    prompt: |
+      If the dataset contains return or refund indicators, list the number of returned orders per customer in 2024. Otherwise, return an empty result with a note that returns are not tracked.
+    assert: |
+      Check that either a table with 'customer_name' and 'returned_orders_2024' is produced (if data exists) or an explicit note states returns are not tracked.

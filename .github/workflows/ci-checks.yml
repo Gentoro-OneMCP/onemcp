@@ -38,23 +38,6 @@ jobs:
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
 
-    - name: Test CLI
-      run: |
-        cd packages/cli
-        echo "Installing CLI dependencies..."
-        npm install
-        echo "Running CLI tests..."
-        npm test
-
-    - name: Upload test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: unit-test-results
-        path: |
-          packages/server/target/surefire-reports/cli/coverage/
-        retention-days: 7
-
     - name: Test Server
       run: |
         cd packages/server

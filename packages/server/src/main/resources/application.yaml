@@ -43,26 +43,22 @@ http:
 
 
 llm:
-  active-profile: ${env:LLM_ACTIVE_PROFILE:-gemini-flash}
+  active-profile: ${env:LLM_ACTIVE_PROFILE:-gemini}
   ollama:
-    baseUrl: http://192.168.2.77:11434
-    model: qwen3-coder:30b
+    baseUrl: ${env:OLLAMA_BASE_URL:-http://192.168.2.77:11434}
+    model: ${env:OLLAMA_MODEL_NAME:-qwen3-coder:30b}
     provider: ollama
   openai:
     apiKey: ${env:OPENAI_API_KEY:-sk-proj-...}
     model: ${env:OPENAI_MODEL_NAME:-gpt-5-nano-2025-08-07}
     provider: openai
-  anthropic-sonnet:
+  anthropic:
     apiKey: ${env:ANTHROPIC_API_KEY:-sk-ant-...}
     model: ${env:ANTHROPIC_MODEL_NAME:-claude-sonnet-4-5-20250929}
     provider: anthropic
-  gemini-flash:
+  gemini:
     apiKey: ${env:GEMINI_API_KEY:-...}
     model: ${env:GEMINI_MODEL_NAME:-gemini-2.5-flash}
-    provider: gemini
-  gemini-pro:
-    apiKey: ${env:GEMINI_API_KEY:-...}
-    model: ${env:GEMINI_MODEL_NAME:-gemini-2.5-pro}
     provider: gemini
   cache:
     enabled: false
@@ -70,40 +66,40 @@ llm:
 graph:
   indexing:
     # When true, the selected driver database/collection is cleared before re-indexing
-    clearOnStartup: ${env:GRAPH_V2_CLEAR_ON_STARTUP:-true}
+    clearOnStartup: ${env:GRAPH_CLEAR_ON_STARTUP:-true}
   # Select the unified v2 GraphDriver backend.
   # Supported values: in-memory | arangodb | orientdb
-  driver: ${env:GRAPH_V2_DRIVER:-orientdb}
+  driver: ${env:GRAPH_DRIVER:-orientdb}
 
   # Document chunking configuration used by HandbookGraphService
   chunking:
     markdown:
       # Strategy for Markdown chunking (future use): heading | paragraph | sliding-window
-      strategy: ${env:GRAPH_V2_CHUNKING_MARKDOWN_STRATEGY:-paragraph}
+      strategy: ${env:GRAPH_CHUNKING_MARKDOWN_STRATEGY:-paragraph}
       # Target tokens per chunk (approx; used by default MarkdownChunker)
-      windowSizeTokens: ${env:GRAPH_V2_MD_WINDOW_SIZE:-500}
-      overlapTokens: ${env:GRAPH_V2_MD_OVERLAP:-64}
+      windowSizeTokens: ${env:GRAPH_MD_WINDOW_SIZE:-500}
+      overlapTokens: ${env:GRAPH_MD_OVERLAP:-64}
 
   # ArangoDB driver configuration
   arangodb:
     # Hostname/IP of ArangoDB server
-    host: ${env:GRAPH_V2_ARANGODB_HOST:-localhost}
+    host: ${env:GRAPH_ARANGODB_HOST:-localhost}
     # TCP port
-    port: ${env:GRAPH_V2_ARANGODB_PORT:-8529}
+    port: ${env:GRAPH_ARANGODB_PORT:-8529}
     # Authentication
-    user: ${env:GRAPH_V2_ARANGODB_USER:-root}
-    password: ${env:GRAPH_V2_ARANGODB_PASSWORD:-test123}
+    user: ${env:GRAPH_ARANGODB_USER:-root}
+    password: ${env:GRAPH_ARANGODB_PASSWORD:-test123}
     # Database name prefix; final DB name is <prefix><handbookName>
-    databasePrefix: ${env:GRAPH_V2_ARANGODB_DB_PREFIX:-onemcp_}
+    databasePrefix: ${env:GRAPH_ARANGODB_DB_PREFIX:-onemcp_}
 
   # OrientDB embedded driver configuration
   orient:
     # Root directory where embedded OrientDB stores data
-    rootDir: ${env:GRAPH_V2_ORIENT_ROOT_DIR:-data/orient}
+    rootDir: ${env:GRAPH_ORIENT_ROOT_DIR:-data/orient}
     # Database name prefix; final DB name defaults to <databasePrefix><handbookName> when 'database' not set
-    databasePrefix: ${env:GRAPH_V2_ORIENT_DB_PREFIX:-onemcp-}
+    databasePrefix: ${env:GRAPH_ORIENT_DB_PREFIX:-onemcp-}
     # Optional: Explicit database name override (useful for single DB setups)
-    database: ${env:GRAPH_V2_ORIENT_DATABASE:-}
+    database: ${env:GRAPH_ORIENT_DATABASE:-}
 
   # Usage examples:
   # - In-memory (default): GRAPH_V2_DRIVER=in-memory
