@@ -8,6 +8,8 @@ import (
 	clierrors "github.com/onemcp/cli/internal/errors"
 )
 
+var version = "development"
+
 func main() {
 	if err := cli.Execute(); err != nil {
 		// Extract error code from CLIError if present
