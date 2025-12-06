@@ -56,7 +56,7 @@ class HandbookJobManagerTest {
     assertEquals(HandbookJobStatus.DONE, job.status);
     assertTrue(Files.exists(handbookDir.resolve("a.txt")));
 
-    verify(oneMcp, atLeastOnce()).reloadHandbook();
+    verify(oneMcp, atLeastOnce()).reloadHandbook(any());
   }
 
   @Test

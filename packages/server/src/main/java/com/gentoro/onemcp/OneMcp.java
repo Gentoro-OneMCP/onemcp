@@ -17,6 +17,7 @@ import com.gentoro.onemcp.handbook.HandbookFactory;
 import com.gentoro.onemcp.http.EmbeddedJettyServer;
 import com.gentoro.onemcp.indexing.HandbookGraphService;
 import com.gentoro.onemcp.management.ManagementServer;
+import com.gentoro.onemcp.management.jobs.JobHandler;
 import com.gentoro.onemcp.mcp.McpServer;
 import com.gentoro.onemcp.model.LlmClient;
 import com.gentoro.onemcp.model.LlmClientFactory;
@@ -24,6 +25,7 @@ import com.gentoro.onemcp.orchestrator.OrchestratorService;
 import com.gentoro.onemcp.prompt.PromptRepository;
 import com.gentoro.onemcp.prompt.PromptRepositoryFactory;
 import java.io.File;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
@@ -50,10 +52,6 @@ public class OneMcp {
 
   public OneMcp(String[] applicationArgs) {
     this.startupParameters = new StartupParameters(applicationArgs);
-  }
-
-  public boolean isInteractiveModeEnabled() {
-    return "interactive".equalsIgnoreCase(startupParameters().getParameter("mode", String.class));
   }
 
   public void initialize() {
@@ -104,28 +102,7 @@ public class OneMcp {
     }
 
     this.orchestrator = new OrchestratorService(this);
-
-    // If running in interactive mode: disable STDOUT appender and enable file-based logging
-    String mode = startupParameters().getParameter("mode", String.class);
-    if ("interactive".equalsIgnoreCase(mode)) {
-      // configureFileOnlyLogging();
-    }
-
-    switch (startupParameters().getParameter("mode", String.class)) {
-      case "interactive":
-        this.orchestrator.enterInteractiveMode();
-        break;
-      case "dry-run":
-        this.orchestrator.handlePrompt("test");
-        break;
-      case "server":
-        // server is always started
-        break;
-      default:
-        shutdown();
-        throw new IllegalArgumentException(
-            "Invalid mode: " + startupParameters().getParameter("mode", String.class));
-    }
+    waitShutdownSignal();
   }
 
   /**
@@ -215,13 +192,22 @@ public class OneMcp {
    * Reloads the Handbook from the configured location and triggers a full re-index of its content.
    * Safe to call multiple times; graph service will be initialized on demand.
    */
-  public synchronized void reloadHandbook() {
+  public synchronized void reloadHandbook(JobHandler.ProgressReporter progressReporter) {
     try {
+      if (Objects.nonNull(progressReporter)) {
+        progressReporter.reportProgress(3, 1, "Reloading Handbook...");
+      }
+
       this.handbook = HandbookFactory.create(this);
       if (this.graphService == null) {
         this.graphService = new HandbookGraphService(this);
         this.graphService.initialize();
       }
+
+      if (Objects.nonNull(progressReporter)) {
+        progressReporter.reportProgress(3, 2, "Indexing content...");
+      }
+
       this.graphService.indexHandbook();
       log.info("Handbook reloaded and re-indexed successfully");
     } catch (Exception e) {

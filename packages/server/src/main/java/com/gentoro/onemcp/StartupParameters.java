@@ -10,7 +10,6 @@ public class StartupParameters {
 
   {
     parameters.put("config-file", "classpath:application.yaml");
-    parameters.put("mode", "interactive"); // interactive, dry-run, server, help
   }
 
   public StartupParameters(String[] arguments) {
@@ -40,15 +39,6 @@ public class StartupParameters {
   }
 
   private void validate() {
-    if (!parameters.containsKey("mode")
-        || (parameters.containsKey("mode")
-            && !parameters.get("mode").equals("help")
-            && !parameters.get("mode").equals("interactive")
-            && !parameters.get("mode").equals("dry-run")
-            && !parameters.get("mode").equals("server"))) {
-      throw new IllegalArgumentException("Invalid mode: " + parameters.get("mode"));
-    }
-
     if (!parameters.containsKey("config-file")
         || parameters.get("config-file") == null
         || parameters.get("config-file").toString().isBlank()) {

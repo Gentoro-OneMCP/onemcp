@@ -1,0 +1,50 @@
+activations:
+  - role: system
+    activation: assert-result
+    content: |            
+      ## **Assignment**
+      
+        Given the following content:
+      
+        ```json
+      {{ ident( formatted_content, 4) | raw }}   
+        ```
+      
+        Confirm if the content adheres to the following assertion:
+      
+        ```md
+      {{ ident( assertion, 4) | raw }}   
+        ```
+              
+        To share the result of the assertion, output a JSON object with the following structure:
+        
+        ```json
+        {
+          "passed": true | false,
+          "reason": "{optional explanation of why the assertion failed}"
+        }
+        ```
+      
+      ---
+      ## 📝 Task Assignment
+      {% if error_reported == true %}
+        The initial execution failed because the output was not valid JSON. You MUST adhere to the JSON schema specified in your system instructions.
+      
+        The previous faulty output, which you must correct for JSON syntax, was:
+        ```
+      {{ ident( result, 4) | raw }}
+        ```
+      
+        The reported error was:
+        ```
+      {{ ident( error, 4) | raw }}
+        ```
+      
+        Please re-process the original instructions, apply the three steps (Refine, Extract, Isolate), and output a single, strictly valid JSON object.
+      {% else %}
+        **Generate the complete JSON according the above specification.**
+            
+      {% endif %}
+        ```json
+          // Place the corrected valid JSON here
+        ```
