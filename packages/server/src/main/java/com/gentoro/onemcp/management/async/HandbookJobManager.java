@@ -87,7 +87,7 @@ public final class HandbookJobManager {
       FileUtility.copyDirectory(extracted, targetRoot);
 
       // 3. Reload
-      oneMcp.reloadHandbook();
+      oneMcp.reloadHandbook(null);
 
       job.status = HandbookJobStatus.DONE;
     } catch (Exception e) {

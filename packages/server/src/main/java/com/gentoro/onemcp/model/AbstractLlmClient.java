@@ -3,7 +3,6 @@ package com.gentoro.onemcp.model;
 import com.gentoro.onemcp.OneMcp;
 import com.gentoro.onemcp.exception.ExceptionUtil;
 import com.gentoro.onemcp.exception.LlmException;
-import com.gentoro.onemcp.utility.StdoutUtility;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -56,7 +55,6 @@ public abstract class AbstractLlmClient implements LlmClient {
   @Override
   public String generate(
       String message, List<Tool> tools, boolean cacheable, InferenceEventListener _listener) {
-    StdoutUtility.printRollingLine(oneMcp, "(Inference): sending generate request to LLM...");
     log.trace(
         "generate() called with: message = [{}], tools = [{}], cacheable = [{}]",
         message,
@@ -129,8 +127,6 @@ public abstract class AbstractLlmClient implements LlmClient {
     } finally {
       long duration = System.currentTimeMillis() - start;
       log.trace("generate() took {} ms", duration);
-      StdoutUtility.printRollingLine(
-          oneMcp, "(Inference): completed in (%d)ms".formatted(duration));
     }
   }
 
@@ -143,8 +139,6 @@ public abstract class AbstractLlmClient implements LlmClient {
       List<Tool> tools,
       boolean cacheable,
       final InferenceEventListener _listener) {
-    StdoutUtility.printRollingLine(
-        oneMcp, "(Inference): sending (%d) message(s) to LLM...".formatted(messages.size()));
     log.trace(
         "chat() called with: messages = [{}], tools = [{}], cacheable = [{}]",
         messages,
@@ -196,11 +190,6 @@ public abstract class AbstractLlmClient implements LlmClient {
     } finally {
       long duration = System.currentTimeMillis() - start;
       log.trace("chat() took {} ms", duration);
-      StdoutUtility.printRollingLine(
-          oneMcp, "(Inference): completed in (%d)ms".formatted(duration));
-
-      // Note: LLM inference complete logging is handled by concrete implementations
-      // which have access to the actual response text and token counts
     }
   }
 

@@ -13,10 +13,8 @@ import com.gentoro.onemcp.mcp.model.ToolCallContext;
 import com.gentoro.onemcp.memory.ValueStore;
 import com.gentoro.onemcp.messages.AssigmentResult;
 import com.gentoro.onemcp.messages.AssignmentContext;
-import com.gentoro.onemcp.orchestrator.progress.NoOpProgressSink;
 import com.gentoro.onemcp.orchestrator.progress.ProgressSink;
 import com.gentoro.onemcp.utility.JacksonUtility;
-import com.gentoro.onemcp.utility.StdoutUtility;
 import com.gentoro.onemcp.utility.StringUtility;
 import java.util.*;
 
@@ -28,52 +26,6 @@ public class OrchestratorService {
 
   public OrchestratorService(OneMcp oneMcp) {
     this.oneMcp = oneMcp;
-  }
-
-  public void enterInteractiveMode() {
-    // Create a scanner to read input from the console
-    Scanner scanner = new Scanner(System.in);
-
-    try {
-
-      System.out.println("Welcome! Type something (or 'exit' to quit):");
-
-      while (true) {
-        System.out.print("> "); // prompt symbol
-
-        // Check if there's input available (avoid blocking on EOF)
-        if (!scanner.hasNextLine()) {
-          break;
-        }
-
-        String input = scanner.nextLine().trim();
-
-        // Exit condition
-        if (input.equalsIgnoreCase("exit")) {
-          System.out.println("Goodbye!");
-          break;
-        }
-
-        // Handle normal input
-        if (input.trim().length() > 10) {
-          try {
-            handlePrompt(input);
-          } catch (Exception e) {
-            log.error("Error handling prompt", e);
-            StdoutUtility.printError(oneMcp, "Could not handle assignment properly", e);
-          }
-        }
-      }
-
-      // Cleanup
-      scanner.close();
-    } finally {
-      oneMcp.shutdown();
-    }
-  }
-
-  public AssigmentResult handlePrompt(String prompt) {
-    return handlePrompt(prompt, null, new NoOpProgressSink());
   }
 
   /**
@@ -105,7 +57,6 @@ public class OrchestratorService {
 
       // Extract entities stage
       progress.beginStage("extract", "Extracting entities", 1);
-      StdoutUtility.printNewLine(oneMcp, "Extracting entities.");
       assignmentContext = new EntityExtractionService(ctx).extractContext(prompt.trim());
       int entityCount =
           assignmentContext.getContext() == null ? 0 : assignmentContext.getContext().size();
@@ -121,12 +72,9 @@ public class OrchestratorService {
 
       // Plan generation stage
       progress.beginStage("plan", "Generating execution plan", 1);
-      StdoutUtility.printNewLine(oneMcp, "Generating execution plan.");
       JsonNode plan =
           new PlanGenerationService(ctx).generatePlan(assignmentContext, retrievedContextualData);
       String planJson = JacksonUtility.toJson(plan);
-      StdoutUtility.printSuccessLine(
-          oneMcp, "Generated plan:\n%s".formatted(StringUtility.formatWithIndent(planJson, 4)));
       log.trace("Generated plan:\n{}", StringUtility.formatWithIndent(planJson, 4));
       int steps = plan.has("steps") && plan.get("steps").isArray() ? plan.get("steps").size() : 0;
       progress.endStageOk("plan", Map.of("steps", steps));
@@ -149,9 +97,6 @@ public class OrchestratorService {
                               "Invoking operation {} with data {}",
                               key,
                               JacksonUtility.toJson(data));
-                          StdoutUtility.printRollingLine(
-                              oneMcp, "Invoking operation %s".formatted(key));
-
                           JsonNode result =
                               value.invoke(
                                   data.has("data") ? data.get("data") : data, toolCallContext);
@@ -190,7 +135,6 @@ public class OrchestratorService {
 
       // Execute plan stage
       progress.beginStage("exec", "Executing plan", calledOperations.size());
-      StdoutUtility.printNewLine(oneMcp, "Executing plan.");
       ExecutionPlanEngine engine =
           new ExecutionPlanEngine(JacksonUtility.getJsonMapper(), operationRegistry);
       ctx.tracer().startChild("execution_plan");
@@ -210,13 +154,6 @@ public class OrchestratorService {
       String outputStr = JacksonUtility.toJson(output);
 
       log.trace("Generated answer:\n{}", StringUtility.formatWithIndent(outputStr, 4));
-      StdoutUtility.printSuccessLine(
-          oneMcp,
-          "Assignment handled in (%s ms)\nAnswer: \n%s"
-              .formatted(
-                  (System.currentTimeMillis() - start),
-                  StringUtility.formatWithIndent(outputStr, 4)));
-
       if (assignmentContext.getUnhandledParts() != null
           && !assignmentContext.getUnhandledParts().isEmpty()) {
         assignmentParts.add(
@@ -227,7 +164,6 @@ public class OrchestratorService {
           new AssigmentResult.Assignment(
               true, assignmentContext.getRefinedAssignment(), false, outputStr));
     } catch (Exception e) {
-      StdoutUtility.printError(oneMcp, "Could not handle assignment properly", e);
       assignmentParts.add(
           new AssigmentResult.Assignment(
               true, prompt, true, ExceptionUtil.formatCompactStackTrace(e)));
