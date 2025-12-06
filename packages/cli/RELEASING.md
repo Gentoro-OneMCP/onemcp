@@ -21,30 +21,30 @@ Before releasing, ensure you have:
 
 **Decide on version number:**
 - Follow semantic versioning: `cli-v0.0.X`
-- Current latest: `cli-v0.0.3`
-- Next release: `cli-v0.0.4`
+- Current latest: `cli-v0.0.4`
+- Next release: `cli-v0.0.5`
 
 **Update version in code (if needed):**
 - Version is injected at build time via `ldflags`
-- Check `pkg/version/version.go` exists
+- Check `internal/cli/version/version.go` exists
 
 **Test locally:**
 ```bash
-cd packages/go-cli
-go build -o onemcp
-./onemcp --help
-./onemcp doctor
+cd packages/cli
+make clean
+make build
+bin/onemcp --help
+bin/onemcp version
 ```
 
 ---
 
 ### 2. Build Binaries
 
-Run the build script from the `packages/go-cli` directory:
+Run the build script from the `packages/cli` directory:
 
 ```bash
-cd packages/go-cli
-./build-release.sh cli-v0.0.4
+make build-release VERSION=cli-0.0.5
 ```
 
 **What this does:**
@@ -60,8 +60,9 @@ build/
 ├── onemcp-darwin-arm64.tar.gz
 ├── onemcp-darwin-amd64.tar.gz
 ├── onemcp-linux-amd64.tar.gz
+── onemcp-linux-386.tar.gz
 ├── onemcp-windows-amd64.zip
-├── onemcp-windows-arm64.zip
+├── onemcp-windows-386.zip
 └── checksums.txt
 ```
 
@@ -82,7 +83,7 @@ Tag the release and push to GitHub:
 
 ```bash
 # From repository root
-git tag -a cli-v0.0.4 -m "Release cli-v0.0.4
+git tag -a cli-v0.0.5 -m "Release cli-v0.0.5
 
 Features:
 - Feature 1
@@ -93,7 +94,7 @@ Fixes:
 - Bug fix 2
 "
 
-git push origin cli-v0.0.4
+git push origin cli-v0.0.5
 ```
 
 ---
@@ -102,8 +103,8 @@ git push origin cli-v0.0.4
 
 **Manual process:**
 
-1. Go to https://github.com/Gentoro-OneMCP/onemcp/releases/new?tag=cli-v0.0.4
-2. **Title:** `CLI v0.0.4`
+1. Go to https://github.com/Gentoro-OneMCP/onemcp/releases/new?tag=cli-v0.0.5
+2. **Title:** `CLI v0.0.5`
 3. **Description:** See template below
 4. **Upload binaries:**
    - Drag all files from `packages/go-cli/build/` folder
@@ -152,7 +153,7 @@ Download the appropriate binary below for your platform.
 See `checksums.txt` in the release assets.
 
 ## Full Changelog
-https://github.com/Gentoro-OneMCP/onemcp/compare/cli-v0.0.3...cli-v0.0.4
+https://github.com/Gentoro-OneMCP/onemcp/compare/cli-v0.0.4...cli-v0.0.5
 ```
 
 ---
@@ -175,14 +176,14 @@ git pull origin main
 
 1. Update version number:
    ```ruby
-   version "0.0.4"  # Remove cli-v prefix
+   version "0.0.5"  # Remove cli-v prefix
    ```
 
 2. Update URLs (3 platforms):
    ```ruby
-   url "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.4/onemcp-darwin-arm64.tar.gz"
-   url "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.4/onemcp-darwin-amd64.tar.gz"
-   url "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.4/onemcp-linux-amd64.tar.gz"
+   url "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.5/onemcp-darwin-arm64.tar.gz"
+   url "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.5/onemcp-darwin-amd64.tar.gz"
+   url "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.5/onemcp-linux-amd64.tar.gz"
    ```
 
 3. Update SHA256 checksums (from `build/checksums.txt`):
@@ -195,7 +196,7 @@ git pull origin main
 **Commit and push:**
 ```bash
 git add Formula/onemcp.rb
-git commit -m "Update formula to cli-v0.0.4"
+git commit -m "Update formula to cli-v0.0.5"
 git push origin main
 ```
 
@@ -232,25 +233,25 @@ git pull origin main
 
 1. Update version:
    ```json
-   "version": "0.0.4"
+   "version": "0.0.5"
    ```
 
 2. Update URLs (Windows only):
    ```json
-   "url": "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.4/onemcp-windows-amd64.zip"
-   "url": "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.4/onemcp-windows-arm64.zip"
+   "url": "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.5/onemcp-windows-amd64.zip"
+   "url": "https://github.com/Gentoro-OneMCP/onemcp/releases/download/cli-v0.0.5/onemcp-windows-arm64.zip"
    ```
 
 3. Update checksums (from `build/checksums.txt`):
    ```json
    "hash": "windows-amd64-checksum-here"
-   "hash": "windows-arm64-checksum-here"
+   "hash": "windows-386-checksum-here"
    ```
 
 **Commit and push:**
 ```bash
 git add bucket/onemcp.json
-git commit -m "Update manifest to cli-v0.0.4"
+git commit -m "Update manifest to cli-v0.0.5"
 git push origin main
 ```
 
@@ -297,9 +298,9 @@ onemcp --help
 
 ```bash
 # Clean and rebuild
-cd packages/go-cli
-rm -rf build/
-./build-release.sh cli-v0.0.4
+cd packages/cli
+make clean
+make build-release VERSION=cli-0.0.5
 ```
 
 ### Homebrew Checksum Mismatch
