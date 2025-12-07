@@ -77,6 +77,20 @@ public class TypeScriptPlanCache {
     try {
       String typescriptCode = Files.readString(planFile);
       
+      // Clean cached code: Remove "javascript" if it appears as the first line
+      // This fixes cached code that was generated before the extraction fix
+      typescriptCode = typescriptCode.trim();
+      if (typescriptCode.startsWith("javascript\r\n")) {
+        typescriptCode = typescriptCode.substring(13).trim(); // Remove "javascript\r\n" (13 chars)
+        log.debug("Cleaned 'javascript' prefix from cached TypeScript code");
+      } else if (typescriptCode.startsWith("javascript\n")) {
+        typescriptCode = typescriptCode.substring(11).trim(); // Remove "javascript\n" (11 chars)
+        log.debug("Cleaned 'javascript' prefix from cached TypeScript code");
+      } else if (typescriptCode.equals("javascript")) {
+        typescriptCode = ""; // Edge case: code is just "javascript"
+        log.warn("Cached TypeScript code was just 'javascript', clearing it");
+      }
+      
       // Load metadata if available
       boolean executionSucceeded = true;
       String lastError = null;
@@ -146,7 +160,7 @@ public class TypeScriptPlanCache {
    * @param executionSucceeded whether execution succeeded
    * @param errorMessage error message if execution failed (null if succeeded)
    * @param normalizationNote note from PromptSchema (explanation/caveat)
-   * @param normalizationFailed whether normalization failed (ssql is null)
+   * @param normalizationFailed whether normalization failed (operation is null)
    */
   public void storeByCacheKey(String cacheKey, String typescriptCode, 
       boolean executionSucceeded, String errorMessage, String normalizationNote, boolean normalizationFailed) {
@@ -232,7 +246,7 @@ public class TypeScriptPlanCache {
     public final String lastError;
     public final int failedAttempts;
     public final String normalizationNote; // Note from PromptSchema (explanation/caveat)
-    public final boolean normalizationFailed; // Whether normalization failed (ssql is null)
+    public final boolean normalizationFailed; // Whether normalization failed (operation is null)
 
     public CachedPlanResult(String typescriptCode, boolean executionSucceeded, 
         String lastError, int failedAttempts) {
@@ -273,7 +287,7 @@ public class TypeScriptPlanCache {
     String normalizationNote; // Note from PromptSchema (explanation/caveat)
 
     @JsonProperty("normalization_failed")
-    Boolean normalizationFailed; // Whether normalization failed (ssql is null)
+    Boolean normalizationFailed; // Whether normalization failed (operation is null)
   }
 }
 

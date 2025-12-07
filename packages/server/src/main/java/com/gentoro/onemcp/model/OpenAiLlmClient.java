@@ -115,21 +115,7 @@ public class OpenAiLlmClient extends AbstractLlmClient {
     String result = null;
     main_loop:
     while (true) {
-      // Log input messages for this LLM call
-      // Note: We log the original messages list, which may not include tool responses in multi-turn
-      // conversations
-      // but will show the initial prompt and system messages
-      if (oneMcp != null
-          && oneMcp.inferenceLogger() != null
-          && !builder.build().messages().isEmpty()) {
-        // Log a summary - the full message conversion is complex due to OpenAI SDK types
-        // We'll log the original messages that were passed in (from AbstractLlmClient.chat)
-        // For multi-turn with tools, the builder contains the full history but it's hard to convert
-        List<Message> messagesToLog = messages; // Use original messages list
-        if (messagesToLog != null && !messagesToLog.isEmpty()) {
-          oneMcp.inferenceLogger().logLlmInputMessages(messagesToLog);
-        }
-      }
+      // Note: Input messages are logged by AbstractLlmClient.chat() to avoid duplicate logging
 
       long start = System.currentTimeMillis();
       TelemetrySink t2 = telemetry();

@@ -21,7 +21,6 @@ export class ChatMode {
   private globalConfig: GlobalConfig | null = null;
   private lastReportPath: string | null = null;
   private lastUserMessage: string | null = null;
-  private lastCacheKey: string | null = null;
   private cacheEnabled: boolean = true;
 
   /**
@@ -32,7 +31,7 @@ export class ChatMode {
     await this.selectHandbook(handbookName);
     this.globalConfig = await configManager.getGlobalConfig();
     
-    // Load cache enabled setting from config (not hardcoded default)
+    // Load cache enabled setting from config (default to false if not set)
     this.cacheEnabled = this.globalConfig?.cache?.enabled ?? false;
     
     // Check if agent is running
@@ -149,8 +148,8 @@ export class ChatMode {
         if (!this.lastUserMessage) {
           console.log(chalk.yellow('⚠️  No previous message to replan.'));
           console.log();
-        continue;
-      }
+          continue;
+        }
         console.log(chalk.cyan(`🔄 Replanning for: "${this.lastUserMessage}"`));
         console.log();
         // Delete cache file and resubmit
@@ -159,6 +158,38 @@ export class ChatMode {
           this.lastUserMessage,
           this.handbookConfig?.chatTimeout || this.globalConfig?.chatTimeout || 240000
         );
+        continue;
+      }
+
+      if (userMessage.toLowerCase() === 'index') {
+        // Index command - send special command to regenerate conceptual schema
+        const spinner = ora({
+          text: 'Indexing conceptual schema...',
+          spinner: 'dots',
+          color: 'cyan'
+        }).start();
+
+        const startTime = Date.now();
+        try {
+          const timeout = this.handbookConfig?.chatTimeout || this.globalConfig?.chatTimeout || 240000;
+          // Send the special index command
+          const response = await this.sendIndexCommand(timeout);
+          const latency = Date.now() - startTime;
+          spinner.stop();
+          
+          // Display execution summary
+          console.log(chalk.green('✔ ') + chalk.dim(`⏱  ${latency}ms`));
+          if (this.lastReportPath) {
+            console.log(chalk.dim(`  ${this.lastReportPath}`));
+          }
+          console.log(chalk.green('✨'));
+          console.log(response);
+          console.log();
+        } catch (error: any) {
+          spinner.stop();
+          console.log(chalk.red('❌ Index failed: ' + error.message));
+          console.log();
+        }
         continue;
       }
 
@@ -243,42 +274,38 @@ export class ChatMode {
     }).start();
 
     try {
-      // Use stored cache key if available, otherwise try to extract from report
-      let cacheKey = this.lastCacheKey;
+      // Extract cache key from the last report
+      const cacheKey = await this.extractCacheKeyFromLastReport();
       
       if (!cacheKey) {
-        // Fallback: try to extract from report
-        cacheKey = await this.extractCacheKeyFromLastReport();
-      }
-      
-      if (!cacheKey) {
-        spinner.fail('Could not find cache key. No previous execution found.');
+        spinner.fail('Could not find cache key in last report. No previous execution found.');
         console.log();
         return;
       }
 
-      // Delete the cache file(s) - could be .json or .ts format
+      // Delete the cache files
+      // Cache files are stored in cache/plans/ directory
       const fs = (await import('fs-extra')).default;
       const { join } = await import('path');
       
-      const cacheDir = paths.cacheDir;
-      const jsonCacheFile = join(cacheDir, `${cacheKey}.json`);
-      const tsCacheFile = join(cacheDir, `${cacheKey}.ts`);
+      const plansDir = join(paths.cacheDir, 'plans');
+      const cacheJsonFile = join(plansDir, `${cacheKey}.json`);
+      const cacheTsFile = join(plansDir, `${cacheKey}.ts`);
       
-      let deletedAny = false;
-      if (await fs.pathExists(jsonCacheFile)) {
-        await fs.remove(jsonCacheFile);
-        deletedAny = true;
+      let deleted = false;
+      if (await fs.pathExists(cacheJsonFile)) {
+        await fs.remove(cacheJsonFile);
+        deleted = true;
       }
-      if (await fs.pathExists(tsCacheFile)) {
-        await fs.remove(tsCacheFile);
-        deletedAny = true;
+      if (await fs.pathExists(cacheTsFile)) {
+        await fs.remove(cacheTsFile);
+        deleted = true;
       }
       
-      if (deletedAny) {
+      if (deleted) {
         spinner.succeed(`Deleted cached plan: ${cacheKey}`);
       } else {
-        spinner.succeed(`Cache file not found: ${cacheKey} (may already be deleted)`);
+        spinner.succeed(`Cache files not found: ${cacheKey}.{json,ts} (may already be deleted)`);
       }
       
       console.log();
@@ -382,9 +409,25 @@ export class ChatMode {
       const reportContent = await fs.readFile(reportPath, 'utf-8');
       
       // Look for cache_key in the report
-      // It can appear in the plan generation prompt input section: "cache_key" : "value"
-      // Pattern: "cache_key" : "value" (with optional whitespace)
-      const cacheKeyMatch = reportContent.match(/"cache_key"\s*:\s*"([^"]+)"/);
+      // It can appear in two formats:
+      // 1. JSON format in plan generation prompt input: "cache_key" : "value"
+      // 2. Report display format: │ Cache Key: value
+      // Try JSON format first
+      let cacheKeyMatch = reportContent.match(/"cache_key"\s*:\s*"([^"]+)"/);
+      if (cacheKeyMatch && cacheKeyMatch[1]) {
+        return cacheKeyMatch[1].trim();
+      }
+      
+      // Try report display format (│ Cache Key: value)
+      // Match box-drawing character (U+2502) or regular pipe, with optional whitespace
+      // Pattern: [box-drawing char or pipe] [optional whitespace] "Cache Key:" [optional whitespace] [value]
+      cacheKeyMatch = reportContent.match(/[\u2502│|]\s*Cache Key:\s*([^\s\n]+)/);
+      if (cacheKeyMatch && cacheKeyMatch[1]) {
+        return cacheKeyMatch[1].trim();
+      }
+      
+      // More flexible pattern - match any line containing "Cache Key:" followed by a value
+      cacheKeyMatch = reportContent.match(/Cache Key:\s*([^\s\n]+)/);
       if (cacheKeyMatch && cacheKeyMatch[1]) {
         return cacheKeyMatch[1].trim();
       }
@@ -554,6 +597,77 @@ export class ChatMode {
 
 
   /**
+   * Send special index command to regenerate conceptual schema
+   */
+  private async sendIndexCommand(timeout: number): Promise<string> {
+    try {
+      // Create MCP transport and client
+      const transport = new StreamableHTTPClientTransport(new URL(this.mcpUrl), {
+        requestInit: {
+          signal: AbortSignal.timeout(timeout),
+        },
+        reconnectionOptions: {
+          maxReconnectionDelay: 30000,
+          initialReconnectionDelay: 1000,
+          reconnectionDelayGrowFactor: 1.5,
+          maxRetries: 3,
+        },
+      });
+      const client = new Client(
+        {
+          name: 'onemcp-cli',
+          version: '0.1.0',
+        },
+        {
+          capabilities: {},
+        }
+      );
+
+      await client.connect(transport);
+
+      try {
+        // Call onemcp.run with special __index_schema__ command
+        const result: any = await client.callTool(
+          {
+            name: 'onemcp.run',
+            arguments: {
+              prompt: '__index_schema__',
+            },
+          },
+          undefined,
+          { timeout }
+        );
+
+        // Parse the response
+        if (result.content && result.content.length > 0) {
+          const content = result.content[0];
+          if (content && typeof content === 'object' && 'type' in content && 'text' in content && content.type === 'text') {
+            try {
+              const parsed = JSON.parse(content.text);
+              // Extract report path if available
+              if (parsed && typeof parsed === 'object' && 'reportPath' in parsed) {
+                this.lastReportPath = parsed.reportPath;
+              }
+              // Return the content field
+              if (parsed && typeof parsed === 'object' && 'content' in parsed) {
+                return parsed.content || 'Schema indexed successfully';
+              }
+              return 'Schema indexed successfully';
+            } catch {
+              return content.text || 'Schema indexed successfully';
+            }
+          }
+        }
+        return 'Schema indexed successfully';
+      } finally {
+        await client.close();
+      }
+    } catch (error: any) {
+      throw new Error(`Index failed: ${error.message}`);
+    }
+  }
+
+  /**
    * Internal method to send message to OneMCP via MCP protocol
    */
   private async sendMessageInternal(provider: ModelProvider, userMessage: string, timeout: number): Promise<string> {
@@ -686,8 +800,9 @@ export class ChatMode {
     console.log();
     console.log(chalk.bold('Special Commands:'));
     console.log();
-    console.log(chalk.cyan('  ?') + '     - Show this list of special commands');
-    console.log(chalk.cyan('  cache') + ' - Toggle cache mode (currently: ' + (this.cacheEnabled ? chalk.green('enabled') : chalk.yellow('disabled')) + ')');
+    console.log(chalk.cyan('  ?') + '      - Show this list of special commands');
+    console.log(chalk.cyan('  index') + '  - Regenerate conceptual schema from handbook');
+    console.log(chalk.cyan('  cache') + '  - Toggle cache mode (currently: ' + (this.cacheEnabled ? chalk.green('enabled') : chalk.yellow('disabled')) + ')');
     console.log(chalk.cyan('  replan') + ' - Regenerate plan for the last prompt (deletes cached plan)');
     console.log(chalk.cyan('  exit') + '   - Exit chat mode');
     console.log();
@@ -881,19 +996,6 @@ export class ChatMode {
       // Extract total tokens from summary
       const tokensMatch = reportContent.match(/Total Tokens:\s*(\d+)\+(\d+)=(\d+)/);
       const totalTokens = tokensMatch ? parseInt(tokensMatch[3], 10) : null;
-      
-      // Extract cache key from report (for replan command)
-      // Look for "Cache Key: ..." in the execution plan section
-      const cacheKeyMatch = reportContent.match(/Cache Key:\s*([^\s\n]+)/);
-      if (cacheKeyMatch && cacheKeyMatch[1]) {
-        this.lastCacheKey = cacheKeyMatch[1].trim();
-      } else {
-        // Fallback: try to find cache_key in JSON format
-        const cacheKeyJsonMatch = reportContent.match(/"cache_key"\s*:\s*"([^"]+)"/);
-        if (cacheKeyJsonMatch && cacheKeyJsonMatch[1]) {
-          this.lastCacheKey = cacheKeyJsonMatch[1].trim();
-        }
-      }
       
       // Build compact summary line
       const parts: string[] = [];

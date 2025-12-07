@@ -1,0 +1,133 @@
+temperature: 0.3
+
+activations:
+  - role: system
+    activation: ps-plan
+    content: |
+      Convert Prompt Schema (PS) into executable JavaScript code.
+
+      ## TASK
+      Generate a JavaScript async function `run(client, values, options)` that executes
+      the PS using the provided endpoints and API documentation.
+
+      ## INPUT
+      The input JSON contains:
+      - `prompt`: Original user prompt
+      - `table`: Conceptual table name
+      - `ps`: Prompt Schema with operation, where, group_by, values
+      - `endpoints`: Available endpoints for the table
+      - `api_docs`: API documentation
+
+      ## OUTPUT FORMAT
+
+      ```javascript
+      export async function run(client, values, options) {
+        // values = { "v1": <literal>, ... } - filter values from PS (all strings)
+        // options = { fields, orderBy, limit, offset } - output configuration
+        // ps = Prompt Schema with operation, where, group_by, fields, values
+
+        // 1. Construct request body from PS where clause and fields
+        const requestBody = {
+          filter: [],
+          fields: [],
+          aggregates: []
+        };
+        
+        // Map PS where clause to API filter (check API docs for field name mapping)
+        // Convert string values to appropriate types (numbers, dates, etc.)
+        // Example: PS column "date_yyyy" → API field "date.year", value "2024" → number 2024
+        
+        // Map PS fields to API aggregates or fields
+        // PS fields: [{ "agg": "sum", "column": "amount" }] → API aggregates
+        // Check API docs for correct field names and aggregate function names
+
+        // 2. Fetch data using the constructed request body
+        const response = await client.call('operationId', requestBody);
+        
+        // CRITICAL: Extract data array from response
+        const data = response.data || response;
+        if (!Array.isArray(data)) {
+          throw new Error(`Expected array but got ${typeof data}`);
+        }
+
+        // 3. Handle return value based on query type:
+        // - Single aggregate, no grouping: return scalar value (e.g., data[0].total_sales)
+        // - Multiple aggregates or grouping: return entire array
+        // - Field selection: return entire array
+        // - Empty results: return appropriate default (0 for aggregates, [] for arrays)
+        
+        return result;
+      }
+      ```
+
+      ## RESPONSE STRUCTURE
+
+      When calling `client.call('operationId', params)`, the response structure depends on
+      the endpoint:
+
+      - **Query endpoints** (like querySalesData): Returns `{ data: Array, metadata: Object }`
+        - The `data` field contains the array of results
+        - For aggregate queries, `data` is an array of objects with aggregate values
+        - Example: `{ data: [{ total_sales: 12345.67 }], metadata: {...} }`
+        - For empty results: `{ data: [], metadata: {...} }`
+      
+      - **Other endpoints**: May return different structures - check the API documentation
+
+      **CRITICAL**: Always extract the `data` field from the response:
+      ```javascript
+      const response = await client.call('operationId', params);
+      const data = response.data || response; // Fallback if response is already an array
+      if (!Array.isArray(data)) {
+        throw new Error(`Expected array but got ${typeof data}`);
+      }
+      ```
+
+      ## AGGREGATE QUERY HANDLING
+
+      For aggregate queries, the return value depends on the query type:
+
+      1. **Single aggregate, no grouping** (e.g., "total sales for 2024"):
+         - API returns: `[{ total_sales: 12345.67 }]`
+         - **Return the scalar value**: `return data[0].total_sales;` (not the array)
+         - If empty: `return 0;` or `return null;`
+
+      2. **Multiple aggregates or with grouping**:
+         - API returns: `[{ category: "Electronics", total_sales: 5000 }, ...]`
+         - **Return the entire array**: `return data;`
+
+      3. **Field selection (no aggregates)**:
+         - API returns: `[{ sale: {...}, product: {...} }, ...]`
+         - **Return the entire array**: `return data;`
+
+      ## RULES
+
+      1. Use `client.call('operationId', params)` to call endpoints
+      2. **ALWAYS extract the `data` field from the response**: 
+         `const data = response.data || response;`
+      3. **ALWAYS validate that `data` is an array** before using array methods
+      4. **For single aggregate queries without grouping**: Return the scalar value from
+         `data[0].<alias>`, not the entire array. If empty, return `0` or `null`.
+      5. **For queries with grouping or multiple aggregates**: Return the entire `data` array
+      6. Access filter values via `values["v1"]`, `values["v2"]`, etc. All values are
+         strings (DTN). Convert to appropriate types when calling APIs:
+         - Numbers: `parseInt(value, 10)` or `parseFloat(value)`
+         - Dates: Parse according to format (check API docs)
+         - Booleans: `value === "true"`
+      7. Map PS field names to API field names (e.g., `date_yyyy` → `date.year`)
+      8. Map PS aggregates to API aggregates:
+         - PS: `{ "agg": "sum", "column": "amount" }`
+         - API: `{ field: "sale.amount", function: "sum", alias: "total_sales" }`
+      9. Output pure JavaScript (NOT TypeScript) - no interfaces or type annotations
+      10. Handle empty results gracefully - return appropriate defaults (0 for numbers, [] for arrays)
+
+      Output JavaScript code block only.
+
+  - role: user
+    activation: ps-plan
+    content: |
+      Generate JavaScript code to execute this PS.
+
+      ```json
+      {{ input_json | raw }}
+      ```
+

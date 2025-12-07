@@ -141,11 +141,42 @@ public class TypeScriptExecutionEngine {
    *
    * @param typescriptCode the TypeScript code to execute (should export async function run(client, values))
    * @param registry the operation registry for API calls
-   * @param values the parameter values map from PS (key/value pairs for ? placeholders in S-SQL)
+   * @param values the parameter values map from PS (key/value pairs for labeled placeholders)
    * @return execution result as JSON string
    * @throws ExecutionException if execution fails
    */
   public String execute(String typescriptCode, OperationRegistry registry, Map<String, Object> values) throws ExecutionException {
+    return execute(typescriptCode, registry, values, null);
+  }
+  
+  /**
+   * Execute TypeScript code directly using Node.js and return the result.
+   * This method executes TypeScript without converting to DAG.
+   *
+   * @param typescriptCode the TypeScript code to execute (should export async function run(client, values, options))
+   * @param registry the operation registry for API calls
+   * @param values the parameter values map from PS (key/value pairs for labeled placeholders)
+   * @param options the output options (fields, orderBy, limit, offset) - can be null for legacy plans
+   * @return execution result as JSON string
+   * @throws ExecutionException if execution fails
+   */
+  public String execute(String typescriptCode, OperationRegistry registry, Map<String, Object> values, Map<String, Object> options) throws ExecutionException {
+    return execute(typescriptCode, registry, values, options, null);
+  }
+  
+  /**
+   * Execute TypeScript code directly using Node.js and return the result.
+   * This method executes TypeScript without converting to DAG.
+   *
+   * @param typescriptCode the TypeScript code to execute (should export async function run(client, values, options))
+   * @param registry the operation registry for API calls
+   * @param values the parameter values map from PS (key/value pairs for labeled placeholders)
+   * @param options the output options (fields, orderBy, limit, offset) - can be null for legacy plans
+   * @param currentTime the current time (ISO 8601 string) for computing relative dates - can be null
+   * @return execution result as JSON string
+   * @throws ExecutionException if execution fails
+   */
+  public String execute(String typescriptCode, OperationRegistry registry, Map<String, Object> values, Map<String, Object> options, String currentTime) throws ExecutionException {
     if (typescriptCode == null || typescriptCode.trim().isEmpty()) {
       throw new IllegalArgumentException("TypeScript code cannot be null or empty");
     }
@@ -165,9 +196,12 @@ public class TypeScriptExecutionEngine {
       // Ensure temp directory exists
       Files.createDirectories(tempDir);
       
-      // Create package.json to ensure Node.js treats files as CommonJS (not ES modules)
-      Path packageJson = tempDir.resolve("package.json");
-      Files.writeString(packageJson, "{\"type\": \"commonjs\"}\n");
+      // Create package.json with "type": "module" to enable ES modules
+      // This is required because the generated code uses ES6 import statements
+      Path packageJsonFile = tempDir.resolve("package.json");
+      String packageJson = "{\"type\": \"module\"}\n";
+      Files.writeString(packageJsonFile, packageJson);
+      log.debug("Created/updated package.json with type: module in temp directory");
       
       // Set OperationRegistry in thread-local for HTTP bridge servlet
       // Get execution ID from inference logger if available, otherwise generate one
@@ -192,7 +226,7 @@ public class TypeScriptExecutionEngine {
         
         // Wrap TypeScript code with execution harness and convert to JavaScript
         // Since we control the code generation, we can write it as plain JavaScript
-        String wrappedCode = wrapTypeScriptCode(typescriptCode, bridgeFile.getFileName().toString(), resultFile.getFileName().toString(), bridgeFile, resultFile, values);
+        String wrappedCode = wrapTypeScriptCode(typescriptCode, bridgeFile.getFileName().toString(), resultFile.getFileName().toString(), bridgeFile, resultFile, values, options, currentTime);
         
         // Write as .js file (not .ts) so we can use plain node without ts-node
         Files.writeString(jsFile, wrappedCode);
@@ -252,9 +286,9 @@ public class TypeScriptExecutionEngine {
     String baseUrl = "http://localhost:" + serverPort;
     
     return String.format("""
-        const http = require('http');
-        const https = require('https');
-        const { URL } = require('url');
+        import http from 'http';
+        import https from 'https';
+        import { URL } from 'url';
         
         // API Client that bridges to Java OperationRegistry via HTTP
         class ApiClient {
@@ -313,8 +347,8 @@ public class TypeScriptExecutionEngine {
         // Create client instance
         const client = new ApiClient('%s');
         
-        // Export for use in TypeScript code
-        module.exports = { client };
+        // Export for use in TypeScript code (ES module syntax)
+        export { client };
         """, baseUrl, executionId, baseUrl);
   }
 
@@ -403,18 +437,15 @@ public class TypeScriptExecutionEngine {
    * Wrap TypeScript code with execution harness.
    * Converts ES module syntax (export) to CommonJS (module.exports).
    */
-  private String wrapTypeScriptCode(String typescriptCode, String bridgeFileName, String resultFileName, Path bridgeFile, Path resultFile, Map<String, Object> values) {
+  private String wrapTypeScriptCode(String typescriptCode, String bridgeFileName, String resultFileName, Path bridgeFile, Path resultFile, Map<String, Object> values, Map<String, Object> options, String currentTime) {
     // Use relative paths since all files are in the same directory (tempDir)
     // This avoids path escaping issues with absolute paths
     String bridgePath = "./" + bridgeFileName;
     String resultPath = resultFile.getFileName().toString();
     
-    // Convert ES module export to CommonJS
-    // Replace "export async function run" with "async function run"
-    // Then wrap it to assign to module.exports
-    String commonJsCode = typescriptCode
-        .replaceFirst("^export\\s+async\\s+function\\s+run", "async function run")
-        .replaceFirst("^export\\s+function\\s+run", "function run");
+    // Keep ES module syntax - package.json has "type": "module" so Node.js will handle it
+    // No need to convert export to CommonJS anymore
+    String esModuleCode = typescriptCode;
     
     // Serialize values map to JSON for passing to the function
     String valuesJson = "{}";
@@ -424,34 +455,65 @@ public class TypeScriptExecutionEngine {
       log.warn("Failed to serialize values map, using empty object: {}", e.getMessage());
     }
     
+    // Serialize options map to JSON for passing to the function
+    // Options contains: fields, orderBy, limit, offset
+    String optionsJson = "{}";
+    try {
+      optionsJson = JacksonUtility.getJsonMapper().writeValueAsString(options != null ? options : java.util.Collections.emptyMap());
+    } catch (Exception e) {
+      log.warn("Failed to serialize options map, using empty object: {}", e.getMessage());
+    }
+    
+    // Create ps object with current_time for relative date computation
+    String psJson = "{}";
+    if (currentTime != null && !currentTime.isEmpty()) {
+      try {
+        Map<String, Object> psMap = new HashMap<>();
+        psMap.put("current_time", currentTime);
+        psJson = JacksonUtility.getJsonMapper().writeValueAsString(psMap);
+      } catch (Exception e) {
+        log.warn("Failed to serialize ps object, using empty object: {}", e.getMessage());
+      }
+    }
+    
+    // Use ES module syntax (import) since package.json has "type": "module"
     return String.format("""
-        const { client } = require('%s');
+        import { client } from '%s';
+        import fs from 'fs';
+        import path from 'path';
+        import { fileURLToPath } from 'url';
+        
+        const __filename = fileURLToPath(import.meta.url);
+        const __dirname = path.dirname(__filename);
         
         %s
         
-        // Values array from PS (parameters for ? placeholders in S-SQL)
+        // Values dictionary from PS (labeled placeholders: { "v1": <literal>, "v2": <literal> })
         const values = %s;
+        
+        // Options for output configuration (fields, orderBy, limit, offset)
+        // Passed at runtime to allow flexible output from cached plans
+        const options = %s;
+        
+        // PS object with current_time for relative date computation
+        const ps = %s;
         
         // Execute and write result
         (async () => {
           try {
-            const result = await run(client, values);
-            const fs = require('fs');
-            const path = require('path');
+            const result = await run(client, values, options);
             fs.writeFileSync(
               path.join(__dirname, '%s'),
               JSON.stringify({ success: true, data: result })
             );
           } catch (error) {
-            const fs = require('fs');
-            const path = require('path');
             fs.writeFileSync(
               path.join(__dirname, '%s'),
               JSON.stringify({ success: false, error: error.message, stack: error.stack })
             );
           }
         })();
-        """, bridgePath, commonJsCode, valuesJson, resultPath, resultPath);
+        """, bridgePath, esModuleCode, valuesJson, optionsJson, psJson, resultPath, resultPath);
   }
 
   /**

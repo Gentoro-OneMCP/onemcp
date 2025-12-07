@@ -60,7 +60,7 @@ The API uses a flexible query model with three main components:
 ## Data Quality
 
 - **Real-time Updates**: Data is updated every 15 minutes
-- **Historical Coverage**: 3 years of historical data available
+- **Historical Coverage**: 10 years of historical data available (2015-2024)
 - **Data Completeness**: 99.2% of records have complete information
 - **Accuracy**: All financial data is reconciled daily
 

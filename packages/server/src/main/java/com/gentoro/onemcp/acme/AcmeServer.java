@@ -302,7 +302,7 @@ public class AcmeServer {
 
     switch (operator) {
       case "equals":
-        // For number fields, do numeric comparison; otherwise string comparison
+        // For number fields, do numeric comparison; otherwise case-insensitive string comparison
         String fieldType = FIELD_TYPES.get(field);
         if ("number".equals(fieldType)) {
           try {
@@ -310,13 +310,13 @@ public class AcmeServer {
             double valueNum = toNumber(field, getJsonNodeValue(value));
             return Double.compare(fieldNum, valueNum) == 0;
           } catch (Exception e) {
-            // Fall back to string comparison if number conversion fails
-            return Objects.equals(fieldValue.toString(), value.asText());
+            // Fall back to case-insensitive string comparison if number conversion fails
+            return fieldValue.toString().equalsIgnoreCase(value.asText());
           }
         }
-        return Objects.equals(fieldValue.toString(), value.asText());
+        return fieldValue.toString().equalsIgnoreCase(value.asText());
       case "not_equals":
-        // For number fields, do numeric comparison; otherwise string comparison
+        // For number fields, do numeric comparison; otherwise case-insensitive string comparison
         fieldType = FIELD_TYPES.get(field);
         if ("number".equals(fieldType)) {
           try {
@@ -324,11 +324,11 @@ public class AcmeServer {
             double valueNum = toNumber(field, getJsonNodeValue(value));
             return Double.compare(fieldNum, valueNum) != 0;
           } catch (Exception e) {
-            // Fall back to string comparison if number conversion fails
-            return !Objects.equals(fieldValue.toString(), value.asText());
+            // Fall back to case-insensitive string comparison if number conversion fails
+            return !fieldValue.toString().equalsIgnoreCase(value.asText());
           }
         }
-        return !Objects.equals(fieldValue.toString(), value.asText());
+        return !fieldValue.toString().equalsIgnoreCase(value.asText());
       case "greater_than":
         return compareNumbers(field, fieldValue, value) > 0;
       case "greater_than_or_equal":
@@ -359,9 +359,9 @@ public class AcmeServer {
               // Fall back to string comparison if number conversion fails
             }
           }
-          // String comparison fallback
+          // String comparison fallback (case-insensitive)
           for (JsonNode item : value) {
-            if (Objects.equals(fieldValue.toString(), item.asText())) {
+            if (fieldValue.toString().equalsIgnoreCase(item.asText())) {
               return true;
             }
           }
@@ -591,6 +591,24 @@ public class AcmeServer {
           }
           localData.add(selected);
         });
+
+    // Special case: If no data and no grouping fields, return single row with aggregate = 0
+    if (localData.isEmpty() && requestedFieldsSet.isEmpty()) {
+      ObjectNode emptyResult = JacksonUtility.getJsonMapper().createObjectNode();
+      for (JsonNode aggregate : aggregates) {
+        String field = aggregate.get("field").asText();
+        String function = aggregate.get("function").asText();
+        String alias;
+        if (aggregate.has("alias") && !aggregate.get("alias").isNull()) {
+          alias = aggregate.get("alias").asText();
+        } else {
+          alias = function + "_" + field.replace(".", "_");
+        }
+        emptyResult.put(alias, 0.0);
+      }
+      result.add(emptyResult);
+      return result;
+    }
 
     while (true) {
       if (localData.isEmpty()) {

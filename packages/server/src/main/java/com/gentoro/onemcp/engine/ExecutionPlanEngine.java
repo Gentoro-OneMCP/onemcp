@@ -87,7 +87,7 @@ public class ExecutionPlanEngine {
     // Validate structure before attempting to execute
     ExecutionPlanValidator.validate(plan);
     // Only the latest specification (no 'nodes' property) is supported now.
-    return executeNewSpec(plan);
+    return executeNewSpec(plan, initialState);
   }
 
   /**
@@ -170,18 +170,29 @@ public class ExecutionPlanEngine {
   }
 
   // ---------------- New-spec execution ----------------
-  private JsonNode executeNewSpec(JsonNode plan) {
+  private JsonNode executeNewSpec(JsonNode plan, JsonNode initialState) {
     ObjectNode gstt = JsonNodeFactory.instance.objectNode();
 
     // Initialize start_node vars
     JsonNode start = plan.get("start_node");
     ObjectNode startVars = JsonNodeFactory.instance.objectNode();
+    
+    // First, populate from initialState if provided (from value_conversions)
+    if (initialState != null && initialState.isObject()) {
+      initialState.fields().forEachRemaining(entry -> {
+        startVars.set(entry.getKey(), entry.getValue());
+      });
+    }
+    
+    // Then, overlay vars from start_node (which may reference converted values)
     JsonNode vars = start.get("vars");
     if (vars != null && vars.isObject()) {
       // deep resolve any JsonPath values (supports nested objects/arrays)
       JsonNode resolved = deepResolve(vars, gstt, null);
       if (resolved != null && resolved.isObject()) {
-        startVars = (ObjectNode) resolved;
+        resolved.fields().forEachRemaining(entry -> {
+          startVars.set(entry.getKey(), entry.getValue());
+        });
       }
     }
     gstt.set("start_node", startVars);

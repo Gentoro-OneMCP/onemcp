@@ -172,6 +172,21 @@ public class McpServer implements AutoCloseable {
                             String reportPath = null;
                             
                             try {
+                              // Check for special index command
+                              if ("__index_schema__".equals(prompt)) {
+                                // Index schema only (no normalization/planning)
+                                reportPath = oneMcp.orchestrator().indexSchema();
+                                
+                                // Return success response with report path
+                                Map<String, Object> response = new HashMap<>();
+                                response.put("content", "Schema indexed successfully");
+                                if (reportPath != null) {
+                                  response.put("reportPath", reportPath);
+                                }
+                                return new McpSchema.CallToolResult(
+                                    JacksonUtility.toJson(response), false);
+                              }
+                              
                               result =
                                   oneMcp
                                       .orchestrator()
@@ -189,26 +204,41 @@ public class McpServer implements AutoCloseable {
                                 com.fasterxml.jackson.databind.ObjectMapper mapper = JacksonUtility.getJsonMapper();
                                 com.fasterxml.jackson.databind.JsonNode jsonNode = mapper.readTree(resultJson);
                                 
-                                // Check if result has a "content" field (from AssigmentResult)
-                                if (jsonNode.has("parts") && jsonNode.get("parts").isArray() && jsonNode.get("parts").size() > 0) {
-                                  // Extract content from the last assignment part
-                                  com.fasterxml.jackson.databind.JsonNode lastPart = jsonNode.get("parts").get(jsonNode.get("parts").size() - 1);
-                                  if (lastPart.has("content") && !lastPart.get("content").isNull()) {
-                                    response.put("content", lastPart.get("content").asText());
-                                  } else {
-                                    response.put("content", resultJson);
+                                // Check if result has parts with content
+                                String extractedContent = null;
+                                if (jsonNode.has("parts") && jsonNode.get("parts").isArray()) {
+                                  com.fasterxml.jackson.databind.JsonNode parts = jsonNode.get("parts");
+                                  if (parts.size() > 0) {
+                                    // Extract content from the last assignment part
+                                    com.fasterxml.jackson.databind.JsonNode lastPart = parts.get(parts.size() - 1);
+                                    if (lastPart.has("content") && !lastPart.get("content").isNull()) {
+                                      extractedContent = lastPart.get("content").asText();
+                                    }
                                   }
+                                }
+                                
+                                // Also check context.refinedAssignment if no content from parts
+                                if (extractedContent == null && jsonNode.has("context") && !jsonNode.get("context").isNull()) {
+                                  com.fasterxml.jackson.databind.JsonNode context = jsonNode.get("context");
+                                  if (context.has("refinedAssignment") && !context.get("refinedAssignment").isNull()) {
+                                    extractedContent = context.get("refinedAssignment").asText();
+                                  }
+                                }
+                                
+                                // Set content - never return raw AssigmentResult JSON
+                                if (extractedContent != null && !extractedContent.trim().isEmpty()) {
+                                  response.put("content", extractedContent);
                                 } else {
-                                  // If not structured, use the whole JSON as content
-                                  response.put("content", resultJson);
+                                  // No content found - provide helpful message
+                                  response.put("content", "No result content. Check the report for details.");
                                 }
                                 
                                 if (reportPath != null) {
                                   response.put("reportPath", reportPath);
                                 }
                               } catch (Exception e) {
-                                // Fallback: just serialize the result
-                                response.put("content", JacksonUtility.toJson(result));
+                                // Fallback: provide error message, not raw JSON
+                                response.put("content", "Error processing result: " + e.getMessage());
                                 if (reportPath != null) {
                                   response.put("reportPath", reportPath);
                                 }

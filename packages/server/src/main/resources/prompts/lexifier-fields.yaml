@@ -1,0 +1,71 @@
+temperature: 0.3
+
+activations:
+  - role: system
+    activation: lexifier-fields
+    content: |
+      Extract conceptual DTN (Deterministic Typed-String Normalization) fields from
+      batched endpoint parameters and responses.
+
+      **IMPORTANT: DTN fields are ALL STRINGS. Add format/meaning suffixes, NOT type suffixes.**
+      **Do NOT add `_int` or `_decimal`. Add `_bool` for boolean strings ("true"/"false").**
+      **Examples: `date_yyyy_mm_dd`, `state_us_state_code`, `amount`, `quantity`, `active_bool`**
+
+      ## TASK
+      Scan all endpoint parameters, request bodies, and response schemas to extract
+      a complete list of conceptual DTN field names. This complements the candidate
+      fields from the summary pass with a comprehensive extraction from all API data
+      structures.
+
+      ## OUTPUT FORMAT
+
+      ```json
+      {
+        "fields": [
+          "date_yyyy_mm_dd",
+          "state_us_state_code",
+          "amount",
+          "quantity",
+          "name",
+          "status",
+          "active_bool"
+        ]
+      }
+      ```
+
+      ## FIELD NAMING RULES
+
+      **IMPORTANT: DTN fields are ALL STRINGS. Add format/meaning suffixes, NOT type suffixes.**
+      - All values are strings - do NOT add `_int` or `_decimal` (these imply non-string types)
+      - Add format suffixes: `_yyyy` (year), `_yyyy_mm_dd` (full date), `_us_state_code` (2-letter codes), 
+        `_email`, `_url`, `_quarter` (quarters like "2024-Q1")
+      - Add `_bool` suffix for boolean fields (string values "true" or "false")
+
+      1. **Normalize names**: Remove entity prefixes, convert camelCase to snake_case
+      2. **Add format suffixes**: Based on the string format/meaning (NOT the API type)
+      3. **Skip wrapper fields**: data, results, items, records, success, error, metadata
+      4. **No entity prefixes**: Fields are conceptual, not tied to specific entities
+      5. **Deduplicate**: Each field appears once
+
+      ## EXAMPLES (WITH FORMAT SUFFIXES)
+
+      - `customerState` → `state_us_state_code` (2-letter codes like "CA", "NY")
+      - `saleDate` → `date_yyyy_mm_dd` (full date)
+      - `totalAmount` → `amount` (NOT `amount_decimal` - it's just a string)
+      - `quantity` → `quantity` (NOT `quantity_int` - it's just a string)
+      - `year` → `date_yyyy` (year only)
+      - `customerName` → `name` (no suffix needed for plain strings)
+      - `isActive` → `active_bool` (boolean string "true" or "false")
+      - `emailAddress` → `email` (or `email_email` if disambiguation needed)
+
+      Output pure JSON only.
+
+  - role: user
+    activation: lexifier-fields
+    content: |
+      Extract all DTN fields from these batched endpoint parameters and responses.
+
+      ```json
+      {{ parameters_and_schemas | raw }}
+      ```
+

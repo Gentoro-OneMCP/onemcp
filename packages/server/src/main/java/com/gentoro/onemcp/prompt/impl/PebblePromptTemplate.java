@@ -130,8 +130,12 @@ public class PebblePromptTemplate implements PromptTemplate {
             cs.template().evaluate(writer, ctx);
             out.add(new LlmClient.Message(s.role(), writer.toString()));
           } catch (Exception e) {
+            String errorDetails = e.getMessage();
+            if (e.getCause() != null) {
+              errorDetails += " (Caused by: " + e.getCause().getMessage() + ")";
+            }
             throw new com.gentoro.onemcp.exception.PromptException(
-                "Failed to render prompt section '" + s.id() + "' in template '" + id + "'", e);
+                "Failed to render prompt section '" + s.id() + "' in template '" + id + "': " + errorDetails, e);
           }
         }
       }

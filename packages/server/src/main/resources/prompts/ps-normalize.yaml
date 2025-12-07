@@ -1,0 +1,94 @@
+temperature: 0.0
+
+activations:
+  - role: system
+    activation: ps-normalize
+    content: |
+      Convert natural-language prompts to Prompt Schema (PS) JSON using the provided vocabulary.
+
+      ## VOCABULARY
+      - **actions**: What can be done (search, update, create, delete)
+      - **entities**: What things exist (sale, customer, product, etc.)
+      - **fields**: Conceptual field names with format suffixes (all values are strings - DTN: Deterministic Typed-String Normalization)
+        - Format suffixes help the planner understand string formats (NOT types - everything is a string)
+        - Examples: `date_yyyy_mm_dd`, `state_us_state_code`, `amount`, `quantity`, `active_bool` (bool means string "true"/"false")
+        - Do NOT use type suffixes like `_int` or `_decimal` - everything is a string
+      
+      ## CURRENT TIME
+      The input JSON includes `current_time` (ISO 8601 string, e.g., "2024-12-06T08:33:03.237743Z") which you MUST use to compute relative dates like "last quarter", "last month", "this year", etc.
+
+      ## PS OUTPUT FORMAT
+
+      ```json
+      {
+        "operation": "select",
+        "table": "sale",
+        "where": {
+          "op": "equals",
+          "column": "date_yyyy",
+          "value": { "label": "v1" }
+        },
+        "shape": {
+          "group_by": [],
+          "aggregates": [
+            { "field": "amount", "function": "sum" }
+          ],
+          "order_by": [],
+          "limit": null,
+          "offset": null
+        },
+        "values": { "v1": "2024" },
+        "columns": ["date_yyyy", "amount"]
+      }
+      ```
+
+      ## RULES
+
+      1. **operation**: Map vocabulary actions: "search" → "select", "create" → "insert", "update" → "update", "delete" → "delete"
+      2. **table**: Pick ONE entity from vocabulary. Use singular form.
+      3. **where**: Expression tree with labeled placeholders:
+         - Comparison: `{ "op": "equals", "column": "date_yyyy", "value": { "label": "v1" } }`
+         - Boolean: `{ "op": "and", "conditions": [...] }`
+         - Operators: `equals`, `not_equals`, `greater_than`, `less_than`, `greater_than_or_equal`, `less_than_or_equal`, `in`, `not_in`, `contains`, `starts_with`
+         - **PREFER IN over OR**: When multiple values are being checked against the same column, use the `in` operator instead of an `or` with multiple `equals` conditions. The `in` operator is more flexible, efficient, and easier to optimize.
+           - ❌ **WRONG**: `{ "op": "or", "conditions": [{ "op": "equals", "column": "state", "value": { "label": "v1" } }, { "op": "equals", "column": "state", "value": { "label": "v2" } }] }`
+           - ✅ **CORRECT**: `{ "op": "in", "column": "state", "value": { "labels": ["v1", "v2"] } }`
+           - Example: "Show sales for NY and CA" → Use `in` with both state codes, not `or` with separate equals
+      4. **values**: Dictionary with DTN strings (all values are strings):
+         - Dates: "2024" (year), "2024-05" (month), "2024-12-31" (day), "2024-Q4" (quarter)
+         - **Relative dates**: For relative time expressions like "last quarter", "last month", "this year", etc., compute the actual dates using `current_time` from the input JSON:
+           - "last quarter" → Compute start and end dates of the previous quarter from current_time
+           - "last month" → Compute start and end dates of the previous month from current_time
+           - "this year" → Compute start and end dates of the current year from current_time
+           - Format dates as "YYYY-MM-DD" for date_yyyy_mm_dd fields
+           - Format quarters as "YYYY-Qn" for date_quarter fields
+           - Example: If current_time is "2024-12-06T08:33:03Z" and prompt says "last quarter", compute Q3 2024 (July-September): "2024-07-01" to "2024-09-30"
+         - States: 2-letter codes "CA", "NY", "TX" (convert "California" → "CA")
+         - Numbers: "100", "99.5" (as strings)
+         - Booleans: "true", "false" (as strings)
+      5. **shape**: Object containing post-processing configuration:
+         - **group_by**: Array of conceptual field names to group by (e.g., `["customer.state_us_state_code"]`)
+         - **aggregates**: Array of aggregate objects: `[{ "field": "amount", "function": "sum" }]`
+           - **field**: Conceptual field name from vocabulary (with format suffix, e.g., `amount`, `date_yyyy_mm_dd`)
+           - **function**: Aggregate function: `sum`, `avg`, `count`, `min`, `max`
+         - **order_by**: Array of conceptual field names to sort by (e.g., `["amount"]`)
+         - **limit**: Maximum number of records (DTN string like `"10"` or `null`)
+         - **offset**: Number of records to skip (DTN string like `"0"` or `null`)
+      6. **columns**: List ALL columns used in where, shape.group_by, shape.aggregates, shape.order_by. Use field names from vocabulary WITH format suffixes (e.g., `date_yyyy_mm_dd`, `state_us_state_code`, `amount`, `active_bool`). Do NOT use type suffixes like `_int` or `_decimal`.
+      7. **Rejection**: If prompt cannot be mapped, return {"operation": null, "note": "reason"}
+      8. **Error Feedback**: If `error_feedback` is provided in the input JSON, read it carefully and fix the issues. Common issues:
+         - Unknown entity: Use the exact entity name from the vocabulary (check spelling, singular/plural)
+         - Unknown action: Map operation correctly (e.g., "select" → "search" action)
+         - Invalid field: Use exact field name from vocabulary with correct format suffix
+
+      Output pure JSON only.
+
+  - role: user
+    activation: ps-normalize
+    content: |
+      Convert this prompt to PS JSON format.
+
+      ```json
+      {{ input_json | raw }}
+      ```
+

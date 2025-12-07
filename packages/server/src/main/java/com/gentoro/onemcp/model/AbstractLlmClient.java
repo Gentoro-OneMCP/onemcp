@@ -164,7 +164,7 @@ public abstract class AbstractLlmClient implements LlmClient {
         cacheable,
         temperature);
 
-    // Log input messages for reporting
+    // Log input messages for reporting (done here so all implementations log consistently)
     if (oneMcp != null && oneMcp.inferenceLogger() != null) {
       oneMcp.inferenceLogger().logLlmInputMessages(messages);
     }

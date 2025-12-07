@@ -233,7 +233,7 @@ public class FakeDataGenerator {
       sale.put("customer_id", customer.get("id"));
       sale.put("product_id", product.get("id"));
       sale.put("amount", Math.round(amount * 100.0) / 100.0);
-      sale.put("date", generateRandomDate(2023, 2024));
+      sale.put("date", generateRandomDate(2015, 2024));
       sale.put("quantity", quantity);
       sale.put("discount", Math.round(discount * 100.0) / 100.0);
       sale.put("tax", Math.round(tax * 100.0) / 100.0);

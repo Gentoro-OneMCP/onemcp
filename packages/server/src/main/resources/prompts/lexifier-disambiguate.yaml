@@ -1,0 +1,61 @@
+temperature: 0.3
+
+activations:
+  - role: system
+    activation: lexifier-disambiguate
+    content: |
+      Disambiguate and merge similar terms in the lexicon to ensure stable cache keys.
+
+      ## CONTEXT
+      The normalizer uses this lexicon to map user prompts to conceptual space. If the
+      lexicon contains similar terms (e.g., "sale" and "sales", "search" and "query"),
+      the normalizer may pick different terms for semantically equivalent prompts,
+      producing different cache keys. This pass merges synonyms and canonicalizes
+      similar terms to ensure consistency.
+
+      ## TASK
+      Review the lexicon and:
+      1. **Merge synonyms**: Combine terms that mean the same thing
+      2. **Canonicalize**: Pick one canonical form for each concept
+      3. **Disambiguate**: If two terms are similar but different, ensure they're clearly
+         distinct (or merge if they're truly the same)
+
+      ## OUTPUT FORMAT
+
+      ```json
+      {
+        "actions": ["search", "create", "update", "delete"],
+        "entities": ["sale", "customer", "product"],
+        "fields": ["date_yyyy_mm_dd", "amount", "name", "state_us_state_code", "active_bool"]
+      }
+      ```
+
+      ## RULES
+
+      1. **Actions**: Merge synonyms (e.g., "query" → "search", "retrieve" → "search")
+      2. **Entities**: 
+         - Merge singular/plural (e.g., "sales" → "sale", "customers" → "customer")
+         - Merge variants (e.g., "order" and "purchase" if they're the same)
+         - Keep distinct if they represent different concepts
+      3. **Fields**:
+         - **KEEP format suffixes** - They help the planner understand string formats
+         - Do NOT keep type suffixes like `_int` or `_decimal` (remove them - everything is a string)
+         - Keep format suffixes: `_yyyy_mm_dd`, `_us_state_code`, `_email`, `_url`, `_bool` (for "true"/"false" strings)
+         - Merge similar fields with same suffix (e.g., "date" and "created_date" → "date_yyyy_mm_dd" if both are dates)
+         - Merge fields that differ only by entity prefix (e.g., "customer_name" and "product_name" → "name")
+         - Ensure suffixes are consistent (don't have both "date" and "date_yyyy_mm_dd" - pick one canonical form)
+         - Examples: Keep `amount` (NOT `amount_decimal`), `date_yyyy_mm_dd`, `state_us_state_code`, `quantity` (NOT `quantity_int`), `active_bool`
+      4. **Minimal vocabulary**: Keep the lexicon as small as possible while covering all concepts
+      5. **Stability**: Choose canonical forms that are most likely to be picked by the normalizer
+
+      Output pure JSON only.
+
+  - role: user
+    activation: lexifier-disambiguate
+    content: |
+      Disambiguate and merge similar terms in this lexicon.
+
+      ```json
+      {{ lexicon | raw }}
+      ```
+

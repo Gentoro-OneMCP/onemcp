@@ -1,0 +1,94 @@
+temperature: 0.3
+
+activations:
+  - role: system
+    activation: lexifier-summary
+    content: |
+      Analyze an OpenAPI specification and create a conceptual summary.
+
+      ## CONTEXT
+      This system uses a conceptual space approach: the lexicon defines a flat vocabulary
+      (actions, entities, fields) that expresses user intent. The normalizer maps natural
+      language to this conceptual space, and the planner maps conceptual intent to actual
+      API implementation. This separation keeps the conceptual vocabulary stable and
+      cache-friendly while isolating API changes to the planner layer.
+
+      ## TASK
+      Read the OpenAPI spec and produce a structured summary that identifies:
+      1. **Actions**: What operations can be performed (search, create, update, delete)
+      2. **Entities**: What semantic entities exist (sale, customer, product, etc.)
+      3. **Candidate Fields**: Initial list of DTN (Deterministic Typed-String Normalization)
+         field names based on common patterns in the API
+      4. **Entity Endpoints**: Map each entity to the endpoints (operationId) that operate on it
+      
+      **IMPORTANT: DTN fields are ALL STRINGS. Add format/meaning suffixes to help the planner**
+      **understand the string format. Do NOT add type suffixes like `_int` or `_decimal`.**
+      **Examples: `date_yyyy_mm_dd`, `state_us_state_code`, `amount`, `quantity`, `active_bool` (bool means string "true"/"false")**
+
+      ## OUTPUT FORMAT
+
+      ```json
+      {
+        "summary": "Brief description of what this API does",
+        "actions": ["search", "create", "update", "delete"],
+        "entities": ["sale", "customer", "product", "order"],
+        "candidateFields": [
+          "date_yyyy_mm_dd",
+          "state_us_state_code",
+          "amount",
+          "name",
+          "status",
+          "quantity",
+          "active_bool"
+        ],
+        "entityEndpoints": {
+          "sale": ["getSales", "getSaleById", "createSale"],
+          "customer": ["getCustomers", "getCustomerById", "updateCustomer"],
+          "product": ["getProducts", "getProductById"]
+        }
+      }
+      ```
+
+      ## RULES
+
+      1. **Actions**: Extract canonical actions from HTTP methods:
+         - GET → "search"
+         - POST → "create"
+         - PUT/PATCH → "update"
+         - DELETE → "delete"
+      2. **Entities**: Identify semantic entities from:
+         - Path segments (e.g., /api/sales/{id} → "sale")
+         - Schema names (e.g., "Customer" → "customer")
+         - Use singular form
+         - Skip generic terms like "api", "v1", "query"
+      3. **Summary**: One sentence describing the API's purpose
+      4. **Candidate Fields**: Initial DTN field names based on common patterns you observe.
+         
+         **IMPORTANT: DTN fields are ALL STRINGS. Add format/meaning suffixes, NOT type suffixes.**
+         - All values are strings - do NOT add `_int` or `_decimal` (these imply non-string types)
+         - Add format suffixes: `_yyyy` (year), `_yyyy_mm_dd` (full date), `_us_state_code` (2-letter codes), 
+           `_email`, `_url`, `_quarter` (quarters like "2024-Q1")
+         - Add `_bool` suffix for boolean fields (string values "true" or "false")
+         - Examples: `customerState` → `state_us_state_code`, `saleDate` → `date_yyyy_mm_dd`, 
+           `totalAmount` → `amount` (NOT `amount_decimal`), `quantity` → `quantity` (NOT `quantity_int`), 
+           `isActive` → `active_bool`
+         
+         This is a starting list - a more complete extraction will happen in the next pass.
+      5. **Entity Endpoints**: For each entity, list the operationId values of endpoints that operate
+         on that entity. This mapping will be used by the planner to find relevant endpoints.
+         - Map entity names (singular) to arrays of operationId strings
+         - Include all endpoints that read, create, update, or delete the entity
+         - Example: `"sale": ["getSales", "getSaleById", "createSale", "updateSale", "deleteSale"]`
+      6. Keep vocabulary minimal - deduplicate and canonicalize
+
+      Output pure JSON only.
+
+  - role: user
+    activation: lexifier-summary
+    content: |
+      Analyze this OpenAPI specification and create a conceptual summary.
+
+      ```json
+      {{ openapi_spec | raw }}
+      ```
+

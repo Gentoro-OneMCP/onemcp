@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -17,7 +18,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.commons.configuration2.Configuration;
 import org.slf4j.Logger;
 
@@ -59,6 +63,10 @@ public class InferenceLogger {
 
   // Thread-local report path for current execution
   private static final ThreadLocal<String> currentReportPath = new ThreadLocal<>();
+
+  // Pending retry reasons: "executionId:phase" -> error message that triggered the retry
+  // This provides a direct link between a validation error and the subsequent retry
+  private final Map<String, String> pendingRetryReasons = new ConcurrentHashMap<>();
 
   public InferenceLogger(OneMcp oneMcp) {
     this.oneMcp = oneMcp;
@@ -359,14 +367,23 @@ public class InferenceLogger {
                   Instant.now().toString(),
                   Map.of("durationMs", durationMs, "success", success)));
 
-          // Generate and write report
+          // Generate and write report (synchronously to ensure it's written before path is retrieved)
           String reportContent = generateTextReport(executionId, events, durationMs, success, startTimeMs);
-          Files.writeString(reportPath, reportContent);
-          log.debug("Report written to: {} (size: {} bytes)", reportPath, reportContent.length());
-
-          currentReportPath.set(reportPathStr);
+          Files.writeString(reportPath, reportContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+          
+          // Verify the file was actually written
+          if (!Files.exists(reportPath)) {
+            log.error("Report file was not created: {}", reportPath);
+            return null;
+          }
+          
+          long fileSize = Files.size(reportPath);
+          log.debug("Report written to: {} (size: {} bytes)", reportPath, fileSize);
           log.info("Execution completed: {} (report: {})", executionId, reportPath);
 
+          // Set the report path only after successful write
+          currentReportPath.set(reportPathStr);
+          
           // Clean up events, but keep executionReportPaths until it's retrieved
           executionEvents.remove(executionId);
           currentExecutionId.remove();
@@ -374,18 +391,32 @@ public class InferenceLogger {
           // they will be removed when retrieved via getCurrentReportPath()
 
           return reportPathStr;
+        } else {
+          // Events or reportPathStr is null - log warning
+          log.warn("Cannot generate report for execution {}: events={}, reportPathStr={}", 
+              executionId, events != null, reportPathStr != null);
         }
       } else {
         log.info("Execution completed: {} ({}ms, success: {})", executionId, durationMs, success);
       }
     } catch (Exception e) {
       log.error("Failed to generate report for execution: {}", executionId, e);
+      // Even on error, try to return the path if it was set
+      String reportPathStr = executionReportPaths.get(executionId);
+      if (reportPathStr != null) {
+        currentReportPath.set(reportPathStr);
+        return reportPathStr;
+      }
     } finally {
       // Clean up execution tracking, but preserve report path for retrieval
       executionEvents.remove(executionId);
       // executionReportPaths is intentionally NOT removed here - it will be cleared after retrieval
       currentExecutionId.remove();
       // currentReportPath is intentionally NOT removed here - it will be cleared after retrieval
+      
+      // Clean up any pending retry reasons for this execution
+      String prefix = executionId + ":";
+      pendingRetryReasons.entrySet().removeIf(entry -> entry.getKey().startsWith(prefix));
     }
 
     return null;
@@ -416,9 +447,8 @@ public class InferenceLogger {
     // First try thread-local (for same-thread access)
     String path = currentReportPath.get();
     if (path != null) {
-      currentReportPath.remove();
-      // Also remove from map if present
-      executionReportPaths.values().remove(path);
+      // Don't remove from thread-local yet - keep it for potential retries
+      // Also don't remove from map - keep it until explicitly cleared
       return path;
     }
     
@@ -429,12 +459,25 @@ public class InferenceLogger {
       // Since ConcurrentHashMap doesn't preserve insertion order, we'll get any entry
       // In practice, there should only be one entry at a time
       String mostRecentPath = executionReportPaths.values().iterator().next();
-      // Remove all entries (should only be one)
-      executionReportPaths.clear();
+      // Don't remove from map - keep it for potential retries
       return mostRecentPath;
     }
     
     return null;
+  }
+  
+  /**
+   * Clear the current report path after it's been successfully retrieved.
+   * This should be called after the report path has been used to prevent memory leaks.
+   */
+  public void clearCurrentReportPath() {
+    String path = currentReportPath.get();
+    if (path != null) {
+      currentReportPath.remove();
+      executionReportPaths.values().remove(path);
+    } else if (!executionReportPaths.isEmpty()) {
+      executionReportPaths.clear();
+    }
   }
 
   /**
@@ -532,62 +575,9 @@ public class InferenceLogger {
     sb.append("  API Calls:           ").append(apiCalls).append("\n");
     sb.append("  Errors:              ").append(errors).append("\n");
     
-    // Execution Plan Statistics
-    int planCount = 0;
-    int planCacheHits = 0;
-    int planCacheMisses = 0;
-    int planErrors = 0;
-    int planSuccesses = 0;
-    for (ExecutionEvent event : events) {
-      if ("execution_plan".equals(event.type)) {
-        planCount++;
-        if (event.data != null) {
-          Object planCacheHitObj = event.data.get("planCacheHit");
-          if (planCacheHitObj instanceof Boolean) {
-            if ((Boolean) planCacheHitObj) {
-              planCacheHits++;
-            } else {
-              planCacheMisses++;
-            }
-          }
-          if (event.data.containsKey("error") && event.data.get("error") != null) {
-            planErrors++;
-          }
-          if (event.data.containsKey("executionResult") && event.data.get("executionResult") != null) {
-            planSuccesses++;
-          }
-        }
-      }
-    }
-    if (planCount > 0) {
-      sb.append("  Execution Plans:     ").append(planCount);
-      if (planCacheHits > 0 || planCacheMisses > 0) {
-        sb.append(" (").append(planCacheHits).append(" cache hit");
-        if (planCacheHits != 1) sb.append("s");
-        if (planCacheMisses > 0) {
-          sb.append(", ").append(planCacheMisses).append(" miss");
-          if (planCacheMisses != 1) sb.append("es");
-        }
-        sb.append(")");
-      }
-      sb.append("\n");
-      if (planErrors > 0 || planSuccesses > 0) {
-        sb.append("  Plan Results:        ");
-        if (planSuccesses > 0) {
-          sb.append(planSuccesses).append(" success");
-          if (planSuccesses != 1) sb.append("es");
-        }
-        if (planErrors > 0) {
-          if (planSuccesses > 0) sb.append(", ");
-          sb.append(planErrors).append(" error");
-          if (planErrors != 1) sb.append("s");
-        }
-        sb.append("\n");
-      }
-    }
     sb.append("\n");
 
-    // LLM, Execution, and API Calls
+    // LLM, Execution, and API Calls - process in chronological order
     int llmCallNum = 1;
     int execCallNum = 1;
     int apiCallNum = 1;
@@ -599,8 +589,9 @@ public class InferenceLogger {
     // Track phase counts for retry numbering
     Map<String, Integer> phaseCounts = new HashMap<>();
 
-    // LLM Calls
+    // Process events in chronological order (they're already sorted by timestamp)
     for (ExecutionEvent event : events) {
+      // LLM Calls
       if ("llm_inference_complete".equals(event.type)) {
         Object duration = event.data.get("durationMs");
         Object phase = event.data.get("phase");
@@ -633,11 +624,14 @@ public class InferenceLogger {
         
         String phaseStr =
             (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
-        // Track phase counts and append retry number if > 1
-        int phaseCount = phaseCounts.getOrDefault(phaseStr, 0) + 1;
-        phaseCounts.put(phaseStr, phaseCount);
-        if (phaseCount > 1) {
-          phaseStr = phaseStr + "#" + phaseCount;
+        // If phase already includes attempt number (e.g., "normalize#2"), use it as-is
+        // Otherwise, track phase counts and append retry number if > 1
+        if (!phaseStr.contains("#")) {
+          int phaseCount = phaseCounts.getOrDefault(phaseStr, 0) + 1;
+          phaseCounts.put(phaseStr, phaseCount);
+          if (phaseCount > 1) {
+            phaseStr = phaseStr + "#" + phaseCount;
+          }
         }
         // Cache status is shown in summary only, not in individual call headers
         // Format: "  LLM Call N (phase):    DURATIONms | Tokens: X+Y=Z"
@@ -649,10 +643,8 @@ public class InferenceLogger {
             String.format("Tokens: %d+%d=%d", promptT, completionT, promptT + completionT);
         sb.append(String.format("%-30s %8s | %s", callLabel, durationStr, tokenStr)).append("\n");
       }
-    }
-
-    // Execution Calls (TypeScript execution)
-    for (ExecutionEvent event : events) {
+      
+      // Execution Calls (TypeScript execution) - process after corresponding plan
       if ("execution_phase".equals(event.type)) {
         Object duration = event.data.get("durationMs");
         Object attempt = event.data.get("attempt");
@@ -748,11 +740,24 @@ public class InferenceLogger {
         
         String phaseStr =
             (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
-        // Track phase counts and append retry number if > 1
-        int phaseCount = phaseCountsDetailed.getOrDefault(phaseStr, 0) + 1;
-        phaseCountsDetailed.put(phaseStr, phaseCount);
-        if (phaseCount > 1) {
-          phaseStr = phaseStr + "#" + phaseCount;
+        // If phase already includes attempt number (e.g., "normalize#2"), use it as-is
+        // Otherwise, track phase counts and append retry number if > 1
+        int phaseCount;
+        if (!phaseStr.contains("#")) {
+          phaseCount = phaseCountsDetailed.getOrDefault(phaseStr, 0) + 1;
+          phaseCountsDetailed.put(phaseStr, phaseCount);
+          if (phaseCount > 1) {
+            phaseStr = phaseStr + "#" + phaseCount;
+          }
+        } else {
+          // Extract attempt number from phaseStr
+          try {
+            String attemptPart = phaseStr.substring(phaseStr.indexOf("#") + 1);
+            phaseCount = Integer.parseInt(attemptPart);
+          } catch (NumberFormatException e) {
+            // If parsing fails, use 1 as default
+            phaseCount = 1;
+          }
         }
         // Cache status is shown in summary only, not in individual call headers
         String callHeader = "LLM Call " + llmInteractionNum + " (" + phaseStr + ")";
@@ -782,8 +787,8 @@ public class InferenceLogger {
           }
         }
 
+        // Show INPUT first
         if (foundInput && currentInputMessages != null) {
-          // Check if input is the same as previous
           if (currentInputMessages.equals(previousInputMessages)) {
             sb.append(
                 "┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
@@ -796,8 +801,7 @@ public class InferenceLogger {
             
             // If we have a previous input, elide common prefix
             if (previousInputMessages != null && !previousInputMessages.isEmpty()) {
-              String elided = elideCommonPrefix(previousInputMessages, messagesStr);
-              messagesStr = elided;
+              messagesStr = elideCommonPrefix(previousInputMessages, messagesStr);
             }
             
             // Format messages nicely - they should already be formatted with [role] prefix
@@ -832,6 +836,7 @@ public class InferenceLogger {
           sb.append("\n");
         }
 
+        // Show OUTPUT after INPUT
         if (response != null && !response.toString().trim().isEmpty()) {
           sb.append("┌─ OUTPUT (")
               .append(callHeader)
@@ -865,6 +870,148 @@ public class InferenceLogger {
           sb.append("│ [No response text captured]\n");
           sb.append("\n");
         }
+        
+        // Check if there's any error for this phase
+        // Show error after OUTPUT for all attempts (not just first)
+        String errorMsg = null;
+        // Extract base phase (remove attempt number if present)
+        // phaseStr might already have "#2" from source, or it might have been added by report
+        String basePhase = phaseStr.replaceAll("#\\d+$", "");
+        // phaseCount is already computed above
+        
+        // Helper to check if an event has an error for this phase
+        java.util.function.Function<ExecutionEvent, String> extractError = (evt) -> {
+          // Check if event has an error field
+          Object errorField = evt.data != null ? evt.data.get("error") : null;
+          if (errorField != null && !errorField.toString().trim().isEmpty()) {
+            // Check if phase matches
+            Object eventPhase = evt.data.get("phase");
+            if (eventPhase != null) {
+              String eventPhaseStr = eventPhase.toString().replaceAll("#\\d+$", "");
+              if (eventPhaseStr.equals(basePhase)) {
+                return errorField.toString();
+              }
+            }
+          }
+          // Check if event type itself indicates an error (e.g., api_call_error)
+          if ("api_call_error".equals(evt.type) || "validation_error".equals(evt.type)) {
+            Object eventPhase = evt.data != null ? evt.data.get("phase") : null;
+            if (eventPhase != null) {
+              String eventPhaseStr = eventPhase.toString().replaceAll("#\\d+$", "");
+              if (eventPhaseStr.equals(basePhase)) {
+                // For api_call_error, construct error message from event data
+                if ("api_call_error".equals(evt.type)) {
+                  Object apiError = evt.data.get("error");
+                  Object url = evt.data.get("url");
+                  if (apiError != null && !apiError.toString().trim().isEmpty()) {
+                    return "API call error" + (url != null ? " (" + url + ")" : "") + ": " + apiError.toString();
+                  }
+                } else {
+                  // validation_error
+                  Object valError = evt.data.get("error");
+                  if (valError != null && !valError.toString().trim().isEmpty()) {
+                    return valError.toString();
+                  }
+                }
+              }
+            }
+          }
+          return null;
+        };
+        
+        // Strategy 1: Look ahead for error events (up to 50 events ahead to catch errors)
+        // Try exact phase and attempt match first
+        for (int j = i + 1; j < events.size() && j <= i + 50; j++) {
+          ExecutionEvent nextEvent = events.get(j);
+          String foundError = extractError.apply(nextEvent);
+          if (foundError != null) {
+            // Check attempt match if available
+            Object errorAttempt = nextEvent.data != null ? nextEvent.data.get("attempt") : null;
+            if (errorAttempt instanceof Number) {
+              int errorAttemptNum = ((Number) errorAttempt).intValue();
+              if (errorAttemptNum == phaseCount) {
+                errorMsg = foundError;
+                log.debug("Found matching error for phase {} attempt {}: {}", basePhase, phaseCount, errorMsg.substring(0, Math.min(100, errorMsg.length())));
+                break;
+              }
+            } else {
+              // No attempt number, use it anyway
+              errorMsg = foundError;
+              log.debug("Found error for phase {} (no attempt match): {}", basePhase, errorMsg.substring(0, Math.min(100, errorMsg.length())));
+              break;
+            }
+          }
+        }
+        
+        // Strategy 2: If no exact match, try to find ANY error for this phase (ignore attempt number)
+        if (errorMsg == null) {
+          for (int j = i + 1; j < events.size() && j <= i + 50; j++) {
+            ExecutionEvent nextEvent = events.get(j);
+            String foundError = extractError.apply(nextEvent);
+            if (foundError != null) {
+              errorMsg = foundError;
+              log.debug("Found error for phase {} (ignoring attempt number): {}", basePhase, errorMsg.substring(0, Math.min(100, errorMsg.length())));
+              break;
+            }
+          }
+        }
+        
+        // Strategy 3: Check pendingRetryReasons map (most reliable fallback)
+        if (errorMsg == null) {
+          String pendingKey = executionId + ":" + basePhase;
+          String pendingError = pendingRetryReasons.get(pendingKey);
+          if (pendingError != null && !pendingError.trim().isEmpty()) {
+            errorMsg = pendingError;
+            log.debug("Found retry reason from pendingRetryReasons for key {}: {}", pendingKey, errorMsg.substring(0, Math.min(100, errorMsg.length())));
+          }
+        }
+        
+        // Strategy 4: Final fallback - look for ANY error in the entire event list for this phase
+        // This ensures we never miss an error, even if phase matching fails
+        if (errorMsg == null) {
+          for (ExecutionEvent errorEvent : events) {
+            String foundError = extractError.apply(errorEvent);
+            if (foundError != null) {
+              errorMsg = foundError;
+              log.debug("Found error via final fallback for phase {}: {}", basePhase, errorMsg.substring(0, Math.min(100, errorMsg.length())));
+              break;
+            }
+          }
+        }
+        
+        // If we found an error, display it right after OUTPUT
+        if (errorMsg != null) {
+          sb.append("┌─ ERROR ────────────────────────────────────────────────────────────────────────\n");
+          String[] errorLines = errorMsg.split("\n");
+          for (String errorLine : errorLines) {
+            if (errorLine.length() <= 76) {
+              sb.append("│ ").append(errorLine).append("\n");
+            } else {
+              int start = 0;
+              while (start < errorLine.length()) {
+                int end = Math.min(start + 76, errorLine.length());
+                sb.append("│ ").append(errorLine.substring(start, end)).append("\n");
+                start = end;
+              }
+            }
+          }
+          sb.append("\n");
+        } else {
+          // Debug: Log if we expected to find an error but didn't
+          long totalErrorEvents = events.stream()
+              .filter(e -> {
+                // Count events with error fields or error event types
+                if (e.data != null && e.data.containsKey("error")) {
+                  Object err = e.data.get("error");
+                  return err != null && !err.toString().trim().isEmpty();
+                }
+                return "api_call_error".equals(e.type) || "validation_error".equals(e.type);
+              })
+              .count();
+          log.debug("No error found for phase {} (attempt {}) after OUTPUT section. " +
+              "Total error events in execution: {}",
+              basePhase, phaseCount, totalErrorEvents);
+        }
       }
     }
     sb.append("\n");
@@ -874,7 +1021,93 @@ public class InferenceLogger {
         .filter(e -> "execution_plan".equals(e.type))
         .collect(java.util.stream.Collectors.toList());
     
-    if (!planEvents.isEmpty()) {
+    // If no plan events but we have errors, show error in EXECUTION RESULT section
+    if (planEvents.isEmpty()) {
+      // Check if there are any errors in other events that should be shown
+      Object errorFromAnyEvent = null;
+      for (ExecutionEvent event : events) {
+        if (event.data != null && event.data.containsKey("error")) {
+          Object err = event.data.get("error");
+          if (err != null && !err.toString().trim().isEmpty()) {
+            errorFromAnyEvent = err;
+            break;
+          }
+        }
+      }
+      
+      // Also check assignment_result events for errors
+      if (errorFromAnyEvent == null) {
+        for (ExecutionEvent event : events) {
+          if ("assignment_result".equals(event.type) && event.data != null) {
+            // The field name is "assignmentResult", not "result"
+            Object resultObj = event.data.get("assignmentResult");
+            if (resultObj != null) {
+              try {
+                // Try to parse as JSON to extract error from assignment parts
+                String resultStr = resultObj.toString();
+                com.fasterxml.jackson.databind.JsonNode resultNode = 
+                    JacksonUtility.getJsonMapper().readTree(resultStr);
+                if (resultNode.has("parts") && resultNode.get("parts").isArray()) {
+                  for (com.fasterxml.jackson.databind.JsonNode part : resultNode.get("parts")) {
+                    if (part.has("isError") && part.get("isError").asBoolean() && 
+                        part.has("content")) {
+                      errorFromAnyEvent = part.get("content").asText();
+                      log.debug("Extracted error from assignment_result: {}", errorFromAnyEvent);
+                      break;
+                    }
+                  }
+                }
+              } catch (Exception e) {
+                // Not JSON or parse error, skip
+                log.debug("Failed to extract error from assignment_result: {}", e.getMessage());
+              }
+            }
+          }
+        }
+      }
+      
+      // If still no error found, log for debugging
+      if (errorFromAnyEvent == null) {
+        log.debug("No error found in events. Event types: {}", 
+            events.stream().map(e -> e.type).collect(java.util.stream.Collectors.toList()));
+      }
+      
+      // Always show EXECUTION PLAN section, then EXECUTION RESULT if we have an error
+      sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+      sb.append("│ EXECUTION PLAN                                                               │\n");
+      sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+      sb.append("\n");
+      sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
+      sb.append("│ [No execution plan captured]\n");
+      sb.append("\n");
+      
+      if (errorFromAnyEvent != null) {
+        // Show EXECUTION RESULT section with the error
+        sb.append("┌─ EXECUTION RESULT ─────────────────────────────────────────────────────────\n");
+        sb.append("│ [ERROR]\n");
+        String errorStr = errorFromAnyEvent.toString();
+        String[] errorLines = errorStr.split("\n");
+        for (String line : errorLines) {
+          if (line.isEmpty()) {
+            sb.append("│\n");
+          } else {
+            int maxWidth = 76;
+            if (line.length() <= maxWidth) {
+              sb.append("│ ").append(line).append("\n");
+            } else {
+              int start = 0;
+              while (start < line.length()) {
+                int end = Math.min(start + maxWidth, line.length());
+                String chunk = line.substring(start, end);
+                sb.append("│ ").append(chunk).append("\n");
+                start = end;
+              }
+            }
+          }
+        }
+        sb.append("\n");
+      }
+    } else if (!planEvents.isEmpty()) {
       int planNum = 1;
       for (ExecutionEvent event : planEvents) {
         sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
@@ -899,9 +1132,6 @@ public class InferenceLogger {
               
               // Show PS (Prompt Schema) information first
               sb.append("┌─ PROMPT SCHEMA (PS) ──────────────────────────────────────────────────\n");
-              if (planMap.containsKey("ssql")) {
-                sb.append("│ S-SQL: ").append(String.valueOf(planMap.get("ssql"))).append("\n");
-              }
               if (planMap.containsKey("table")) {
                 sb.append("│ Table: ").append(String.valueOf(planMap.get("table"))).append("\n");
               }
@@ -1950,6 +2180,89 @@ public class InferenceLogger {
     log.debug("Final response logged");
   }
 
+  /**
+   * Log a normalization parse result (success or error).
+   */
+  public void logNormalizationParseResult(String phase, int attempt, boolean success, String errorMessage) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) {
+      log.warn("logNormalizationParseResult called but executionId is null (phase={}, attempt={})", phase, attempt);
+      return;
+    }
+
+    log.debug("logNormalizationParseResult: executionId={}, phase={}, attempt={}, success={}, reportModeEnabled={}", 
+        executionId, phase, attempt, success, reportModeEnabled);
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("phase", phase != null ? phase : "unknown");
+        data.put("attempt", attempt);
+        data.put("success", success);
+        if (errorMessage != null && !errorMessage.trim().isEmpty()) {
+          data.put("error", errorMessage);
+        }
+        events.add(
+            new ExecutionEvent(
+                "normalization_parse_result",
+                executionId,
+                Instant.now().toString(),
+                data));
+        log.debug("Added normalization_parse_result event to events list (now {} events)", events.size());
+      } else {
+        log.warn("logNormalizationParseResult: events list is null for executionId {}", executionId);
+      }
+    }
+
+    log.debug("Normalization parse result logged for phase {} (attempt {}): success={}", phase, attempt, success);
+  }
+
+  /**
+   * Log a validation error that triggered a retry.
+   */
+  public void logValidationError(String phase, int attempt, String errorMessage) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) {
+      log.warn("logValidationError called but executionId is null (phase={}, attempt={})", phase, attempt);
+      return;
+    }
+
+    log.debug("logValidationError called: executionId={}, phase={}, attempt={}, reportModeEnabled={}", 
+        executionId, phase, attempt, reportModeEnabled);
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("phase", phase != null ? phase : "unknown");
+        data.put("attempt", attempt);
+        data.put("error", errorMessage != null ? errorMessage : "");
+        events.add(
+            new ExecutionEvent(
+                "validation_error",
+                executionId,
+                Instant.now().toString(),
+                data));
+        log.debug("Added validation_error event to events list (now {} events)", events.size());
+      } else {
+        log.warn("logValidationError: events list is null for executionId {}", executionId);
+      }
+      
+      // Also store in pendingRetryReasons for more reliable retrieval during report generation.
+      // The key uses base phase (without #N suffix) since the retry will use the same base phase.
+      String basePhase = phase != null ? phase.replaceAll("#\\d+$", "") : "unknown";
+      String key = executionId + ":" + basePhase;
+      pendingRetryReasons.put(key, errorMessage != null ? errorMessage : "");
+      log.debug("Stored pending retry reason for key {}: {}", key, 
+          errorMessage != null ? errorMessage.substring(0, Math.min(100, errorMessage.length())) : "");
+    } else {
+      log.warn("logValidationError called but reportModeEnabled is false (phase={}, attempt={})", phase, attempt);
+    }
+
+    log.debug("Validation error logged for phase {} (attempt {}): {}", phase, attempt, errorMessage);
+  }
+
   public void logNormalizedPromptSchema(String normalizedSchemaJson, long durationMs) {
     String executionId = currentExecutionId.get();
     if (executionId == null) return;
@@ -2308,6 +2621,501 @@ public class InferenceLogger {
       log.debug("Failed to capture server log: {}", e.getMessage());
       return null;
     }
+  }
+
+  // ============================================================================
+  // LEXIFIER LOGGING (flat conceptual vocabulary)
+  // ============================================================================
+
+  /**
+   * Start tracking a lexifier execution.
+   * The lexifier extracts a flat conceptual vocabulary (actions, entities, fields) from the API spec.
+   */
+  public void startLexifierReport() {
+    String executionId = "lexifier-" + UUID.randomUUID().toString().substring(0, 8);
+    currentExecutionId.set(executionId);
+
+    if (reportModeEnabled) {
+      // Generate report path pre-operation
+      String timestamp =
+          Instant.now()
+              .atOffset(ZoneOffset.UTC)
+              .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss.SSSSSS'Z'"));
+      String filename = "lexifier-" + timestamp + ".txt";
+      Path reportPath = reportsDirectory.resolve(filename);
+      executionReportPaths.put(executionId, reportPath.toString());
+
+      // Initialize event storage
+      List<ExecutionEvent> events = new ArrayList<>();
+      events.add(
+          new ExecutionEvent(
+              "lexifier_started",
+              executionId,
+              Instant.now().toString(),
+              Map.of()));
+      executionEvents.put(executionId, events);
+
+      log.info("Lexifier started: {} (report: {})", executionId, reportPath);
+    } else {
+      log.info("Lexifier started: {}", executionId);
+    }
+  }
+
+  /**
+   * Complete a lexifier execution and generate the report.
+   *
+   * @param success whether execution succeeded
+   * @param error error message if failed
+   */
+  public void endLexifierReport(boolean success, String error) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) return;
+
+    try {
+      if (reportModeEnabled) {
+        List<ExecutionEvent> events = executionEvents.get(executionId);
+        String reportPathStr = executionReportPaths.get(executionId);
+
+        if (events != null && reportPathStr != null) {
+          Path reportPath = Paths.get(reportPathStr);
+          
+          // Add completion event
+          Map<String, Object> completionData = new HashMap<>();
+          completionData.put("success", success);
+          if (error != null) {
+            completionData.put("error", error);
+          }
+          events.add(
+              new ExecutionEvent(
+                  "lexifier_complete",
+                  executionId,
+                  Instant.now().toString(),
+                  completionData));
+
+          // Generate and write report
+          String reportContent = generateLexifierReport(executionId, events, success, error);
+          Files.writeString(reportPath, reportContent);
+          log.debug("Lexifier report written to: {} (size: {} bytes)", reportPath, reportContent.length());
+
+          currentReportPath.set(reportPathStr);
+          log.info("Lexifier completed: {} (report: {})", executionId, reportPath);
+
+          // Clean up events
+          executionEvents.remove(executionId);
+          currentExecutionId.remove();
+        }
+      } else {
+        log.info("Lexifier completed: {} (success: {})", executionId, success);
+      }
+    } catch (Exception e) {
+      log.error("Failed to generate lexifier report for execution: {}", executionId, e);
+    } finally {
+      currentExecutionId.remove();
+    }
+  }
+
+  /**
+   * Log a lexifier phase.
+   *
+   * @param phase phase name (e.g., "action-extraction", "entity-extraction", "field-extraction")
+   * @param message optional message
+   * @param attrs optional attributes
+   */
+  public void logLexifierPhase(String phase, String message, Map<String, Object> attrs) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) return;
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("phase", phase != null ? phase : "unknown");
+        if (message != null) {
+          data.put("message", message);
+        }
+        if (attrs != null) {
+          data.putAll(attrs);
+        }
+        events.add(
+            new ExecutionEvent(
+                "lexifier_phase",
+                executionId,
+                Instant.now().toString(),
+                data));
+      }
+    }
+
+    log.debug("Lexifier phase: {} - {}", phase, message != null ? message : "");
+  }
+
+  /**
+   * Generate a text report for lexifier execution.
+   */
+  private String generateLexifierReport(
+      String executionId, List<ExecutionEvent> events, boolean success, String error) {
+    StringBuilder sb = new StringBuilder();
+
+    // Header
+    sb.append("╔══════════════════════════════════════════════════════════════════════════════╗\n");
+    sb.append("║                         LEXIFIER REPORT                                       ║\n");
+    sb.append("╚══════════════════════════════════════════════════════════════════════════════╝\n");
+    sb.append("\n");
+
+    // Find start event for timestamp
+    String startTimestamp =
+        events.stream()
+            .filter(e -> "lexifier_started".equals(e.type))
+            .findFirst()
+            .map(e -> e.timestamp)
+            .orElse(Instant.now().toString());
+
+    sb.append("  Timestamp: ").append(startTimestamp).append("\n");
+    sb.append("  Status:    ").append(success ? "SUCCESS" : "FAILED").append("\n");
+    if (error != null) {
+      sb.append("  Error:     ").append(error).append("\n");
+    }
+    sb.append("\n");
+
+    // Lexifier Summary
+    sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    sb.append("LEXIFIER SUMMARY\n");
+    sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    sb.append("\n");
+
+    // Show phase messages (excluding lexicon-final which is shown later)
+    for (ExecutionEvent event : events) {
+      if ("lexifier_phase".equals(event.type)) {
+      String phase = (String) event.data.getOrDefault("phase", "unknown");
+      String message = (String) event.data.getOrDefault("message", "");
+        if (!"lexicon-final".equals(phase)) {
+          sb.append(String.format("  %-25s  %s\n", phase, message));
+      }
+        }
+      }
+      sb.append("\n");
+
+    // Show each LLM call with tokens and latency
+    List<ExecutionEvent> llmEvents = events.stream()
+        .filter(e -> "llm_inference_complete".equals(e.type))
+        .toList();
+    
+    if (!llmEvents.isEmpty()) {
+      sb.append("  LLM Calls:\n");
+      int callNum = 1;
+      Map<String, Integer> phaseCounts = new HashMap<>();
+      
+      for (ExecutionEvent event : llmEvents) {
+        Object phase = event.data.get("phase");
+        Object promptTokensObj = event.data.get("promptTokens");
+        Object completionTokensObj = event.data.get("completionTokens");
+        Object durationObj = event.data.get("durationMs");
+        
+        long promptT = 0;
+        long completionT = 0;
+        long duration = 0;
+        
+        if (promptTokensObj instanceof Number) promptT = ((Number) promptTokensObj).longValue();
+        if (completionTokensObj instanceof Number) completionT = ((Number) completionTokensObj).longValue();
+        if (durationObj instanceof Number) duration = ((Number) durationObj).longValue();
+        
+        // Skip events with 0 tokens
+        if (promptT == 0 && completionT == 0) {
+          continue;
+        }
+        
+        String phaseStr = (phase != null && !phase.toString().equals("unknown")) 
+            ? phase.toString() : "?";
+        
+        // Track phase counts for retry numbering
+        int phaseCount = phaseCounts.getOrDefault(phaseStr, 0) + 1;
+        phaseCounts.put(phaseStr, phaseCount);
+        if (phaseCount > 1) {
+          phaseStr = phaseStr + "#" + phaseCount;
+        }
+        
+        sb.append(String.format("    %d. %-30s  %6dms  %5d+%5d=%6d tokens\n", 
+            callNum++, phaseStr, duration, promptT, completionT, promptT + completionT));
+      }
+      sb.append("\n");
+
+      // Show totals
+      long totalPromptTokens = 0;
+      long totalCompletionTokens = 0;
+      long totalDuration = 0;
+
+      for (ExecutionEvent event : llmEvents) {
+          Object promptTokensObj = event.data.get("promptTokens");
+          Object completionTokensObj = event.data.get("completionTokens");
+          Object durationObj = event.data.get("durationMs");
+          
+          if (promptTokensObj instanceof Number) {
+            totalPromptTokens += ((Number) promptTokensObj).longValue();
+          }
+          if (completionTokensObj instanceof Number) {
+            totalCompletionTokens += ((Number) completionTokensObj).longValue();
+          }
+          if (durationObj instanceof Number) {
+            totalDuration += ((Number) durationObj).longValue();
+        }
+      }
+      
+      sb.append("  Total: ").append(totalDuration).append("ms, ")
+          .append(totalPromptTokens + totalCompletionTokens).append(" tokens (")
+          .append(totalPromptTokens).append("+").append(totalCompletionTokens).append(")\n");
+      sb.append("\n");
+    }
+
+    // Extract and display final lexicon
+    ExecutionEvent lexiconEvent = events.stream()
+        .filter(e -> "lexifier_phase".equals(e.type) && "lexicon-final".equals(e.data.get("phase")))
+        .findFirst()
+        .orElse(null);
+    
+    if (lexiconEvent != null && lexiconEvent.data != null) {
+      @SuppressWarnings("unchecked")
+      List<String> actions = (List<String>) lexiconEvent.data.get("actions");
+      @SuppressWarnings("unchecked")
+      List<String> entities = (List<String>) lexiconEvent.data.get("entities");
+      @SuppressWarnings("unchecked")
+      List<String> fields = (List<String>) lexiconEvent.data.get("fields");
+      
+      if (actions != null || entities != null || fields != null) {
+      sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+        sb.append("CONCEPTUAL LEXICON\n");
+      sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+      sb.append("\n");
+      
+        if (actions != null && !actions.isEmpty()) {
+          sb.append("  Actions (").append(actions.size()).append("):\n");
+          for (String action : actions) {
+            sb.append("    - ").append(action).append("\n");
+          }
+          sb.append("\n");
+        }
+        
+        if (entities != null && !entities.isEmpty()) {
+          sb.append("  Entities (").append(entities.size()).append("):\n");
+          for (String entity : entities) {
+            sb.append("    - ").append(entity).append("\n");
+          }
+          sb.append("\n");
+        }
+        
+        if (fields != null && !fields.isEmpty()) {
+          sb.append("  Fields (").append(fields.size()).append("):\n");
+          for (String field : fields) {
+            sb.append("    - ").append(field).append("\n");
+          }
+      sb.append("\n");
+        }
+      }
+    }
+
+    // LLM Calls Summary
+    long llmInferences = events.stream()
+        .filter(e -> "llm_inference_complete".equals(e.type))
+        .count();
+    if (llmInferences > 0) {
+    sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+      sb.append("LLM INFERENCE SUMMARY\n");
+    sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+    sb.append("\n");
+      sb.append("  Total LLM Calls: ").append(llmInferences).append("\n");
+      sb.append("\n");
+
+      long totalPromptTokens = 0;
+      long totalCompletionTokens = 0;
+      long totalDuration = 0;
+
+    for (ExecutionEvent event : events) {
+        if ("llm_inference_complete".equals(event.type)) {
+          Object promptTokensObj = event.data.get("promptTokens");
+          Object completionTokensObj = event.data.get("completionTokens");
+          Object durationObj = event.data.get("durationMs");
+          
+          if (promptTokensObj instanceof Number) {
+            totalPromptTokens += ((Number) promptTokensObj).longValue();
+          }
+          if (completionTokensObj instanceof Number) {
+            totalCompletionTokens += ((Number) completionTokensObj).longValue();
+          }
+          if (durationObj instanceof Number) {
+            totalDuration += ((Number) durationObj).longValue();
+          }
+        }
+      }
+
+      sb.append("  Total Prompt Tokens:    ").append(totalPromptTokens).append("\n");
+      sb.append("  Total Completion Tokens: ").append(totalCompletionTokens).append("\n");
+      sb.append("  Total Tokens:           ").append(totalPromptTokens + totalCompletionTokens).append("\n");
+      sb.append("  Total LLM Duration:     ").append(totalDuration).append("ms\n");
+      sb.append("\n");
+    }
+
+    // LLM Interactions - detailed input/output for each call
+    List<ExecutionEvent> llmCompleteEvents = events.stream()
+        .filter(e -> "llm_inference_complete".equals(e.type))
+        .toList();
+    
+    if (!llmCompleteEvents.isEmpty()) {
+      sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+      sb.append("LLM INTERACTIONS\n");
+      sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+      sb.append("\n");
+      
+      int llmInteractionNum = 1;
+      String previousInputMessages = null;
+      Map<String, Integer> phaseCountsDetailed = new HashMap<>();
+      
+      for (int i = 0; i < events.size(); i++) {
+        ExecutionEvent event = events.get(i);
+        if ("llm_inference_complete".equals(event.type)) {
+          Object duration = event.data.get("durationMs");
+          Object phase = event.data.get("phase");
+          Object response = event.data.get("response");
+          Object promptTokens = event.data.get("promptTokens");
+          Object completionTokens = event.data.get("completionTokens");
+          
+          long promptT = 0;
+          long completionT = 0;
+          if (promptTokens instanceof Number) promptT = ((Number) promptTokens).longValue();
+          if (completionTokens instanceof Number) completionT = ((Number) completionTokens).longValue();
+          
+          // Skip events with 0 tokens (likely duplicate/fallback events)
+          if (promptT == 0 && completionT == 0) {
+            continue;
+          }
+          
+          String phaseStr = (phase != null && !phase.toString().equals("unknown")) 
+              ? phase.toString() : "?";
+          // Track phase counts and append retry number if > 1
+          int phaseCount = phaseCountsDetailed.getOrDefault(phaseStr, 0) + 1;
+          phaseCountsDetailed.put(phaseStr, phaseCount);
+          if (phaseCount > 1) {
+            phaseStr = phaseStr + "#" + phaseCount;
+          }
+          
+          String callHeader = "LLM Call " + llmInteractionNum + " (" + phaseStr + ")";
+          
+          // Box header for this LLM call
+          sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+          sb.append("│ ").append(String.format("%-76s", callHeader)).append(" │\n");
+          sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+          sb.append("\n");
+          
+          // Add token and duration info
+          if (duration instanceof Number) {
+            sb.append("  Duration: ").append(duration).append("ms");
+            if (promptT > 0 || completionT > 0) {
+              sb.append(" | Tokens: ").append(promptT).append("+").append(completionT)
+                  .append("=").append(promptT + completionT);
+            }
+            sb.append("\n\n");
+          }
+          
+          llmInteractionNum++;
+          
+          // Find corresponding input messages event (look backwards from current event)
+          boolean foundInput = false;
+          String currentInputMessages = null;
+          for (int j = i - 1; j >= 0 && j >= i - 5; j--) { // Look back up to 5 events
+            ExecutionEvent prevEvent = events.get(j);
+            if ("llm_input_messages".equals(prevEvent.type)) {
+              Object messages = prevEvent.data.get("messages");
+              if (messages != null && !messages.toString().trim().isEmpty()) {
+                currentInputMessages = messages.toString();
+                foundInput = true;
+                break;
+              }
+            }
+          }
+          
+          if (foundInput && currentInputMessages != null) {
+            // Check if input is the same as previous
+            if (currentInputMessages.equals(previousInputMessages)) {
+              sb.append("┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
+              sb.append("│ [Same as previous LLM call]\n");
+              sb.append("\n");
+            } else {
+              sb.append("┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
+              String messagesStr = currentInputMessages;
+              
+              // If we have a previous input, elide common prefix
+              if (previousInputMessages != null && !previousInputMessages.isEmpty()) {
+                String elided = elideCommonPrefix(previousInputMessages, messagesStr);
+                messagesStr = elided;
+              }
+              
+              // Format messages nicely - they should already be formatted with [role] prefix
+              String[] lines = messagesStr.split("\n");
+              for (String line : lines) {
+                if (line.isEmpty()) {
+                  sb.append("│\n");
+                } else {
+                  // Wrap long lines
+                  int maxWidth = 76;
+                  if (line.length() <= maxWidth) {
+                    sb.append("│ ").append(line).append("\n");
+                  } else {
+                    // Split long lines
+                    int start = 0;
+                    while (start < line.length()) {
+                      int end = Math.min(start + maxWidth, line.length());
+                      String chunk = line.substring(start, end);
+                      sb.append("│ ").append(chunk).append("\n");
+                      start = end;
+                    }
+                  }
+                }
+              }
+              sb.append("\n");
+              previousInputMessages = currentInputMessages;
+            }
+          } else {
+            sb.append("┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
+            sb.append("│ [No input messages captured]\n");
+            sb.append("\n");
+          }
+          
+          if (response != null && !response.toString().trim().isEmpty()) {
+            sb.append("┌─ OUTPUT (").append(callHeader).append(") ────────────────────────────────────────────────────────────────\n");
+            String[] lines = response.toString().split("\n");
+            for (String line : lines) {
+              if (line.isEmpty()) {
+                sb.append("│\n");
+              } else {
+                // Wrap long lines
+                int maxWidth = 76;
+                if (line.length() <= maxWidth) {
+                  sb.append("│ ").append(line).append("\n");
+                } else {
+                  // Split long lines
+                  int start = 0;
+                  while (start < line.length()) {
+                    int end = Math.min(start + maxWidth, line.length());
+                    String chunk = line.substring(start, end);
+                    sb.append("│ ").append(chunk).append("\n");
+                    start = end;
+                  }
+                }
+              }
+            }
+            sb.append("\n");
+          } else {
+            sb.append("┌─ OUTPUT (").append(callHeader).append(") ────────────────────────────────────────────────────────────────\n");
+            sb.append("│ [No response text captured]\n");
+            sb.append("\n");
+          }
+        }
+      }
+      sb.append("\n");
+    }
+
+    sb.append("═══════════════════════════════════════════════════════════════════════════════\n");
+    sb.append("                              END OF LEXIFIER REPORT\n");
+    sb.append("═══════════════════════════════════════════════════════════════════════════════\n");
+
+    return sb.toString();
   }
 
   /** Internal data structure for execution events. */
