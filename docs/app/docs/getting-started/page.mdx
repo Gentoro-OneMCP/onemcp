@@ -2,47 +2,93 @@
 title: Getting Started
 description: Get started with OneMCP in minutes using the CLI to connect your APIs to AI models.
 ---
+import { Tabs } from 'nextra/components'
+import { Steps } from 'nextra/components'
 
 # Getting Started
 
-Get up and running with OneMCP in minutes. The CLI provides the fastest way to start chatting with AI models connected to your APIs.
+<Steps>
+### Install CLI
 
-## Prerequisites
+First, add the OneMCP bucket:
 
-- **Java** 21 (if you are running natively)
-- **Docker Desktop or equivalent** (if you are running within Container)
-- Depending on the chosen model, you will also need an API Key.
-  - OpenAI (Requires an API Key)
-  - Anthropic (Requires an API Key)
-  - Gemini (Requires an API Key)
-  - Ollama
+<Tabs items={['Homebrew', 'scoop']} defaultIndex="0" >
+  <Tabs.Tab>
+      Add OneMCP formula:
 
-## Step 1: Install the CLI
+      ```bash
+      brew tap gentoro-onemcp/onemcp
+      ```
 
-Install the Gentoro OneMCP CLI with a single command:
+      Then install the CLI:
+
+      ```bash
+      brew install onemcp
+      ```
+  </Tabs.Tab>
+  <Tabs.Tab>
+    Add OneMCP bucket:
+
+    ```bash
+    scoop bucket add onemcp https://github.com/gentoro-onemcp/onemcp-scoop
+    ```
+
+    Then install the CLI:
+
+    ```bash
+    scoop install onemcp
+    ```
+  </Tabs.Tab>
+</Tabs>
+
+### Create OneMCP Project
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gentoro-OneMCP/onemcp/main/packages/cli/install.sh | bash
+# Create a new project directory
+mkdir ~/my-onemcp-project && cd ~/my-onemcp-project
+
+# Initialize the project within the current directory
+# Alternatively, you can run: onemcp init --project-dir ~/my-onemcp-project/
+onemcp init
 ```
 
-The installer will download and set up everything you need.
-
-## Step 2: Start Chatting
-
-Launch the interactive chat interface:
+This command will initiate an interactive setup.
 
 ```bash
-onemcp chat
+mkdir ~/my-onemcp-project && cd ~/my-onemcp-project
+onemcp init
+> How to run OneMCP?
+  * Local
+    Remote
+
+> Which model to use?
+  * OpenAI
+    Gemini
+    Anthropic
+    Ollama
+
+✅ Successfully initialized Local project at ~/my-onemcp-project/
+📝 Next Steps (Provide Handbook Content):
+   1). Add OpenAPI definitions to: ~/my-onemcp-project/handbook/apis/
+       OneMCP supports OpenAPI 3.0.x and 3.1.x, in both YAML and JSON.
+   2). Push your handbook: onemcp handbook push
+       Once Handbook is complete, push to OneMCP. Its content will be:
+          - Validate: Assert that your handbook is valid and can be served by OneMCP.
+          - Indexed: Content will be ingested and populated into our Graph Contextual Search Engine.
+          - Tested (Optional): In case regression-suite was configured, OneMCP will run tests against your handbook.
+   3). Start chatting: onemcp chat
+       Use our integrated interactive chat to send requests to OneMCP.
+       Use your preferred MCP Client and connect with OneMCP Server URL: http://localhost:8080/mcp
 ```
 
-On your first run, the setup wizard will guide you through:
-1. Choosing your AI provider (OpenAI, Anthropic, or Gemini)
-2. Entering your API key
-3. Selecting a starting point (built-in ACME Analytics example or your own API)
+### Chat
+By default, during setup, OneMCP will install an internal handbook that mimics an Analytics Server.
 
-You'll see an interactive interface like this:
+That enables users to directly test and see OneMCP in action right away.
 
 ```
+> onemcp chat
+
 ╔══════════════════════════════════════╗
 ║     Gentoro OneMCP - Chat Mode       ║
 ╚══════════════════════════════════════╝
@@ -55,16 +101,16 @@ Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
 
 💡 Mock Server Active - Try These Example Queries:
 
-  > Show me electronics sales in California last quarter.
-  > List top customers by revenue.
-  > Compare revenue trends by region.
+> Show me electronics sales in California last quarter.
+> List top customers by revenue.
+> Compare revenue trends by region.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ? You:
 ```
 
-## Step 3: Try Example Queries
+### Try Example Queries
 
 With the built-in ACME Analytics mock service, try queries like:
 
@@ -74,11 +120,4 @@ With the built-in ACME Analytics mock service, try queries like:
 
 The AI will automatically call the appropriate APIs and return structured results.
 
-## What Just Happened?
-
-The CLI automatically:
-- Started the OneMCP server (port 8080)
-- Launched the TypeScript runtime (port 7070)
-- Started the ACME Analytics mock server (port 8082)
-- Connected your chosen AI provider
-- Indexed the handbook documentation and API specs
+</Steps>

@@ -199,7 +199,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	cmd.Println("       - Indexed: Content will be ingested and populated into our Graph Contextual Search Engine.")
 	cmd.Println("       - Tested (Optional): In case regression-suite was configured, OneMCP will run tests against your handbook.")
 	cmd.Println()
-	cmd.Println("   4. Start chatting: onemcp chat")
+	cmd.Println("   4). Start chatting: onemcp chat")
 	cmd.Println("       Use our integrated interactive chat to send requests to OneMCP.")
 	cmd.Printf("       Use your preferred MCP Client and connect with OneMCP Server URL: %s\n", mcpEndpoint)
 	cmd.Println()
