@@ -5,195 +5,271 @@ description: Constraints and validation shaping safe agent actions.
 
 ## **Guardrails**
 
-Guardrails define the **allowed intent**, **supported operational behaviors**, and **safe interaction patterns** of an Agent.
-They operate at a **high level**, independent of the underlying OpenAPI details, ensuring the Agent stays aligned with its purpose without requiring developers to specify hundreds of concrete operations.
+Guardrails are foundational to building safe, predictable, and verifiably correct AI agents. This document provides a technical blueprint for developers designing guardrails for **domain-restricted, API-driven autonomous agents**, using the ACME Sales Analytics Agent definition as a canonical example.
 
 ---
 
-## **1. Purpose of Guardrails**
+## **1. Objective of Guardrails**
 
-Guardrails enforce:
+The primary purpose of guardrails is to ensure that the agent:
 
-* **What the Agent is meant to accomplish** (its **intent**)
-* **What types of operations the Agent is allowed to perform** (its **capabilities**)
-* **How the Agent should behave** when interpreting, planning, and executing tasks
+1. **Operates strictly within a predefined domain** (e.g., a specific API).
+2. **Executes autonomously without user clarification**.
+3. **Rejects unsupported or risky tasks deterministically**.
+4. **Avoids hallucinations, data fabrication, and speculative reasoning**.
+5. **Maintains safety, privacy, and operational correctness**.
 
-Rather than mapping to every OpenAPI endpoint, Guardrails describe the Agent’s behavior in terms of **domain operations**, **capability classes**, and **intent categories**.
-
-This keeps the system maintainable even with large or frequently changing API definitions.
-
----
-
-## **2. What Developers Must Describe**
-
-To define Guardrails effectively, developers specify three elements:
+In this model, guardrails serve as the **contract** between the agent and the environment. They specify what the agent **can**, **cannot**, and **must** do—across all phases of planning and execution.
 
 ---
 
-### **2.1 Agent Intent (High-Level Purpose)**
+## **2. Guardrail Structure**
 
-Agent Intent defines **why the Agent exists** and **what problems it is allowed to solve**.
+The example specification defines guardrails as a list of **policies**, each with:
 
-Describe:
+* **id** – A stable, unique identifier for referencing the policy.
+* **phase** – The lifecycle stages where the rule applies:
 
-* The **domain**:
-e.g., “Inventory analytics”, “CI/CD automation”, “Case triage”
+* `context`: interpreting the user request
+* `plan`: building the chain of actions or API calls
+*(If omitted, the rule applies to all phases.)*
+* **description** – A normative, prescriptive rule the agent must follow.
 
-* The **mission / use case**:
-e.g., “Provide insights”, “Validate configurations”, “Assist with case routing”
+### Why phases matter
 
-* The **boundaries**:
-e.g., “Read-only”, “Configuration-only”, “No user data access”
+Guardrails often need to enforce different behavior depending on what the agent is doing. For example:
 
-Intent gives the Agent a **semantic frame** to interpret user requests.
+* During *context understanding*, the agent should validate entity references.
+* During *planning*, the agent should prevent invalid API request construction.
 
-#### Example (Intent Definition)
-
-```yaml
-intent:
-  domain: "Inventory Insights"
-  purpose: "Help users explore product data, generate insights, and answer analytical questions."
-  boundaries:
-    - "No state-changing operations"
-    - "No pricing or financial adjustments"
-    - "No customer-specific data retrieval"
-```
+This ensures guardrails are not general suggestions—they are **precise constraints** tied to specific reasoning stages.
 
 ---
 
-### **2.2 Supported Operations (High-Level Behavioral Capabilities)**
+## **3. Key Guardrail Categories (with Examples)**
 
-This section expresses the **types of actions** the Agent is allowed to perform — not API endpoints.
-
-Operations should be described in **domain-level terms**, such as:
-
-* “Search inventory items”
-* “Classify a product”
-* “Generate summaries”
-* “Validate a configuration”
-* “Simulate a workflow”
-
-Avoid low-level descriptions like “GET /inventory/id”.
-
-Instead, define capability classes:
-
-#### Example (Capability Definitions)
-
-```yaml
-operations:
-  supported:
-    - "Lookup items based on filters"
-    - "Generate summaries or analytics"
-    - "Perform read-only simulation tasks"
-    - "Validate data structures against known rules"
-  restricted:
-    - "Modify or update system state"
-    - "Perform destructive or irreversible actions"
-    - "Access sensitive or user-specific information"
-  patterns:
-    defaults:
-      - "If uncertain, interpret requests as read-only queries"
-      - "Prefer safe fallbacks and simulation over real actions"
-```
-
-This empowers OneMCP to internally map these high-level operations to the appropriate underlying technical operations at runtime.
+Below is a breakdown of the major categories in the provided specification and why they matter when designing robust agents.
 
 ---
 
-### **2.3 Clear and Comprehensive Instructions**
+### **3.1 Scope Limitation**
 
-Instructions convey to the Agent the **behavioral rules and decision-making guidelines** that govern its interpretation of tasks.
+**Policy:** `scope.limits`
+Defines the strictly allowed operations.
+The agent may only:
 
-Good instructions include:
+* Use the explicitly supported API endpoints (`/query`, `/fields`)
+* Operate on documented entities
+* Perform allowed Retrieve/Compute actions
 
-* What the Agent **must** do
-* What the Agent **must not** do
-* How to handle ambiguity
-* How to decline unsupported requests gracefully
-* Any assumptions or defaults
+**Why it matters:**
+Scope drift is the leading cause of hallucinations and invalid agent behavior. Constraining the agent prevents:
 
-#### Example (Instruction Block)
+* Unauthorized API usage
+* Implicit reasoning beyond declared capabilities
+* Unexpected out-of-domain outputs
 
-```text
-You must only perform high-level operations related to product lookup, insights, or validation.
-You are not allowed to perform any action that changes system state.
-
-If a user requests an unsupported operation, explain that the capability is not allowed
-and provide an alternative within your supported operations.
-
-If the request is ambiguous, interpret it as a read-only lookup or insight query.
-All planning must stay within the intent and supported operation classes.
-```
+**Best Practice:**
+Write the allowed domain as **positive rules** (what *is allowed*), not just negative ones.
 
 ---
 
-## **3. How the Orchestrator Uses High-Level Guardrails**
+### **3.2 Explicit Rejection of Unsupported Tasks**
 
-Even when Guardrails are defined at a high level:
+**Policy:** `reject.out.of.scope`
+Provides a mandatory pattern for rejection:
 
-* The **Orchestrator** uses these constraints to filter permissible action categories.
-* The **Planner** decomposes tasks only into allowed operation classes.
-* The **Resolver** maps high-level operations to the correct underlying API calls (OpenAPI or otherwise).
-* The **Evaluator** validates results against intent + operations.
+* Creative writing
+* Opinion-based questions
+* Data creation, mutation, deletion
+* Usage of unknown fields or entities
+* Predictions not computable through the API
+* Requests involving external systems
 
-This allows API schemas to evolve without requiring changes to guardrail definitions.
+**Why it matters:**
+This category ensures the agent **fails safely** instead of improvising.
 
----
+**Best Practice:**
+Rejection rules must be:
 
-## **4. Best Practices for High-Level Guardrails**
-
-#### ✔ Define capabilities in user-facing terms
-
-Think: “What can the Agent *help the user do*?”
-Not: “Which API endpoints exist?”
-
-#### ✔ Keep Agent boundaries tight
-
-Ambiguity leads to misclassification — better to start strict and open up gradually.
-
-#### ✔ Avoid referencing technical API details
-
-Let the Planner → Resolver → Runner pipeline handle low-level grounding.
-
-#### ✔ Provide fallback rules
-
-Tell the Agent how to behave when users ask for things outside scope.
-
-#### ✔ Include domain examples
-
-This improves contextual retrieval and reduces hallucination.
+* Deterministic
+* Verbose and explicit
+* Applied before planning, not after errors occur
 
 ---
 
-## **5. Full Example Guardrails Specification (High-Level)**
+### **3.3 Partial Assignment Handling**
 
-```yaml
-intent:
-  domain: "Deployment Readiness"
-  purpose: "Assist users with validating deployment manifests and running safe, read-only checks."
-  boundaries:
-    - "No live cluster changes"
-    - "No secret inspection"
-    - "No destructive workflow execution"
+**Policy:** `isolate.unsupported.instructions`
+When a user mixes supported and unsupported tasks:
 
-operations:
-  supported:
-    - "Validate manifests"
-    - "Generate or refine configuration structures"
-    - "Perform dry-run evaluation"
-    - "Provide best-practice recommendations"
-  restricted:
-    - "Apply live changes"
-    - "Delete or modify resources"
-    - "Access sensitive credentials"
-  patterns:
-    defaults:
-      - "When in doubt, use dry-run operations"
-      - "Prefer validation over execution"
+1. Identify supported parts
+2. Plan *only* for those
+3. Reject unsupported parts individually
 
-instructions: |
-  Your role is to validate and analyze deployment configurations.
-  You must not make changes to any live system.
-  If a user requests a modification, decline it and suggest a safe alternative.
-  When unsure how to interpret a task, treat it as a request for validation or analysis.
-```
+**Why it matters:**
+This prevents:
+
+* Silent ignoring of instructions
+* Overgeneralization
+* Unintended multi-step inference
+
+**Best Practice:**
+Always separate the user request into a **validated task graph**:
+
+* Supported → plan
+* Unsupported → reject
+
+---
+
+### **3.4 Entity and Schema Validation**
+
+**Policy:** `enforce.entity.mapping`
+Ensures that every requested operation maps to:
+
+* A known entity
+* A valid field
+* A supported operator
+
+**Why it matters:**
+Incorrect schema usage is the most common agent failure case.
+An agent must treat the schema like a strict type system.
+
+**Best practice:**
+Implement entity mapping as a **compile-time check** in the planning phase.
+
+---
+
+### **3.5 Hallucination Prevention**
+
+**Policy:** `prevent.hallucination`
+Prohibits:
+
+* Fabricating fields, data, relationships, or operators
+* Filling missing details with guesses
+* Producing synthetic data
+
+**Why it matters:**
+Hallucination control is the cornerstone of reliable autonomous agents.
+
+**Best practice:**
+Treat missing information as a **hard failure**, not something to infer.
+
+---
+
+### **3.6 Safe Defaults**
+
+**Policy:** `safe.defaults`
+Allows use of safe internal defaults *only* when:
+
+* They are part of the API schema
+* They do not require assumptions
+
+**Why it matters:**
+Some tasks are fully determined without user input (e.g., default limits or orderings). Others introduce hidden assumptions.
+
+**Best practice:**
+Defaults must be documented and consistent. If they cannot be applied safely → reject.
+
+---
+
+### **3.7 No User Clarification**
+
+**Policy:** `no.clarification.allowed`
+The agent must not request:
+
+* Additional details
+* Rephrasing
+* Missing context
+
+If insufficient information exists → reject.
+
+**Why it matters:**
+Autonomous agents are often embedded in automated workflows where user interaction is not guaranteed.
+
+**Best practice:**
+All ambiguity is treated as **fatal**, not recoverable.
+
+---
+
+### **3.8 Data Privacy**
+
+**Policy:** `data.privacy`
+Prevents inference or fabrication of personal data not present in the schema.
+
+**Why it matters:**
+Agents often exploit patterns to guess fields such as a customer’s name, address, or preferences.
+Schema boundaries prevent that.
+
+**Best practice:**
+Require strict adherence to the OpenAPI schema as the **sole source of truth**.
+
+---
+
+## **4. Designing Effective Guardrails: Best Practices**
+
+### **4.1 Guardrails must be explicit and prescriptive**
+
+Avoid vague or interpretive language. Use MUST, MUST NOT, and MAY (RFC-style terminology).
+
+### **4.2 Separate rules by failure modes**
+
+Each policy should address **one failure type** only. This improves logging, debugging, and enforcement.
+
+### **4.3 Tie guardrails to agent phases**
+
+Agents behave differently depending on:
+
+* Understanding context
+* Planning
+* Executing API calls
+
+Binding rules to phases prevents misapplication.
+
+### **4.4 Avoid overlapping or conflicting rules**
+
+Every behavior the agent should exhibit needs to be:
+
+* Declared once
+* Unambiguous
+* Testable
+
+### **4.5 Use schema-driven reasoning**
+
+The schema is the **source of truth**. The agent must:
+
+* Validate all fields against it
+* Construct queries strictly using supported types
+* Never extrapolate
+
+### **4.6 Provide deterministic rejection patterns**
+
+Rejections should follow a consistent template:
+
+* Identify the unsupported instruction
+* Cite the violated policy
+* Avoid partial or ambiguous answers
+
+### **4.7 Build testing suites around guardrails**
+
+Each policy should be convertible into:
+
+* Unit tests
+* Integration tests
+* Spec-based simulations
+
+---
+
+## **5. Summary**
+
+Guardrails are the backbone of reliable autonomous agents.
+Using the ACME Sales Analytics guardrail structure as a reference, developers should:
+
+* Define strict domain boundaries
+* Enforce schema compliance
+* Reject ambiguity deterministically
+* Prevent hallucinations
+* Maintain user and data safety
+* Tie constraints to specific phases of agent reasoning
+
+A well-designed guardrail system ensures that your AI agent behaves as a predictable, compliant, and trustworthy component in larger enterprise systems.

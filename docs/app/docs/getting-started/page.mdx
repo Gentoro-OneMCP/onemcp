@@ -86,7 +86,7 @@ By default, during setup, OneMCP will install an internal handbook that mimics a
 
 That enables users to directly test and see OneMCP in action right away.
 
-```
+```bash
 > onemcp chat
 
 ╔══════════════════════════════════════╗
@@ -96,7 +96,6 @@ That enables users to directly test and see OneMCP in action right away.
 Handbook: ecommerce-api
 Provider: openai
 MCP URL: http://localhost:8080/mcp
-Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💡 Mock Server Active - Try These Example Queries:
@@ -107,17 +106,17 @@ Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-? You:
+Type your messages and press Enter to send.
+Press Ctrl+C or type 'exit' to quit.
+
+You: Show me the total revenue for 2024.
+Agent: {
+    "message": "Total revenue for 2024 calculated successfully.",
+    "total_revenue": 5640255.26
+}
+
+Report: /Users/you/.onemcp/logs/reports/execution-2025-12-03T10-30-45.txt
+
+> You:
 ```
-
-### Try Example Queries
-
-With the built-in ACME Analytics mock service, try queries like:
-
-- "Show me electronics sales in California last quarter"
-- "List top customers by revenue"
-- "What are the top-selling products this month?"
-
-The AI will automatically call the appropriate APIs and return structured results.
-
 </Steps>
