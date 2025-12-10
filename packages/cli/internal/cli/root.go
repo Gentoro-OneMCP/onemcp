@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -58,11 +60,33 @@ func initConfig() {
 // resolveProjectDir resolves the project directory from flag or current directory
 // Returns the absolute path to the project root
 func resolveProjectDir() (string, error) {
-	if projectDir != "" {
-		// Use explicitly provided project directory
-		return projectDir, nil
+	dir := projectDir
+	if dir == "" {
+		return getCurrentDir()
 	}
-	return getCurrentDir()
+
+	// Expand tilde to home directory
+	if strings.HasPrefix(dir, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
+		dir = filepath.Join(homeDir, dir[2:])
+	} else if dir == "~" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to get home directory: %w", err)
+		}
+		dir = homeDir
+	}
+
+	// Convert to absolute path
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve absolute path: %w", err)
+	}
+
+	return absDir, nil
 }
 
 func getCurrentDir() (string, error) {

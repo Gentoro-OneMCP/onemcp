@@ -75,7 +75,7 @@ func runHandbookPull(cmd *cobra.Command, args []string) error {
 	}
 
 	stateMgr := getStateManager()
-	dbPath := fmt.Sprintf("%s/.onemcp/state.db", projectRoot)
+	dbPath := fmt.Sprintf("%s/.onemcp/state.json", projectRoot)
 	if err := stateMgr.Initialize(dbPath); err != nil {
 		return errors.NewGenericError("Could not initialize state management", nil)
 	} else {
@@ -130,7 +130,7 @@ func runHandbookPush(cmd *cobra.Command, args []string) error {
 	}
 
 	stateMgr := getStateManager()
-	dbPath := fmt.Sprintf("%s/.onemcp/state.db", projectRoot)
+	dbPath := fmt.Sprintf("%s/.onemcp/state.json", projectRoot)
 	if err := stateMgr.Initialize(dbPath); err != nil {
 		return errors.NewGenericError("Could not initialize state management", nil)
 	} else {
@@ -174,7 +174,7 @@ func runHandbookAcme(cmd *cobra.Command, args []string) error {
 	}
 
 	stateMgr := getStateManager()
-	dbPath := fmt.Sprintf("%s/.onemcp/state.db", projectRoot)
+	dbPath := fmt.Sprintf("%s/.onemcp/state.json", projectRoot)
 	if err := stateMgr.Initialize(dbPath); err != nil {
 		return errors.NewGenericError("Could not initialize state management", nil)
 	} else {

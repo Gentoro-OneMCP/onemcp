@@ -1,312 +1,164 @@
 package state
 
 import (
-	"database/sql"
-	"fmt"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/onemcp/cli/internal/errors"
 	"github.com/onemcp/cli/internal/interfaces"
 )
 
-// Manager implements the StateManager interface
-type Manager struct {
-	db *sql.DB
+// StateFile represents the JSON structure of state.json
+type StateFile struct {
+	Version   int               `json:"version"`
+	Checksums map[string]string `json:"checksums"`
+	Metadata  StateMetadata     `json:"metadata"`
 }
 
-// NewManager creates a new state manager instance
+type StateMetadata struct {
+	LastSync *time.Time `json:"last_sync,omitempty"`
+}
+
+// Manager implements StateManager using JSON file storage
+type Manager struct {
+	filePath string
+	mu       sync.RWMutex
+	state    *StateFile
+}
+
+// NewManager creates a new state manager
 func NewManager() *Manager {
 	return &Manager{}
 }
 
-// Initialize creates and initializes the SQLite database with the required schema
-func (m *Manager) Initialize(dbPath string) error {
-	db, err := sql.Open("sqlite3", dbPath)
-	if err != nil {
-		return errors.NewGenericError("failed to open database", err)
-	}
+// Initialize loads or creates the state file
+func (m *Manager) Initialize(filePath string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	m.db = db
+	m.filePath = filePath
 
-	// Test the database connection to detect corruption early
-	if err := m.db.Ping(); err != nil {
-		m.db.Close()
-		return errors.NewGenericError("database file is corrupted or inaccessible", err)
-	}
-
-	// Create the schema
-	schema := `
-	CREATE TABLE IF NOT EXISTS handbook_files (
-		path TEXT PRIMARY KEY,
-		hash TEXT NOT NULL,
-		last_synced TIMESTAMP NOT NULL
-	);
-
-	CREATE TABLE IF NOT EXISTS server_state (
-		key TEXT PRIMARY KEY,
-		value TEXT NOT NULL,
-		updated_at TIMESTAMP NOT NULL
-	);
-
-	CREATE TABLE IF NOT EXISTS sync_history (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		operation TEXT NOT NULL,
-		timestamp TIMESTAMP NOT NULL,
-		status TEXT NOT NULL,
-		details TEXT
-	);
-	`
-
-	if _, err := m.db.Exec(schema); err != nil {
-		m.db.Close()
-		// Check if this is a corruption error
-		if isCorruptionError(err) {
-			return errors.NewGenericError("database file is corrupted and cannot be initialized", err)
+	// Check if JSON file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		// Create new state file
+		m.state = &StateFile{
+			Version:   1,
+			Checksums: make(map[string]string),
+			Metadata:  StateMetadata{},
 		}
-		return errors.NewGenericError("failed to create database schema", err)
+		return m.save()
 	}
 
+	// Load existing file
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return errors.NewGenericError("failed to read state file", err)
+	}
+
+	var state StateFile
+	if err := json.Unmarshal(data, &state); err != nil {
+		return errors.NewGenericError("failed to parse state file", err)
+	}
+
+	// Ensure checksums map is initialized
+	if state.Checksums == nil {
+		state.Checksums = make(map[string]string)
+	}
+
+	m.state = &state
 	return nil
 }
 
-// isCorruptionError checks if an error indicates database corruption
-func isCorruptionError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errMsg := err.Error()
-	// Common SQLite corruption error messages
-	return contains(errMsg, "database disk image is malformed") ||
-		contains(errMsg, "file is not a database") ||
-		contains(errMsg, "database is locked") ||
-		contains(errMsg, "database corruption")
-}
-
-// contains checks if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) &&
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-			containsMiddle(s, substr)))
-}
-
-func containsMiddle(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-// UpdateHandbookSync stores file hashes and timestamps for handbook synchronization
-func (m *Manager) UpdateHandbookSync(hashes map[string]string, timestamp time.Time) error {
-	if m.db == nil {
-		return errors.NewGenericError("database not initialized", nil)
-	}
-
-	tx, err := m.db.Begin()
-	if err != nil {
-		if isCorruptionError(err) {
-			return errors.NewGenericError("database file is corrupted", err)
-		}
-		return errors.NewGenericError("failed to begin transaction", err)
-	}
-	defer tx.Rollback()
-
-	// Clear existing handbook files
-	if _, err := tx.Exec("DELETE FROM handbook_files"); err != nil {
-		if isCorruptionError(err) {
-			return errors.NewGenericError("database file is corrupted", err)
-		}
-		return errors.NewGenericError("failed to clear handbook files", err)
-	}
-
-	// Insert new file hashes
-	stmt, err := tx.Prepare("INSERT INTO handbook_files (path, hash, last_synced) VALUES (?, ?, ?)")
-	if err != nil {
-		if isCorruptionError(err) {
-			return errors.NewGenericError("database file is corrupted", err)
-		}
-		return errors.NewGenericError("failed to prepare statement", err)
-	}
-	defer stmt.Close()
-
-	for path, hash := range hashes {
-		if _, err := stmt.Exec(path, hash, timestamp); err != nil {
-			if isCorruptionError(err) {
-				return errors.NewGenericError("database file is corrupted", err)
-			}
-			return errors.NewGenericError(fmt.Sprintf("failed to insert file hash for %s", path), err)
-		}
-	}
-
-	// Record sync history
-	if _, err := tx.Exec(
-		"INSERT INTO sync_history (operation, timestamp, status, details) VALUES (?, ?, ?, ?)",
-		"handbook_sync",
-		timestamp,
-		"success",
-		fmt.Sprintf("Synced %d files", len(hashes)),
-	); err != nil {
-		if isCorruptionError(err) {
-			return errors.NewGenericError("database file is corrupted", err)
-		}
-		return errors.NewGenericError("failed to record sync history", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		if isCorruptionError(err) {
-			return errors.NewGenericError("database file is corrupted", err)
-		}
-		return errors.NewGenericError("failed to commit transaction", err)
-	}
-
+// Close is a no-op for JSON-based storage (kept for interface compatibility)
+func (m *Manager) Close() error {
 	return nil
 }
 
-// UpdateServerState tracks the current server status
-func (m *Manager) UpdateServerState(status interfaces.ServerStatus) error {
-	if m.db == nil {
-		return errors.NewGenericError("database not initialized", nil)
+// GetHandbookHashes returns all file checksums
+// Note: Named GetHandbookHashes to match StateManager interface
+func (m *Manager) GetHandbookHashes() (map[string]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.state == nil {
+		return nil, errors.NewGenericError("state not initialized", nil)
 	}
 
-	tx, err := m.db.Begin()
-	if err != nil {
-		if isCorruptionError(err) {
-			return errors.NewGenericError("database file is corrupted", err)
-		}
-		return errors.NewGenericError("failed to begin transaction", err)
-	}
-	defer tx.Rollback()
-
-	timestamp := time.Now()
-
-	// Update server state
-	updates := map[string]string{
-		"running":        fmt.Sprintf("%t", status.Running),
-		"healthy":        fmt.Sprintf("%t", status.Healthy),
-		"container_name": status.ContainerName,
+	// Return a copy to prevent external modifications
+	checksums := make(map[string]string, len(m.state.Checksums))
+	for k, v := range m.state.Checksums {
+		checksums[k] = v
 	}
 
-	stmt, err := tx.Prepare("INSERT OR REPLACE INTO server_state (key, value, updated_at) VALUES (?, ?, ?)")
-	if err != nil {
-		if isCorruptionError(err) {
-			return errors.NewGenericError("database file is corrupted", err)
-		}
-		return errors.NewGenericError("failed to prepare statement", err)
-	}
-	defer stmt.Close()
-
-	for key, value := range updates {
-		if _, err := stmt.Exec(key, value, timestamp); err != nil {
-			if isCorruptionError(err) {
-				return errors.NewGenericError("database file is corrupted", err)
-			}
-			return errors.NewGenericError(fmt.Sprintf("failed to update server state for %s", key), err)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		if isCorruptionError(err) {
-			return errors.NewGenericError("database file is corrupted", err)
-		}
-		return errors.NewGenericError("failed to commit transaction", err)
-	}
-
-	return nil
+	return checksums, nil
 }
 
-// GetLastSync retrieves the timestamp of the last successful handbook synchronization
+// GetLastSync returns the timestamp of the last successful sync
 func (m *Manager) GetLastSync() (time.Time, error) {
-	if m.db == nil {
-		return time.Time{}, errors.NewGenericError("database not initialized", nil)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.state == nil {
+		return time.Time{}, errors.NewGenericError("state not initialized", nil)
 	}
 
-	var timestampStr sql.NullString
-	err := m.db.QueryRow(`
-		SELECT MAX(last_synced) FROM handbook_files
-	`).Scan(&timestampStr)
-
-	if err == sql.ErrNoRows || !timestampStr.Valid {
+	if m.state.Metadata.LastSync == nil {
+		// No sync has occurred yet, return zero time
 		return time.Time{}, nil
 	}
 
-	if err != nil {
-		if isCorruptionError(err) {
-			return time.Time{}, errors.NewGenericError("database file is corrupted", err)
-		}
-		return time.Time{}, errors.NewGenericError("failed to get last sync timestamp", err)
-	}
-
-	// Try multiple timestamp formats that SQLite might use
-	formats := []string{
-		time.RFC3339,
-		time.RFC3339Nano,
-		"2006-01-02 15:04:05-07:00",
-		"2006-01-02 15:04:05",
-		time.DateTime,
-	}
-
-	var timestamp time.Time
-	var parseErr error
-	for _, format := range formats {
-		timestamp, parseErr = time.Parse(format, timestampStr.String)
-		if parseErr == nil {
-			return timestamp, nil
-		}
-	}
-
-	return time.Time{}, errors.NewGenericError("failed to parse timestamp", parseErr)
+	return *m.state.Metadata.LastSync, nil
 }
 
-// GetHandbookHashes retrieves the stored file hashes from the last sync
-func (m *Manager) GetHandbookHashes() (map[string]string, error) {
-	if m.db == nil {
-		return nil, errors.NewGenericError("database not initialized", nil)
+// UpdateHandbookSync updates checksums and last sync timestamp
+func (m *Manager) UpdateHandbookSync(checksums map[string]string, timestamp time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.state == nil {
+		return errors.NewGenericError("state not initialized", nil)
 	}
 
-	rows, err := m.db.Query("SELECT path, hash FROM handbook_files")
-	if err != nil {
-		if isCorruptionError(err) {
-			return nil, errors.NewGenericError("database file is corrupted", err)
-		}
-		return nil, errors.NewGenericError("failed to query handbook files", err)
-	}
-	defer rows.Close()
+	m.state.Checksums = checksums
+	m.state.Metadata.LastSync = &timestamp
 
-	hashes := make(map[string]string)
-	for rows.Next() {
-		var path, hash string
-		if err := rows.Scan(&path, &hash); err != nil {
-			if isCorruptionError(err) {
-				return nil, errors.NewGenericError("database file is corrupted", err)
-			}
-			return nil, errors.NewGenericError("failed to scan handbook file row", err)
-		}
-		hashes[path] = hash
-	}
-
-	if err := rows.Err(); err != nil {
-		if isCorruptionError(err) {
-			return nil, errors.NewGenericError("database file is corrupted", err)
-		}
-		return nil, errors.NewGenericError("failed to iterate handbook files", err)
-	}
-
-	return hashes, nil
+	return m.save()
 }
 
-// Close closes the database connection
-func (m *Manager) Close() error {
-	if m.db == nil {
-		return nil
+// UpdateServerState is a no-op (server state removed)
+func (m *Manager) UpdateServerState(status interfaces.ServerStatus) error {
+	// No longer storing server state in JSON
+	// Server state can be queried from Docker API when needed
+	return nil
+}
+
+// save writes the state to disk (must be called with lock held)
+func (m *Manager) save() error {
+	// Ensure directory exists
+	dir := filepath.Dir(m.filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return errors.NewGenericError("failed to create state directory", err)
 	}
 
-	if err := m.db.Close(); err != nil {
-		return errors.NewGenericError("failed to close database", err)
+	// Marshal to JSON with indentation for readability
+	data, err := json.MarshalIndent(m.state, "", "  ")
+	if err != nil {
+		return errors.NewGenericError("failed to marshal state", err)
 	}
 
-	m.db = nil
+	// Write atomically using temp file + rename
+	tmpPath := m.filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return errors.NewGenericError("failed to write state file", err)
+	}
+
+	if err := os.Rename(tmpPath, m.filePath); err != nil {
+		os.Remove(tmpPath) // Clean up temp file
+		return errors.NewGenericError("failed to update state file", err)
+	}
+
 	return nil
 }

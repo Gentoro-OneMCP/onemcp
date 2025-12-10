@@ -128,35 +128,35 @@ func (m *Manager) ResetToAcme(handbookDir string, confirmation string) error {
 // ValidateStructure checks if a handbook directory has the required structure
 // Note: Tests expect Agent.yaml to always be required, even during soft checks.
 func (m *Manager) ValidateStructure(handbookDir string, softCheck bool) error {
-    requiredPaths := []string{
-        filepath.Join(handbookDir, "docs"),
-        filepath.Join(handbookDir, "apis"),
-        filepath.Join(handbookDir, "regression-suite"),
-        filepath.Join(handbookDir, "Agent.yaml"),
-    }
+	requiredPaths := []string{
+		filepath.Join(handbookDir, "docs"),
+		filepath.Join(handbookDir, "apis"),
+		filepath.Join(handbookDir, "regression-suites"),
+		filepath.Join(handbookDir, "Agent.yaml"),
+	}
 
-    for _, path := range requiredPaths {
-        info, err := os.Stat(path)
-        if err != nil {
-            if os.IsNotExist(err) {
-                return errors.NewValidationError(fmt.Sprintf("required path %s does not exist", path))
-            }
-            return errors.NewGenericError(fmt.Sprintf("failed to access %s", path), err)
-        }
+	for _, path := range requiredPaths {
+		info, err := os.Stat(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return errors.NewValidationError(fmt.Sprintf("required path %s does not exist", path))
+			}
+			return errors.NewGenericError(fmt.Sprintf("failed to access %s", path), err)
+		}
 
-        // Check that directories are directories and Agent.yaml is a file
-        if path == filepath.Join(handbookDir, "Agent.yaml") {
-            if info.IsDir() {
-                return errors.NewValidationError("Agent.yaml must be a file, not a directory")
-            }
-        } else {
-            if !info.IsDir() {
-                return errors.NewValidationError(fmt.Sprintf("%s must be a directory", path))
-            }
-        }
-    }
+		// Check that directories are directories and Agent.yaml is a file
+		if path == filepath.Join(handbookDir, "Agent.yaml") {
+			if info.IsDir() {
+				return errors.NewValidationError("Agent.yaml must be a file, not a directory")
+			}
+		} else {
+			if !info.IsDir() {
+				return errors.NewValidationError(fmt.Sprintf("%s must be a directory", path))
+			}
+		}
+	}
 
-    return nil
+	return nil
 }
 
 // Pull fetches the handbook from the server and overwrites the local handbook
@@ -347,12 +347,14 @@ func (m *Manager) Push(ctx context.Context, serverURL string, sourceDir string) 
 		}
 	}
 
+	// Create backup before extracting server's processed archive
 	backupSourceDir, _err := m.createBackup(sourceDir)
 	if _err != nil {
 		return errors.NewGenericError("failed to backup handbook", _err)
 	}
 
-	// Extract tar.gz archive
+	// Extract tar.gz archive from server (contains processed/validated handbook)
+	// This ensures local stays in sync with server's version
 	os.RemoveAll(sourceDir)
 	if err := extractTarGz(bytes.NewReader(archiveData), sourceDir); err != nil {
 		copyDir(backupSourceDir.backupDir, sourceDir)
@@ -437,129 +439,130 @@ func (m *Manager) createHandbookArchive(sourceDir string) ([]byte, error) {
 // uploadHandbookToServer uploads the handbook archive, waits for processing,
 // displays a spinner/progress, and returns the final processed archive.
 func (m *Manager) uploadHandbookToServer(
-    ctx context.Context,
-    serverURL string,
-    archiveData []byte,
+	ctx context.Context,
+	serverURL string,
+	archiveData []byte,
 ) ([]byte, error) {
-    base := strings.TrimSuffix(serverURL, "/")
-    simpleURL := base + "/mng/handbook"
+	base := strings.TrimSuffix(serverURL, "/")
+	simpleURL := base + "/mng/handbook"
 
-    client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 
-    // First try simple upload endpoint used by tests: PUT /mng/handbook → 200 OK
-    simpleReq, err := http.NewRequestWithContext(ctx, "PUT", simpleURL, bytes.NewReader(archiveData))
-    if err != nil {
-        return nil, fmt.Errorf("failed to create upload request: %w", err)
-    }
-    simpleReq.Header.Set("Content-Type", "application/gzip")
+	// First try simple upload endpoint used by tests: PUT /mng/handbook → 200 OK
+	simpleReq, err := http.NewRequestWithContext(ctx, "PUT", simpleURL, bytes.NewReader(archiveData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create upload request: %w", err)
+	}
+	simpleReq.Header.Set("Content-Type", "application/gzip")
 
-    simpleResp, err := client.Do(simpleReq)
-    if err != nil {
-        return nil, fmt.Errorf("failed to upload handbook: %w", err)
-    }
+	simpleResp, err := client.Do(simpleReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload handbook: %w", err)
+	}
 
-    // If server supports simple upload and returns 200 OK, we're done
-    if simpleResp.StatusCode == http.StatusOK {
-        simpleResp.Body.Close()
-        return archiveData, nil
-    }
+	// If server supports simple upload and returns 200 OK, we're done
+	if simpleResp.StatusCode == http.StatusOK {
+		simpleResp.Body.Close()
+		return archiveData, nil
+	}
 
-    // If endpoint not found, fall back to async flow
-    if simpleResp.StatusCode != http.StatusNotFound {
-        // Any other status is an error on the simple path
-        simpleResp.Body.Close()
-        return nil, fmt.Errorf("upload returned status %d", simpleResp.StatusCode)
-    }
-    simpleResp.Body.Close()
+	// If endpoint not found (404) or method not allowed (405), fall back to async flow
+	// Both indicate the server doesn't support the simple sync upload endpoint
+	if simpleResp.StatusCode != http.StatusNotFound && simpleResp.StatusCode != http.StatusMethodNotAllowed {
+		// Any other status is an error on the simple path
+		simpleResp.Body.Close()
+		return nil, fmt.Errorf("upload returned status %d", simpleResp.StatusCode)
+	}
+	simpleResp.Body.Close()
 
-    // ---- Fallback: async upload/status/download flow ----------------------
-    uploadURL := base + "/mng/handbook/upload"
+	// ---- Fallback: async upload/status/download flow ----------------------
+	uploadURL := base + "/mng/handbook/upload"
 
-    req, err := http.NewRequestWithContext(ctx, "PUT", uploadURL, bytes.NewReader(archiveData))
-    if err != nil {
-        return nil, fmt.Errorf("failed to create upload request: %w", err)
-    }
-    req.Header.Set("Content-Type", "application/gzip")
+	req, err := http.NewRequestWithContext(ctx, "PUT", uploadURL, bytes.NewReader(archiveData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create upload request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/gzip")
 
-    resp, err := client.Do(req)
-    if err != nil {
-        return nil, fmt.Errorf("failed to upload handbook: %w", err)
-    }
-    defer resp.Body.Close()
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload handbook: %w", err)
+	}
+	defer resp.Body.Close()
 
-    if resp.StatusCode != http.StatusAccepted {
-        return nil, fmt.Errorf("upload returned status %d", resp.StatusCode)
-    }
+	if resp.StatusCode != http.StatusAccepted {
+		return nil, fmt.Errorf("upload returned status %d", resp.StatusCode)
+	}
 
-    var initResp struct {
-        JobID  string `json:"jobId"`
-        Status string `json:"status"`
-    }
-    if err := json.NewDecoder(resp.Body).Decode(&initResp); err != nil {
-        return nil, fmt.Errorf("failed to parse upload response: %w", err)
-    }
+	var initResp struct {
+		JobID  string `json:"jobId"`
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&initResp); err != nil {
+		return nil, fmt.Errorf("failed to parse upload response: %w", err)
+	}
 
-    if initResp.JobID == "" {
-        return nil, fmt.Errorf("server did not return jobId")
-    }
+	if initResp.JobID == "" {
+		return nil, fmt.Errorf("server did not return jobId")
+	}
 
-    // ---- Step 2: Poll processing status ----------------------------------
-    statusURL := fmt.Sprintf("%s/mng/handbook/status/%s", base, initResp.JobID)
+	// ---- Step 2: Poll processing status ----------------------------------
+	statusURL := fmt.Sprintf("%s/mng/handbook/status/%s", base, initResp.JobID)
 
-    spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-    spinIdx := 0
+	spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	spinIdx := 0
 
-    for {
-        select {
-        case <-ctx.Done():
-            return nil, ctx.Err()
-        default:
-        }
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
 
-        // Request status
-        sreq, _ := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
-        sresp, err := client.Do(sreq)
-        if err != nil {
-            return nil, fmt.Errorf("failed to get processing status: %w", err)
-        }
+		// Request status
+		sreq, _ := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
+		sresp, err := client.Do(sreq)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get processing status: %w", err)
+		}
 
-        var st struct {
-            JobID   string `json:"jobId"`
-            Status  string `json:"status"`
-            Details string `json:"details"`
-        }
-        err = json.NewDecoder(sresp.Body).Decode(&st)
-        sresp.Body.Close()
-        if err != nil {
-            return nil, fmt.Errorf("failed to decode status response: %w", err)
-        }
+		var st struct {
+			JobID   string `json:"jobId"`
+			Status  string `json:"status"`
+			Details string `json:"details"`
+		}
+		err = json.NewDecoder(sresp.Body).Decode(&st)
+		sresp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode status response: %w", err)
+		}
 
-        // Spinner UI
-        spin := spinner[spinIdx%len(spinner)]
-        spinIdx++
+		// Spinner UI
+		spin := spinner[spinIdx%len(spinner)]
+		spinIdx++
 
-        progress := progressFromStatus(st.Status, st.Details)
+		progress := progressFromStatus(st.Status, st.Details)
 
-        fmt.Printf("\r%s Processing: %-10s %s", spin, st.Status, progress)
+		fmt.Printf("\r%s Processing: %-10s %s", spin, st.Status, progress)
 
-        switch st.Status {
-        case "DONE":
-            fmt.Println()
-            goto DOWNLOAD
-        case "FAILED":
-            fmt.Println()
-            return nil, fmt.Errorf("processing failed: %s", st.Details)
-        case "PENDING", "RUNNING":
-            time.Sleep(500 * time.Millisecond)
-        default:
-            return nil, fmt.Errorf("unknown status: %s", st.Status)
-        }
-    }
+		switch st.Status {
+		case "DONE":
+			fmt.Println()
+			goto DOWNLOAD
+		case "FAILED":
+			fmt.Println()
+			return nil, fmt.Errorf("processing failed: %s", st.Details)
+		case "PENDING", "RUNNING":
+			time.Sleep(500 * time.Millisecond)
+		default:
+			return nil, fmt.Errorf("unknown status: %s", st.Status)
+		}
+	}
 
 DOWNLOAD:
 
-    // ---- Step 3: Download final archive ---------------------------------
-    downloadURL := base + "/mng/handbook/download"
+	// ---- Step 3: Download final archive ---------------------------------
+	downloadURL := base + "/mng/handbook/download"
 	dreq, _ := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	dresp, err := client.Do(dreq)
 	if err != nil {
