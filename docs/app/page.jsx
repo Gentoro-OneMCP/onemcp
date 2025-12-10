@@ -196,7 +196,7 @@ export default function HomePage() {
           <div className="hero-pill">Open-source OneMCP runtime</div>
             <h1 className="hero-title">Cache the intelligence. Serve the action.</h1>
             <p className="hero-subtitle">
-              OneMCP turns natural-language prompts into cached execution plans so agents fulfil API requests instantly—with enterprise-grade accuracy, cost control, and performance.
+              OneMCP turns natural-language prompts into cached execution plans so agents fulfill API requests instantly—with enterprise-grade accuracy, cost control, and performance.
             </p>
           <div className="hero-actions">
             <a href="/docs" className="btn-primary">Read the docs</a>
