@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,53 +11,94 @@ import (
 )
 
 func TestInitialize(t *testing.T) {
-	t.Run("creates database with correct schema", func(t *testing.T) {
+	t.Run("creates JSON file with correct schema", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "test.db")
+		statePath := filepath.Join(tmpDir, "state.json")
 
 		manager := NewManager()
 		defer manager.Close()
 
-		err := manager.Initialize(dbPath)
+		err := manager.Initialize(statePath)
 		if err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
-		// Verify database file exists
-		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-			t.Fatal("Database file was not created")
+		// Verify JSON file exists
+		if _, err := os.Stat(statePath); os.IsNotExist(err) {
+			t.Fatal("State file was not created")
 		}
 
-		// Verify tables exist by querying them
-		tables := []string{"handbook_files", "server_state", "sync_history"}
-		for _, table := range tables {
-			var count int
-			err := manager.db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&count)
-			if err != nil {
-				t.Errorf("Table %s does not exist or is not accessible: %v", table, err)
-			}
+		// Verify JSON structure
+		data, err := os.ReadFile(statePath)
+		if err != nil {
+			t.Fatalf("Failed to read state file: %v", err)
+		}
+
+		var state StateFile
+		if err := json.Unmarshal(data, &state); err != nil {
+			t.Fatalf("Failed to parse state file: %v", err)
+		}
+
+		if state.Version != 1 {
+			t.Errorf("Expected version 1, got %d", state.Version)
+		}
+
+		if state.Checksums == nil {
+			t.Error("Checksums map should be initialized")
 		}
 	})
 
-	t.Run("handles corrupted database file", func(t *testing.T) {
+	t.Run("handles corrupted JSON file", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "corrupted.db")
+		statePath := filepath.Join(tmpDir, "corrupted.json")
 
-		// Create a corrupted database file
-		if err := os.WriteFile(dbPath, []byte("not a valid sqlite database"), 0600); err != nil {
+		// Create a corrupted JSON file
+		if err := os.WriteFile(statePath, []byte("not valid json {{{"), 0600); err != nil {
 			t.Fatalf("Failed to create corrupted file: %v", err)
 		}
 
 		manager := NewManager()
 		defer manager.Close()
 
-		err := manager.Initialize(dbPath)
+		err := manager.Initialize(statePath)
 		if err == nil {
-			t.Fatal("Expected error for corrupted database, got nil")
+			t.Fatal("Expected error for corrupted JSON, got nil")
+		}
+	})
+
+	t.Run("loads existing state file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		statePath := filepath.Join(tmpDir, "existing.json")
+
+		// Create existing state file
+		existingState := StateFile{
+			Version: 1,
+			Checksums: map[string]string{
+				"test.yaml": "abc123",
+			},
+			Metadata: StateMetadata{},
+		}
+		data, _ := json.Marshal(existingState)
+		os.WriteFile(statePath, data, 0644)
+
+		manager := NewManager()
+		defer manager.Close()
+
+		if err := manager.Initialize(statePath); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
 		}
 
-		if !contains(err.Error(), "corrupted") && !contains(err.Error(), "not a database") {
-			t.Errorf("Expected corruption error message, got: %v", err)
+		hashes, err := manager.GetHandbookHashes()
+		if err != nil {
+			t.Fatalf("GetHandbookHashes failed: %v", err)
+		}
+
+		if len(hashes) != 1 {
+			t.Errorf("Expected 1 hash, got %d", len(hashes))
+		}
+
+		if hashes["test.yaml"] != "abc123" {
+			t.Errorf("Expected hash 'abc123', got '%s'", hashes["test.yaml"])
 		}
 	})
 }
@@ -64,19 +106,19 @@ func TestInitialize(t *testing.T) {
 func TestUpdateHandbookSync(t *testing.T) {
 	t.Run("stores file hashes and timestamps", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "test.db")
+		statePath := filepath.Join(tmpDir, "test.json")
 
 		manager := NewManager()
 		defer manager.Close()
 
-		if err := manager.Initialize(dbPath); err != nil {
+		if err := manager.Initialize(statePath); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
 		hashes := map[string]string{
-			"docs/readme.md":     "abc123",
-			"apis/api.yaml":      "def456",
-			"regression/test.md": "ghi789",
+			"docs/readme.md":            "abc123",
+			"apis/api.yaml":             "def456",
+			"regression-suites/test.md": "ghi789",
 		}
 		timestamp := time.Now()
 
@@ -85,47 +127,42 @@ func TestUpdateHandbookSync(t *testing.T) {
 			t.Fatalf("UpdateHandbookSync failed: %v", err)
 		}
 
-		// Verify files were stored
-		var count int
-		err = manager.db.QueryRow("SELECT COUNT(*) FROM handbook_files").Scan(&count)
+		// Verify hashes were stored
+		retrieved, err := manager.GetHandbookHashes()
 		if err != nil {
-			t.Fatalf("Failed to query handbook_files: %v", err)
+			t.Fatalf("GetHandbookHashes failed: %v", err)
 		}
 
-		if count != len(hashes) {
-			t.Errorf("Expected %d files, got %d", len(hashes), count)
+		if len(retrieved) != len(hashes) {
+			t.Errorf("Expected %d hashes, got %d", len(hashes), len(retrieved))
 		}
 
-		// Verify specific file hash
-		var hash string
-		err = manager.db.QueryRow("SELECT hash FROM handbook_files WHERE path = ?", "docs/readme.md").Scan(&hash)
+		for path, expectedHash := range hashes {
+			if retrieved[path] != expectedHash {
+				t.Errorf("For %s: expected hash '%s', got '%s'", path, expectedHash, retrieved[path])
+			}
+		}
+
+		// Verify timestamp was stored
+		lastSync, err := manager.GetLastSync()
 		if err != nil {
-			t.Fatalf("Failed to query specific file: %v", err)
+			t.Fatalf("GetLastSync failed: %v", err)
 		}
 
-		if hash != "abc123" {
-			t.Errorf("Expected hash 'abc123', got '%s'", hash)
-		}
-
-		// Verify sync history was recorded
-		err = manager.db.QueryRow("SELECT COUNT(*) FROM sync_history WHERE operation = 'handbook_sync'").Scan(&count)
-		if err != nil {
-			t.Fatalf("Failed to query sync_history: %v", err)
-		}
-
-		if count != 1 {
-			t.Errorf("Expected 1 sync history entry, got %d", count)
+		// Compare timestamps (truncate to millisecond for JSON precision)
+		if !lastSync.Truncate(time.Millisecond).Equal(timestamp.Truncate(time.Millisecond)) {
+			t.Errorf("Expected timestamp %v, got %v", timestamp, lastSync)
 		}
 	})
 
 	t.Run("replaces existing hashes on update", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "test.db")
+		statePath := filepath.Join(tmpDir, "test.json")
 
 		manager := NewManager()
 		defer manager.Close()
 
-		if err := manager.Initialize(dbPath); err != nil {
+		if err := manager.Initialize(statePath); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
@@ -146,146 +183,115 @@ func TestUpdateHandbookSync(t *testing.T) {
 		}
 
 		// Verify only second sync files exist
-		var count int
-		err := manager.db.QueryRow("SELECT COUNT(*) FROM handbook_files").Scan(&count)
+		retrieved, err := manager.GetHandbookHashes()
 		if err != nil {
-			t.Fatalf("Failed to query handbook_files: %v", err)
+			t.Fatalf("GetHandbookHashes failed: %v", err)
 		}
 
-		if count != 1 {
-			t.Errorf("Expected 1 file after replacement, got %d", count)
+		if len(retrieved) != 1 {
+			t.Errorf("Expected 1 hash after replacement, got %d", len(retrieved))
 		}
 
-		// Verify the correct file exists
-		var path string
-		err = manager.db.QueryRow("SELECT path FROM handbook_files").Scan(&path)
-		if err != nil {
-			t.Fatalf("Failed to query file path: %v", err)
+		if retrieved["docs/guide.md"] != "xyz789" {
+			t.Error("Second sync file not found or has wrong hash")
 		}
 
-		if path != "docs/guide.md" {
-			t.Errorf("Expected path 'docs/guide.md', got '%s'", path)
+		if _, exists := retrieved["docs/readme.md"]; exists {
+			t.Error("First sync file should have been replaced")
 		}
 	})
 
-	t.Run("returns error when database not initialized", func(t *testing.T) {
+	t.Run("returns error when state not initialized", func(t *testing.T) {
 		manager := NewManager()
 
 		err := manager.UpdateHandbookSync(map[string]string{}, time.Now())
 		if err == nil {
-			t.Fatal("Expected error for uninitialized database, got nil")
+			t.Fatal("Expected error for uninitialized state, got nil")
 		}
 	})
 }
 
-func TestUpdateServerState(t *testing.T) {
-	t.Run("stores server status", func(t *testing.T) {
+func TestGetHandbookHashes(t *testing.T) {
+	t.Run("returns stored hashes", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "test.db")
+		statePath := filepath.Join(tmpDir, "test.json")
 
 		manager := NewManager()
 		defer manager.Close()
 
-		if err := manager.Initialize(dbPath); err != nil {
+		if err := manager.Initialize(statePath); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
-		status := interfaces.ServerStatus{
-			Running:       true,
-			Healthy:       true,
-			ContainerName: "onemcp-test-123",
+		expected := map[string]string{
+			"file1.yaml": "hash1",
+			"file2.yaml": "hash2",
 		}
 
-		err := manager.UpdateServerState(status)
+		if err := manager.UpdateHandbookSync(expected, time.Now()); err != nil {
+			t.Fatalf("UpdateHandbookSync failed: %v", err)
+		}
+
+		retrieved, err := manager.GetHandbookHashes()
 		if err != nil {
-			t.Fatalf("UpdateServerState failed: %v", err)
+			t.Fatalf("GetHandbookHashes failed: %v", err)
 		}
 
-		// Verify server state was stored
-		var running, healthy, containerName string
-		err = manager.db.QueryRow("SELECT value FROM server_state WHERE key = 'running'").Scan(&running)
-		if err != nil {
-			t.Fatalf("Failed to query running state: %v", err)
+		if len(retrieved) != len(expected) {
+			t.Errorf("Expected %d hashes, got %d", len(expected), len(retrieved))
 		}
 
-		err = manager.db.QueryRow("SELECT value FROM server_state WHERE key = 'healthy'").Scan(&healthy)
-		if err != nil {
-			t.Fatalf("Failed to query healthy state: %v", err)
-		}
-
-		err = manager.db.QueryRow("SELECT value FROM server_state WHERE key = 'container_name'").Scan(&containerName)
-		if err != nil {
-			t.Fatalf("Failed to query container name: %v", err)
-		}
-
-		if running != "true" {
-			t.Errorf("Expected running='true', got '%s'", running)
-		}
-
-		if healthy != "true" {
-			t.Errorf("Expected healthy='true', got '%s'", healthy)
-		}
-
-		if containerName != "onemcp-test-123" {
-			t.Errorf("Expected container_name='onemcp-test-123', got '%s'", containerName)
+		for k, v := range expected {
+			if retrieved[k] != v {
+				t.Errorf("Expected hash '%s' for '%s', got '%s'", v, k, retrieved[k])
+			}
 		}
 	})
 
-	t.Run("updates existing server state", func(t *testing.T) {
+	t.Run("returns copy of hashes", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "test.db")
+		statePath := filepath.Join(tmpDir, "test.json")
 
 		manager := NewManager()
 		defer manager.Close()
 
-		if err := manager.Initialize(dbPath); err != nil {
+		if err := manager.Initialize(statePath); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
-		// First update
-		status1 := interfaces.ServerStatus{
-			Running:       true,
-			Healthy:       true,
-			ContainerName: "onemcp-test-123",
-		}
-		if err := manager.UpdateServerState(status1); err != nil {
-			t.Fatalf("First UpdateServerState failed: %v", err)
+		original := map[string]string{
+			"file.yaml": "hash",
 		}
 
-		// Second update
-		status2 := interfaces.ServerStatus{
-			Running:       false,
-			Healthy:       false,
-			ContainerName: "onemcp-test-456",
-		}
-		if err := manager.UpdateServerState(status2); err != nil {
-			t.Fatalf("Second UpdateServerState failed: %v", err)
+		if err := manager.UpdateHandbookSync(original, time.Now()); err != nil {
+			t.Fatalf("UpdateHandbookSync failed: %v", err)
 		}
 
-		// Verify updated state
-		var running string
-		err := manager.db.QueryRow("SELECT value FROM server_state WHERE key = 'running'").Scan(&running)
+		retrieved, err := manager.GetHandbookHashes()
 		if err != nil {
-			t.Fatalf("Failed to query running state: %v", err)
+			t.Fatalf("GetHandbookHashes failed: %v", err)
 		}
 
-		if running != "false" {
-			t.Errorf("Expected running='false', got '%s'", running)
+		// Modify retrieved map
+		retrieved["new.yaml"] = "newhash"
+
+		// Get again and verify original wasn't modified
+		retrieved2, err := manager.GetHandbookHashes()
+		if err != nil {
+			t.Fatalf("Second GetHandbookHashes failed: %v", err)
+		}
+
+		if len(retrieved2) != 1 {
+			t.Error("Original map was modified by external changes")
 		}
 	})
 
-	t.Run("returns error when database not initialized", func(t *testing.T) {
+	t.Run("returns error when state not initialized", func(t *testing.T) {
 		manager := NewManager()
 
-		status := interfaces.ServerStatus{
-			Running:       true,
-			Healthy:       true,
-			ContainerName: "test",
-		}
-
-		err := manager.UpdateServerState(status)
+		_, err := manager.GetHandbookHashes()
 		if err == nil {
-			t.Fatal("Expected error for uninitialized database, got nil")
+			t.Fatal("Expected error for uninitialized state, got nil")
 		}
 	})
 }
@@ -293,16 +299,16 @@ func TestUpdateServerState(t *testing.T) {
 func TestGetLastSync(t *testing.T) {
 	t.Run("returns last sync timestamp", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "test.db")
+		statePath := filepath.Join(tmpDir, "test.json")
 
 		manager := NewManager()
 		defer manager.Close()
 
-		if err := manager.Initialize(dbPath); err != nil {
+		if err := manager.Initialize(statePath); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
-		expectedTime := time.Now().Truncate(time.Second)
+		expectedTime := time.Now().Truncate(time.Millisecond)
 		hashes := map[string]string{
 			"docs/readme.md": "abc123",
 		}
@@ -316,8 +322,8 @@ func TestGetLastSync(t *testing.T) {
 			t.Fatalf("GetLastSync failed: %v", err)
 		}
 
-		// Truncate to second for comparison (SQLite stores with second precision)
-		lastSync = lastSync.Truncate(time.Second)
+		// Truncate to millisecond for JSON precision
+		lastSync = lastSync.Truncate(time.Millisecond)
 
 		if !lastSync.Equal(expectedTime) {
 			t.Errorf("Expected last sync time %v, got %v", expectedTime, lastSync)
@@ -326,12 +332,12 @@ func TestGetLastSync(t *testing.T) {
 
 	t.Run("returns zero time when no syncs exist", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "test.db")
+		statePath := filepath.Join(tmpDir, "test.json")
 
 		manager := NewManager()
 		defer manager.Close()
 
-		if err := manager.Initialize(dbPath); err != nil {
+		if err := manager.Initialize(statePath); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
@@ -345,24 +351,50 @@ func TestGetLastSync(t *testing.T) {
 		}
 	})
 
-	t.Run("returns error when database not initialized", func(t *testing.T) {
+	t.Run("returns error when state not initialized", func(t *testing.T) {
 		manager := NewManager()
 
 		_, err := manager.GetLastSync()
 		if err == nil {
-			t.Fatal("Expected error for uninitialized database, got nil")
+			t.Fatal("Expected error for uninitialized state, got nil")
+		}
+	})
+}
+
+func TestUpdateServerState(t *testing.T) {
+	t.Run("is a no-op (server state not stored in JSON)", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		statePath := filepath.Join(tmpDir, "test.json")
+
+		manager := NewManager()
+		defer manager.Close()
+
+		if err := manager.Initialize(statePath); err != nil {
+			t.Fatalf("Initialize failed: %v", err)
+		}
+
+		status := interfaces.ServerStatus{
+			Running:       true,
+			Healthy:       true,
+			ContainerName: "onemcp-test-123",
+		}
+
+		// Should not error
+		err := manager.UpdateServerState(status)
+		if err != nil {
+			t.Fatalf("UpdateServerState should be no-op, got error: %v", err)
 		}
 	})
 }
 
 func TestClose(t *testing.T) {
-	t.Run("closes database connection", func(t *testing.T) {
+	t.Run("is a no-op for JSON storage", func(t *testing.T) {
 		tmpDir := t.TempDir()
-		dbPath := filepath.Join(tmpDir, "test.db")
+		statePath := filepath.Join(tmpDir, "test.json")
 
 		manager := NewManager()
 
-		if err := manager.Initialize(dbPath); err != nil {
+		if err := manager.Initialize(statePath); err != nil {
 			t.Fatalf("Initialize failed: %v", err)
 		}
 
@@ -370,10 +402,10 @@ func TestClose(t *testing.T) {
 			t.Fatalf("Close failed: %v", err)
 		}
 
-		// Verify database is closed by attempting an operation
-		err := manager.UpdateHandbookSync(map[string]string{}, time.Now())
-		if err == nil {
-			t.Fatal("Expected error after closing database, got nil")
+		// Verify we can still read the file after Close (no exclusive locking)
+		_, err := os.ReadFile(statePath)
+		if err != nil {
+			t.Error("File should still be accessible after Close")
 		}
 	})
 

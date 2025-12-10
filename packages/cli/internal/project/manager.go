@@ -103,7 +103,7 @@ func (m *Manager) validateHandbookStructure(dir string) (bool, error) {
 	requiredPaths := []string{
 		filepath.Join(handbookPath, "docs"),
 		filepath.Join(handbookPath, "apis"),
-		filepath.Join(handbookPath, "regression-suite"),
+		filepath.Join(handbookPath, "regression-suites"),
 		filepath.Join(handbookPath, "Agent.yaml"),
 	}
 
@@ -286,17 +286,17 @@ func (m *Manager) Initialize(ctx context.Context, opts interfaces.InitOptions) e
 		return errors.NewGenericError("failed to access target directory", err)
 	}
 
- // Infer InitMode if not explicitly provided
- if opts.InitMode == "" {
-     if strings.TrimSpace(opts.ServerURL) != "" {
-         opts.InitMode = interfaces.InitModeRemote
-     } else {
-         opts.InitMode = interfaces.InitModeLocal
-     }
- }
+	// Infer InitMode if not explicitly provided
+	if opts.InitMode == "" {
+		if strings.TrimSpace(opts.ServerURL) != "" {
+			opts.InitMode = interfaces.InitModeRemote
+		} else {
+			opts.InitMode = interfaces.InitModeLocal
+		}
+	}
 
- // Validate directory state
- dirState, err := m.ValidateDirectory(targetDir, opts.InitMode)
+	// Validate directory state
+	dirState, err := m.ValidateDirectory(targetDir, opts.InitMode)
 	if err != nil {
 		return err
 	}
@@ -404,7 +404,7 @@ func (m *Manager) initializeLocalEmpty(ctx context.Context, targetDir string, op
 		return errors.NewGenericError("state manager not provided", nil)
 	}
 
-	stateDBPath := filepath.Join(targetDir, ".onemcp", "state.db")
+	stateDBPath := filepath.Join(targetDir, ".onemcp", "state.json")
 	stateDB = stateDBPath
 	if err := stateMgr.Initialize(stateDBPath); err != nil {
 		rollback()
@@ -484,19 +484,19 @@ func (m *Manager) initializeLocalExisting(ctx context.Context, targetDir string,
 		return errors.NewGenericError("server manager not provided", nil)
 	}
 
- // Determine port, default to 8080 if not provided
-    port := opts.TcpPort
-    if port == 0 {
-        port = 8080
-    }
+	// Determine port, default to 8080 if not provided
+	port := opts.TcpPort
+	if port == 0 {
+		port = 8080
+	}
 
-    serverConfig := interfaces.ServerConfig{
-        Mode:            interfaces.ModeLocal,
-        DockerContainer: containerName,
-        Port:            port,
-        Model:           opts.Model,
-        ModelAPIKey:     opts.ModelAPIKey,
-    }
+	serverConfig := interfaces.ServerConfig{
+		Mode:            interfaces.ModeLocal,
+		DockerContainer: containerName,
+		Port:            port,
+		Model:           opts.Model,
+		ModelAPIKey:     opts.ModelAPIKey,
+	}
 
 	if err := serverMgr.Start(ctx, serverConfig); err != nil {
 		rollback()
@@ -510,7 +510,7 @@ func (m *Manager) initializeLocalExisting(ctx context.Context, targetDir string,
 		return errors.NewGenericError("state manager not provided", nil)
 	}
 
-	stateDBPath := filepath.Join(targetDir, ".onemcp", "state.db")
+	stateDBPath := filepath.Join(targetDir, ".onemcp", "state.json")
 	stateDB = stateDBPath
 	if err := stateMgr.Initialize(stateDBPath); err != nil {
 		rollback()
@@ -524,25 +524,25 @@ func (m *Manager) initializeLocalExisting(ctx context.Context, targetDir string,
 		return errors.NewGenericError("handbook manager not provided", nil)
 	}
 
- handbookDir := filepath.Join(targetDir, "handbook")
- serverURL := fmt.Sprintf("http://localhost:%d", serverConfig.Port)
- if err := handbookMgr.Push(ctx, serverURL, handbookDir); err != nil {
-     rollback()
-     return errors.NewGenericError("failed to push handbook to server", err)
- }
+	handbookDir := filepath.Join(targetDir, "handbook")
+	serverURL := fmt.Sprintf("http://localhost:%d", serverConfig.Port)
+	if err := handbookMgr.Push(ctx, serverURL, handbookDir); err != nil {
+		rollback()
+		return errors.NewGenericError("failed to push handbook to server", err)
+	}
 
 	// Write configuration file with "existing" source
- config := interfaces.ProjectConfig{
-        Version: 1,
-        Server: interfaces.ServerConfig{
-            Mode:            interfaces.ModeLocal,
-            DockerContainer: containerName,
-            Port:            port,
-            Model:           opts.Model,
-            ModelAPIKey:     opts.ModelAPIKey,
-        },
-        Handbook: interfaces.HandbookConfig{
-            Source:    "existing",
+	config := interfaces.ProjectConfig{
+		Version: 1,
+		Server: interfaces.ServerConfig{
+			Mode:            interfaces.ModeLocal,
+			DockerContainer: containerName,
+			Port:            port,
+			Model:           opts.Model,
+			ModelAPIKey:     opts.ModelAPIKey,
+		},
+		Handbook: interfaces.HandbookConfig{
+			Source:    "existing",
 			CreatedAt: time.Now(),
 		},
 	}
@@ -591,7 +591,7 @@ func (m *Manager) initializeRemote(ctx context.Context, targetDir string, opts i
 		filepath.Join(targetDir, ".onemcp"),
 		filepath.Join(targetDir, "handbook/docs"),
 		filepath.Join(targetDir, "handbook/apis"),
-		filepath.Join(targetDir, "handbook/regression-suite"),
+		filepath.Join(targetDir, "handbook/regression-suites"),
 	}
 
 	for _, dir := range dirs {
@@ -616,7 +616,7 @@ func (m *Manager) initializeRemote(ctx context.Context, targetDir string, opts i
 		return errors.NewGenericError("state manager not provided", nil)
 	}
 
-	stateDBPath := filepath.Join(targetDir, ".onemcp", "state.db")
+	stateDBPath := filepath.Join(targetDir, ".onemcp", "state.json")
 	stateDB = stateDBPath
 	if err := stateMgr.Initialize(stateDBPath); err != nil {
 		rollback()

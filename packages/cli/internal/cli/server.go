@@ -88,7 +88,7 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 
 	// Initialize state manager
 	stateMgr := state.NewManager()
-	dbPath := fmt.Sprintf("%s/.onemcp/state.db", projectRoot)
+	dbPath := fmt.Sprintf("%s/.onemcp/state.json", projectRoot)
 	if err := stateMgr.Initialize(dbPath); err != nil {
 		cmd.PrintErrf("Warning: failed to initialize state database: %v\n", err)
 	} else {
@@ -150,7 +150,7 @@ func runServerStop(cmd *cobra.Command, args []string) error {
 
 	// Update state database
 	stateMgr := state.NewManager()
-	dbPath := fmt.Sprintf("%s/.onemcp/state.db", projectRoot)
+	dbPath := fmt.Sprintf("%s/.onemcp/state.json", projectRoot)
 	if err := stateMgr.Initialize(dbPath); err != nil {
 		// Log warning but don't fail the command
 		cmd.PrintErrf("Warning: failed to update state database: %v\n", err)
