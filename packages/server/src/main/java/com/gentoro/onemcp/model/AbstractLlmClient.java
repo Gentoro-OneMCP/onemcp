@@ -8,6 +8,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.apache.commons.configuration2.Configuration;
 
@@ -29,6 +36,9 @@ public abstract class AbstractLlmClient implements LlmClient {
   protected final Configuration configuration;
   protected final OneMcp oneMcp;
   private static final ThreadLocal<TelemetrySink> TELEMETRY_SINK = new ThreadLocal<>();
+  
+  /** Maximum time allowed for LLM inference (2 minutes) */
+  private static final long INFERENCE_TIMEOUT_MS = 120_000L;
 
   public AbstractLlmClient(OneMcp oneMcp, Configuration configuration) {
     this.oneMcp = oneMcp;
@@ -66,7 +76,8 @@ public abstract class AbstractLlmClient implements LlmClient {
         cacheable);
 
     // Log input message for reporting
-    if (oneMcp != null && oneMcp.inferenceLogger() != null) {
+    // Skip if OrchestratorTelemetrySink (with context) is handling logging
+    if (oneMcp != null && oneMcp.inferenceLogger() != null && !isOrchestratorTelemetrySinkWithContext()) {
       List<Message> inputMessages = List.of(new Message(LlmClient.Role.USER, message));
       oneMcp.inferenceLogger().logLlmInputMessages(inputMessages);
     }
@@ -87,19 +98,64 @@ public abstract class AbstractLlmClient implements LlmClient {
     String result = null;
     long promptTokens = 0;
     long completionTokens = 0;
+    ExecutorService executor = null;
+    
+    // Capture execution ID from current thread to propagate to worker thread
+    final String executionId = oneMcp != null && oneMcp.inferenceLogger() != null 
+        ? oneMcp.inferenceLogger().getCurrentExecutionId() : null;
+    // Capture telemetry sink from current thread
+    final TelemetrySink parentTelemetry = t;
+    
     try {
-      result =
-          runContentGeneration(
-              message,
-              tools,
-              new InferenceEventListener() {
-                @Override
-                public void on(EventType type, Object data) {
-                  if (_listener != null) {
-                    _listener.on(type, data);
+      // Wrap runContentGeneration in a timeout
+      executor = Executors.newSingleThreadExecutor();
+      Future<String> future = executor.submit(new Callable<String>() {
+        @Override
+        public String call() throws Exception {
+          // Propagate execution ID to worker thread
+          if (executionId != null && oneMcp != null && oneMcp.inferenceLogger() != null) {
+            oneMcp.inferenceLogger().setCurrentExecutionId(executionId);
+          }
+          // Propagate telemetry sink to worker thread
+          if (parentTelemetry != null) {
+            TELEMETRY_SINK.set(parentTelemetry);
+          }
+          try {
+            return runContentGeneration(
+                message,
+                tools,
+                new InferenceEventListener() {
+                  @Override
+                  public void on(EventType type, Object data) {
+                    if (_listener != null) {
+                      _listener.on(type, data);
+                    }
                   }
-                }
-              });
+                });
+          } finally {
+            // Clean up thread-locals in worker thread
+            TELEMETRY_SINK.remove();
+          }
+        }
+      });
+      
+      try {
+        result = future.get(INFERENCE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+      } catch (TimeoutException e) {
+        future.cancel(true);
+        long duration = System.currentTimeMillis() - start;
+        String errorMsg = String.format(
+            "LLM inference timed out after %d seconds (exceeded %d second limit)",
+            duration / 1000, INFERENCE_TIMEOUT_MS / 1000);
+        log.error(errorMsg);
+        throw new LlmException(errorMsg, e);
+      } catch (ExecutionException e) {
+        Throwable cause = e.getCause();
+        if (cause instanceof Exception) {
+          throw (Exception) cause;
+        }
+        throw new LlmException("LLM inference failed: " + e.getMessage(), e);
+      }
 
       // Capture token usage from telemetry sink
       if (t != null) {
@@ -133,6 +189,16 @@ public abstract class AbstractLlmClient implements LlmClient {
               new LlmException(
                   "There was a problem while running the inference with the chosen model.", ex));
     } finally {
+      if (executor != null) {
+        executor.shutdownNow();
+        try {
+          if (!executor.awaitTermination(1, TimeUnit.SECONDS)) {
+            log.warn("Executor did not terminate within 1 second after inference timeout");
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      }
       long duration = System.currentTimeMillis() - start;
       log.trace("generate() took {} ms", duration);
       StdoutUtility.printRollingLine(
@@ -165,7 +231,8 @@ public abstract class AbstractLlmClient implements LlmClient {
         temperature);
 
     // Log input messages for reporting (done here so all implementations log consistently)
-    if (oneMcp != null && oneMcp.inferenceLogger() != null) {
+    // Skip if OrchestratorTelemetrySink (with context) is handling logging
+    if (oneMcp != null && oneMcp.inferenceLogger() != null && !isOrchestratorTelemetrySinkWithContext()) {
       oneMcp.inferenceLogger().logLlmInputMessages(messages);
     }
     
@@ -173,21 +240,66 @@ public abstract class AbstractLlmClient implements LlmClient {
     String result = null;
     long promptTokens = 0;
     long completionTokens = 0;
+    ExecutorService executor = null;
+    
+    // Capture execution ID from current thread to propagate to worker thread
+    final String executionId = oneMcp != null && oneMcp.inferenceLogger() != null 
+        ? oneMcp.inferenceLogger().getCurrentExecutionId() : null;
+    // Capture telemetry sink from current thread
+    final TelemetrySink parentTelemetry = telemetry();
+    
     try {
       // TODO: Implement the proper caching logic when possible.
-      result =
-          runInference(
-              messages,
-              tools,
-              temperature,
-              new InferenceEventListener() {
-                @Override
-                public void on(EventType type, Object data) {
-                  if (_listener != null) {
-                    _listener.on(type, data);
+      // Wrap runInference in a timeout
+      executor = Executors.newSingleThreadExecutor();
+      Future<String> future = executor.submit(new Callable<String>() {
+        @Override
+        public String call() throws Exception {
+          // Propagate execution ID to worker thread
+          if (executionId != null && oneMcp != null && oneMcp.inferenceLogger() != null) {
+            oneMcp.inferenceLogger().setCurrentExecutionId(executionId);
+          }
+          // Propagate telemetry sink to worker thread
+          if (parentTelemetry != null) {
+            TELEMETRY_SINK.set(parentTelemetry);
+          }
+          try {
+            return runInference(
+                messages,
+                tools,
+                temperature,
+                new InferenceEventListener() {
+                  @Override
+                  public void on(EventType type, Object data) {
+                    if (_listener != null) {
+                      _listener.on(type, data);
+                    }
                   }
-                }
-              });
+                });
+          } finally {
+            // Clean up thread-locals in worker thread
+            TELEMETRY_SINK.remove();
+          }
+        }
+      });
+      
+      try {
+        result = future.get(INFERENCE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+      } catch (TimeoutException e) {
+        future.cancel(true);
+        long duration = System.currentTimeMillis() - start;
+        String errorMsg = String.format(
+            "LLM inference timed out after %d seconds (exceeded %d second limit)",
+            duration / 1000, INFERENCE_TIMEOUT_MS / 1000);
+        log.error(errorMsg);
+        throw new LlmException(errorMsg, e);
+      } catch (ExecutionException e) {
+        Throwable cause = e.getCause();
+        if (cause instanceof Exception) {
+          throw (Exception) cause;
+        }
+        throw new LlmException("LLM inference failed: " + e.getMessage(), e);
+      }
 
       // Capture token usage from telemetry sink
       TelemetrySink sink = telemetry();
@@ -209,6 +321,16 @@ public abstract class AbstractLlmClient implements LlmClient {
               new LlmException(
                   "There was a problem while running the inference with the chosen model.", ex));
     } finally {
+      if (executor != null) {
+        executor.shutdownNow();
+        try {
+          if (!executor.awaitTermination(1, TimeUnit.SECONDS)) {
+            log.warn("Executor did not terminate within 1 second after inference timeout");
+          }
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      }
       long duration = System.currentTimeMillis() - start;
       log.trace("chat() took {} ms", duration);
       StdoutUtility.printRollingLine(
@@ -343,7 +465,37 @@ public abstract class AbstractLlmClient implements LlmClient {
   }
 
   /**
+   * Checks if the current telemetry sink is OrchestratorTelemetrySink with context.
+   * When OrchestratorTelemetrySink (with context) is used, it handles logging,
+   * so AbstractLlmClient should skip logging to avoid duplicates.
+   *
+   * @return true if OrchestratorTelemetrySink with context is being used
+   */
+  private boolean isOrchestratorTelemetrySinkWithContext() {
+    TelemetrySink sink = telemetry();
+    if (sink == null) {
+      return false;
+    }
+    // Check if it's OrchestratorTelemetrySink by class name (avoiding direct dependency)
+    String className = sink.getClass().getName();
+    if (!className.equals("com.gentoro.onemcp.orchestrator.OrchestratorTelemetrySink")) {
+      return false;
+    }
+    // Use reflection to check if context is not null (context != null means it will log)
+    try {
+      java.lang.reflect.Field contextField = sink.getClass().getDeclaredField("context");
+      contextField.setAccessible(true);
+      Object context = contextField.get(sink);
+      return context != null;
+    } catch (Exception e) {
+      // If we can't check, assume it's not OrchestratorTelemetrySink with context
+      return false;
+    }
+  }
+
+  /**
    * Logs LLM inference completion with phase detection and all metrics.
+   * Skips logging if OrchestratorTelemetrySink (with context) is handling it.
    *
    * @param duration The duration of the inference in milliseconds
    * @param promptTokens The number of prompt tokens used
@@ -352,6 +504,10 @@ public abstract class AbstractLlmClient implements LlmClient {
    */
   protected void logInferenceComplete(
       long duration, long promptTokens, long completionTokens, String responseText) {
+    // Skip if OrchestratorTelemetrySink (with context) is handling logging
+    if (isOrchestratorTelemetrySinkWithContext()) {
+      return;
+    }
     if (oneMcp != null && oneMcp.inferenceLogger() != null) {
       String phase = detectPhase(telemetry());
       // Check for cache hit status in telemetry attributes

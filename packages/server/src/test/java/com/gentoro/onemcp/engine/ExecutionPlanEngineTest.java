@@ -167,4 +167,57 @@ class ExecutionPlanEngineTest {
     JsonNode result = newEngine(registry).execute(plan, null);
     assertEquals("B", result.get("picked").asText());
   }
+
+  @Test
+  @DisplayName("valueTransforms section converts values and @value references work")
+  void valueTransformsWork() throws Exception {
+    OperationRegistry registry = new OperationRegistry().register("echo", input -> input);
+
+    String planJson =
+        """
+        {
+          "valueTransforms": [
+            {
+              "name": "yearParam",
+              "conceptualValue": "2024",
+              "conceptualKind": "date_yyyy",
+              "steps": [
+                ["str_to_int"]
+              ]
+            },
+            {
+              "name": "stateParam",
+              "conceptualValue": "ca",
+              "conceptualKind": "state_us_state_code",
+              "steps": [
+                ["uppercase"]
+              ]
+            }
+          ],
+          "start_node": { "route": "op1" },
+          "op1": {
+            "operation": "echo",
+            "input": {
+              "year": "@value.yearParam",
+              "state": "@value.stateParam"
+            },
+            "route": "out"
+          },
+          "out": {
+            "completed": true,
+            "vars": {
+              "year": "$.op1.year",
+              "state": "$.op1.state"
+            }
+          }
+        }
+        """;
+
+    JsonNode plan = mapper.readTree(planJson);
+    JsonNode result = newEngine(registry).execute(plan, null);
+    
+    // Verify transformed values are correct
+    assertEquals(2024, result.get("year").asInt()); // Should be integer, not string
+    assertEquals("CA", result.get("state").asText()); // Should be uppercase
+  }
 }

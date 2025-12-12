@@ -60,21 +60,21 @@ public class DagPlanner {
     if (ps == null) {
       throw new IllegalArgumentException("Prompt Schema cannot be null");
     }
-    if (ps.getOperation() == null || ps.getOperation().trim().isEmpty()) {
-      throw new IllegalArgumentException("Operation cannot be null or empty");
+    if (ps.getAction() == null || ps.getAction().trim().isEmpty()) {
+      throw new IllegalArgumentException("Action cannot be null or empty");
     }
-    if (ps.getTable() == null || ps.getTable().trim().isEmpty()) {
-      throw new IllegalArgumentException("Table cannot be null or empty");
+    if (ps.getEntity() == null || ps.getEntity().trim().isEmpty()) {
+      throw new IllegalArgumentException("Entity cannot be null or empty");
     }
 
     String prompt = ps.getOriginalPrompt() != null ? ps.getOriginalPrompt() : originalPrompt;
 
-    log.debug("Planning DAG IR for PS: operation={}, table={}", ps.getOperation(), ps.getTable());
+    log.debug("Planning DAG IR for PS: action={}, entity={}", ps.getAction(), ps.getEntity());
 
     // Load endpoint index
-    TableEndpointIndex endpointIndex = loadEndpointIndex(ps.getTable());
+    TableEndpointIndex endpointIndex = loadEndpointIndex(ps.getEntity());
     if (endpointIndex == null || endpointIndex.getEndpoints().isEmpty()) {
-      throw new ExecutionException("No endpoints found for table: " + ps.getTable());
+      throw new ExecutionException("No endpoints found for entity: " + ps.getEntity());
     }
 
     // Load API documentation
@@ -96,78 +96,34 @@ public class DagPlanner {
     // Build input JSON for planner prompt
     Map<String, Object> inputData = new HashMap<>();
     inputData.put("prompt", prompt);
-    inputData.put("table", ps.getTable());
+    inputData.put("table", ps.getEntity()); // Use entity for table (for API compatibility)
 
     // Build PS object (conceptual structure)
     Map<String, Object> psData = new HashMap<>();
-    psData.put("action", ps.getOperation()); // PS uses "operation", spec uses "action"
-    psData.put("entity", ps.getTable()); // PS uses "table", spec uses "entity"
     
-    // Convert PS filter structure to spec format
-    if (ps.getWhere() != null) {
-      psData.put("filter", convertWhereToFilter(ps.getWhere()));
+    // Use action/entity (spec v21)
+    psData.put("action", ps.getAction());
+    psData.put("entity", ps.getEntity());
+    
+    // Use filter (spec v21)
+    if (ps.getFilter() != null && !ps.getFilter().isEmpty()) {
+      psData.put("filter", ps.getFilter());
     }
     
-    // Params from PS.values
-    if (ps.getValues() != null && !ps.getValues().isEmpty()) {
-      psData.put("params", ps.getValues());
+    // Use params (spec v21)
+    if (ps.getParams() != null && !ps.getParams().isEmpty()) {
+      psData.put("params", ps.getParams());
     }
     
-    // Shape (group_by, aggregates, order_by, limit, offset)
-    Map<String, Object> shape = new HashMap<>();
-    
-    // Convert group_by
-    if (ps.getGroupBy() != null && !ps.getGroupBy().isEmpty()) {
-      shape.put("group_by", ps.getGroupBy());
-    } else {
+    // Use shape (spec v21)
+    Map<String, Object> shape = ps.getShape();
+    if (shape == null || shape.isEmpty()) {
+      // Initialize empty shape if not present
+      shape = new HashMap<>();
       shape.put("group_by", new ArrayList<>());
-    }
-    
-    // Convert fields (with agg/column) to aggregates (with field/function)
-    List<Map<String, Object>> aggregates = new ArrayList<>();
-    if (ps.getFields() != null) {
-      for (Object fieldObj : ps.getFields()) {
-        if (fieldObj instanceof Map) {
-          @SuppressWarnings("unchecked")
-          Map<String, Object> field = (Map<String, Object>) fieldObj;
-          Map<String, Object> aggregate = new HashMap<>();
-          
-          // Convert "column" to "field"
-          if (field.containsKey("column")) {
-            aggregate.put("field", field.get("column"));
-          }
-          
-          // Convert "agg" to "function"
-          if (field.containsKey("agg")) {
-            aggregate.put("function", field.get("agg"));
-          }
-          
-          if (!aggregate.isEmpty()) {
-            aggregates.add(aggregate);
-          }
-        }
-      }
-    }
-    shape.put("aggregates", aggregates);
-    
-    // Convert order_by
-    if (ps.getOrderBy() != null && !ps.getOrderBy().isEmpty()) {
-      shape.put("order_by", ps.getOrderBy());
-    } else {
+      shape.put("aggregates", new ArrayList<>());
       shape.put("order_by", new ArrayList<>());
-    }
-    
-    // Convert limit (integer to string per spec, or null)
-    if (ps.getLimit() != null) {
-      shape.put("limit", ps.getLimit().toString());
-    } else {
       shape.put("limit", null);
-    }
-    
-    // Convert offset (integer to string per spec, or null)
-    if (ps.getOffset() != null) {
-      shape.put("offset", ps.getOffset().toString());
-    } else {
       shape.put("offset", null);
     }
     
@@ -296,27 +252,21 @@ public class DagPlanner {
       throw new ExecutionException("LLM call failed: " + e.getMessage(), e);
     }
 
-    // Extract DAG JSON from response
-    String dagJson = extractDagFromResponse(response);
+    // Extract ExecutionPlan JSON from response
+    String planJson = extractDagFromResponse(response);
     
-    // Validate DAG structure
+    // Validate ExecutionPlan structure (will be validated by ExecutionPlanValidator later)
     try {
-      DagPlan.fromJsonString(dagJson);
+      JacksonUtility.getJsonMapper().readTree(planJson);
     } catch (Exception e) {
-      log.error("Generated DAG is invalid: {}", e.getMessage());
-      throw new ExecutionException("Generated DAG is invalid: " + e.getMessage(), e);
+      log.error("Generated ExecutionPlan is invalid JSON: {}", e.getMessage());
+      throw new ExecutionException("Generated ExecutionPlan is invalid JSON: " + e.getMessage(), e);
     }
 
-    log.info("Generated DAG IR with {} nodes", DagPlan.fromJsonString(dagJson).getNodes().size());
-    return dagJson;
+    log.info("Generated ExecutionPlan JSON (length: {})", planJson.length());
+    return planJson;
   }
 
-  private Object convertWhereToFilter(Object where) {
-    // Convert PS where structure to spec filter format
-    // This is a simplified conversion - may need more sophisticated handling
-    // For now, pass through and let planner prompt handle it
-    return where;
-  }
 
   private String extractDagFromResponse(String response) {
     // Extract JSON from response - reject TypeScript/JavaScript
@@ -345,26 +295,27 @@ public class DagPlanner {
     
     jsonContent = jsonContent.trim();
     
-    // Must start with { and contain "nodes"
+    // Must start with {
     if (!jsonContent.startsWith("{")) {
       throw new ExecutionException(
           "LLM response is not valid JSON. Must start with {. " +
           "Got: " + jsonContent.substring(0, Math.min(200, jsonContent.length())));
     }
     
-    // Reject old DAG format (value_conversions, start_node) - require format with nodes array
-    if (jsonContent.contains("\"value_conversions\"") || jsonContent.contains("\"start_node\"")) {
+    // Must contain "start_node" (new ExecutionPlan format)
+    if (!jsonContent.contains("\"start_node\"")) {
       throw new ExecutionException(
-          "LLM generated OLD DAG format (with value_conversions/start_node). " +
-          "Must generate format with 'nodes' array and 'entryPoint'. " +
-          "Response: " + jsonContent.substring(0, Math.min(500, jsonContent.length())));
+          "LLM response is not valid ExecutionPlan JSON. Must contain 'start_node' object. " +
+          "The old format with 'nodes' array is no longer supported. " +
+          "Got: " + jsonContent.substring(0, Math.min(500, jsonContent.length())));
     }
     
-    // Must contain "nodes" array
-    if (!jsonContent.contains("\"nodes\"")) {
+    // Reject old DAG format with nodes array
+    if (jsonContent.contains("\"nodes\"") && jsonContent.contains("\"entryPoint\"")) {
       throw new ExecutionException(
-          "LLM response is not valid DAG JSON. Must contain 'nodes' array. " +
-          "Got: " + jsonContent.substring(0, Math.min(500, jsonContent.length())));
+          "LLM generated OLD DAG format (with 'nodes' array and 'entryPoint'). " +
+          "Must generate ExecutionPlan format with 'start_node' object and top-level node entries. " +
+          "Response: " + jsonContent.substring(0, Math.min(500, jsonContent.length())));
     }
     
     // Validate JSON

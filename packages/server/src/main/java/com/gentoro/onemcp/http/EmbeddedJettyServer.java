@@ -8,6 +8,7 @@ import java.util.Objects;
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
 /**
  * Embedded Jetty 12 server with a root {@link ServletContextHandler} and a JVM shutdown hook.
@@ -59,15 +60,24 @@ public class EmbeddedJettyServer implements AutoCloseable {
       }
 
       try {
+        // Create thread pool with daemon threads to allow JVM to exit
+        QueuedThreadPool threadPool = new QueuedThreadPool();
+        threadPool.setDaemon(true); // Critical: allow JVM to exit when main thread ends
+        threadPool.setName("jetty-http");
+        
+        // Create server with daemon thread pool
+        server = new Server(threadPool);
+        
         if (!hostname.equals("0.0.0.0")) {
           // Create connector and specify host + port
           ServerConnector connector = new ServerConnector(server);
           connector.setHost(hostname);
           connector.setPort(port);
-          server = new Server();
           server.addConnector(connector);
         } else {
-          server = new Server(port);
+          ServerConnector connector = new ServerConnector(server);
+          connector.setPort(port);
+          server.addConnector(connector);
         }
 
         contextHandler = new ServletContextHandler();
@@ -120,17 +130,37 @@ public class EmbeddedJettyServer implements AutoCloseable {
     log.trace("Stopping shared Jetty server");
     synchronized (lifecycleLock) {
       if (server != null) {
+        Server s = server; // Capture reference
         try {
           try {
-            if (server.isRunning() || server.isStarted() || server.isStarting()) {
-              server.stop();
+            if (s.isRunning() || s.isStarted() || s.isStarting()) {
+              // Set a timeout for stopping to prevent hanging
+              s.setStopTimeout(2000); // 2 second timeout (reduced for faster shutdown)
+              s.stop();
+              // Wait for server to stop, but with a timeout
+              long startTime = System.currentTimeMillis();
+              long timeout = 3000; // 3 second total timeout
+              while ((s.isStopping() || s.isStarted()) && 
+                     (System.currentTimeMillis() - startTime) < timeout) {
+                Thread.sleep(50); // Check more frequently
+              }
+              // If still not stopped, force it
+              if (s.isStopping() || s.isStarted()) {
+                log.warn("Jetty server did not stop within timeout, forcing shutdown");
+                try {
+                  s.stop(); // Try one more time
+                } catch (Exception e) {
+                  log.debug("Error on second stop attempt", e);
+                }
+              }
             }
           } catch (Exception e) {
             log.error(
-                "Error stopping jetty server, as not to prevent other services from stopping, exception was captured and logged, but bot rethrown downstream.",
+                "Error stopping jetty server, as not to prevent other services from stopping, exception was captured and logged, but not rethrown downstream.",
                 e);
           }
         } finally {
+          // Always null out references even if stop failed
           server = null;
           contextHandler = null;
         }

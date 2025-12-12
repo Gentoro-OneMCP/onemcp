@@ -14,6 +14,14 @@ public class OpenApiProxyImpl implements OpenApiProxy {
     this.invokers = OpenApiLoader.buildInvokers(openAPI, baseUrl);
   }
 
+  public OpenApiProxyImpl(OpenAPI openAPI, String baseUrl, com.gentoro.onemcp.logging.InferenceLogger inferenceLogger) {
+    this.invokers = OpenApiLoader.buildInvokers(openAPI, baseUrl);
+    // Set inference logger on all invokers for API call logging
+    if (inferenceLogger != null) {
+      this.invokers.values().forEach(invoker -> invoker.setInferenceLogger(inferenceLogger));
+    }
+  }
+
   @Override
   public JsonNode invoke(String operationId, JsonNode input) throws Exception {
     EndpointInvoker invoker = invokers.get(operationId);

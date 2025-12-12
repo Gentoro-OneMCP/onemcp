@@ -154,15 +154,23 @@ public class ExecutionPlanCache {
    * @param errorMessage error message if execution failed (null if succeeded)
    */
   public void storeByCacheKey(String cacheKey, ExecutionPlan plan, boolean executionSucceeded, String errorMessage) {
+    System.out.println("[CACHE] storeByCacheKey called: cacheKey=" + cacheKey + 
+        ", plan is null=" + (plan == null) + 
+        ", executionSucceeded=" + executionSucceeded + 
+        ", cacheDir=" + cacheDir);
+    
     if (cacheKey == null || cacheKey.isEmpty()) {
+      System.out.println("[CACHE] Cannot store: cacheKey is null or empty");
       log.warn("Cannot store plan: cacheKey is null or empty");
       return;
     }
     if (plan == null) {
+      System.out.println("[CACHE] Cannot store: plan is null");
       log.warn("Cannot store plan: plan is null");
       return;
     }
     Path planFile = cacheDir.resolve(cacheKey + ".json");
+    System.out.println("[CACHE] Plan file path: " + planFile);
 
     try {
       ensureCacheDirectory();
@@ -199,6 +207,8 @@ public class ExecutionPlanCache {
 
       String content = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(cached);
       Files.writeString(planFile, content);
+      System.out.println("[CACHE] File written successfully: " + planFile + 
+          ", size: " + Files.size(planFile) + " bytes");
       
       if (executionSucceeded) {
         log.info("Stored plan in cache: {} (PSK: {})", planFile.getFileName(), cacheKey);
@@ -207,6 +217,8 @@ public class ExecutionPlanCache {
             planFile.getFileName(), cacheKey, failedAttempts);
       }
     } catch (Exception e) {
+      System.out.println("[CACHE] Exception storing plan: " + e.getMessage());
+      e.printStackTrace();
       log.error("Failed to store plan for PSK: {}", cacheKey, e);
     }
   }

@@ -16,8 +16,11 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
@@ -58,11 +61,20 @@ public class InferenceLogger {
   // Track report paths per execution (kept until retrieved)
   private final Map<String, String> executionReportPaths = new ConcurrentHashMap<>();
 
+  // Track log file size at start of each execution (executionId -> log file size in bytes)
+  private final Map<String, Long> executionLogFileSizes = new ConcurrentHashMap<>();
+
   // Thread-local execution ID for tracking context across async operations
   private static final ThreadLocal<String> currentExecutionId = new ThreadLocal<>();
 
   // Thread-local report path for current execution
   private static final ThreadLocal<String> currentReportPath = new ThreadLocal<>();
+
+  // Thread-local current phase for automatic exception logging
+  private static final ThreadLocal<String> currentPhase = new ThreadLocal<>();
+  
+  // Thread-local current attempt number for automatic exception logging
+  private static final ThreadLocal<Integer> currentAttempt = new ThreadLocal<>();
 
   // Pending retry reasons: "executionId:phase" -> error message that triggered the retry
   // This provides a direct link between a validation error and the subsequent retry
@@ -100,8 +112,14 @@ public class InferenceLogger {
       return "true".equalsIgnoreCase(envReportMode.trim());
     }
 
-    // Check config file
-    Configuration config = oneMcp.configuration();
+    // Check config file (only if OneMcp is initialized)
+    Configuration config = null;
+    try {
+      config = oneMcp.configuration();
+    } catch (Exception e) {
+      // OneMcp not initialized yet - skip config check
+      log.debug("OneMcp not initialized, skipping config-based report mode detection");
+    }
     if (config != null) {
       String configReportMode = config.getString("reports.enabled", null);
       if (configReportMode != null && !configReportMode.isBlank()) {
@@ -157,24 +175,44 @@ public class InferenceLogger {
     String envLogDir = System.getenv("ONEMCP_LOG_DIR");
     if (envLogDir != null && !envLogDir.isBlank()) {
       baseLogDir = Paths.get(envLogDir);
-      log.debug("Using logging directory from ONEMCP_LOG_DIR: {}", baseLogDir);
+      log.debug("Using logging directory from ONEMCP_LOG_DIR (env): {}", baseLogDir);
     } else {
-      // Priority 2: Try ONEMCP_HOME_DIR/logs (CLI mode fallback)
-      String homeDir = System.getenv("ONEMCP_HOME_DIR");
-      if (homeDir != null && !homeDir.isBlank()) {
-        baseLogDir = Paths.get(homeDir, "logs");
-        log.debug("Using logging directory from ONEMCP_HOME_DIR: {}", baseLogDir);
+      // Priority 1b: System property (for tests that can't set env vars)
+      String propLogDir = System.getProperty("ONEMCP_LOG_DIR");
+      if (propLogDir != null && !propLogDir.isBlank()) {
+        baseLogDir = Paths.get(propLogDir);
+        log.debug("Using logging directory from ONEMCP_LOG_DIR (system property): {}", baseLogDir);
       } else {
-        // Priority 3: Config file
-        Configuration config = oneMcp.configuration();
-        String configLogDir = config != null ? config.getString("logging.directory", null) : null;
-        if (configLogDir != null && !configLogDir.isBlank()) {
-          baseLogDir = Paths.get(configLogDir);
-          log.debug("Using logging directory from config: {}", baseLogDir);
+        // Priority 2: Try ONEMCP_HOME_DIR/logs (CLI mode fallback)
+        String homeDir = System.getenv("ONEMCP_HOME_DIR");
+        if (homeDir != null && !homeDir.isBlank()) {
+          baseLogDir = Paths.get(homeDir, "logs");
+          log.debug("Using logging directory from ONEMCP_HOME_DIR (env): {}", baseLogDir);
         } else {
-          // Priority 4: Default to production mode location (never use handbook/logs)
-          baseLogDir = Paths.get("/var/log/onemcp");
-          log.debug("Using default production logging directory: {}", baseLogDir);
+          // Priority 2b: System property (for tests)
+          String propHomeDir = System.getProperty("ONEMCP_HOME_DIR");
+          if (propHomeDir != null && !propHomeDir.isBlank()) {
+            baseLogDir = Paths.get(propHomeDir, "logs");
+            log.debug("Using logging directory from ONEMCP_HOME_DIR (system property): {}", baseLogDir);
+          } else {
+            // Priority 3: Config file (only if OneMcp is initialized)
+            Configuration config = null;
+            try {
+              config = oneMcp.configuration();
+            } catch (Exception e) {
+              // OneMcp not initialized yet - skip config check
+              log.debug("OneMcp not initialized, skipping config-based logging directory detection");
+            }
+            String configLogDir = config != null ? config.getString("logging.directory", null) : null;
+            if (configLogDir != null && !configLogDir.isBlank()) {
+              baseLogDir = Paths.get(configLogDir);
+              log.debug("Using logging directory from config: {}", baseLogDir);
+            } else {
+              // Priority 4: Default to production mode location (never use handbook/logs)
+              baseLogDir = Paths.get("/var/log/onemcp");
+              log.debug("Using default production logging directory: {}", baseLogDir);
+            }
+          }
         }
       }
     }
@@ -194,8 +232,11 @@ public class InferenceLogger {
             log.warn(
                 "Detected attempt to create logs in handbook directory ({}), redirecting to ONEMCP_HOME_DIR/logs",
                 baseLogDir);
-            // Redirect to ONEMCP_HOME_DIR/logs
+            // Redirect to ONEMCP_HOME_DIR/logs (check env var first, then system property)
             String homeDir = System.getenv("ONEMCP_HOME_DIR");
+            if (homeDir == null || homeDir.isBlank()) {
+              homeDir = System.getProperty("ONEMCP_HOME_DIR");
+            }
             if (homeDir != null && !homeDir.isBlank()) {
               baseLogDir = Paths.get(homeDir, "logs");
             } else {
@@ -228,8 +269,11 @@ public class InferenceLogger {
                 "CRITICAL: Reports directory ({}) is within handbook directory ({}). Redirecting immediately!",
                 reportsDir,
                 handbookPath);
-            // Force redirect to ONEMCP_HOME_DIR/logs/reports
+            // Force redirect to ONEMCP_HOME_DIR/logs/reports (check env var first, then system property)
             String homeDir = System.getenv("ONEMCP_HOME_DIR");
+            if (homeDir == null || homeDir.isBlank()) {
+              homeDir = System.getProperty("ONEMCP_HOME_DIR");
+            }
             if (homeDir != null && !homeDir.isBlank()) {
               reportsDir = Paths.get(homeDir, "logs", "reports");
             } else {
@@ -292,6 +336,16 @@ public class InferenceLogger {
   }
 
   /**
+   * Set the current execution ID for thread-local context.
+   * Used to propagate execution ID to worker threads (e.g., for timeout handling).
+   */
+  public void setCurrentExecutionId(String executionId) {
+    if (executionId != null) {
+      currentExecutionId.set(executionId);
+    }
+  }
+
+  /**
    * Start tracking an execution.
    *
    * @param executionId unique execution identifier
@@ -310,6 +364,22 @@ public class InferenceLogger {
       String filename = "execution-" + timestamp + ".txt";
       Path reportPath = reportsDirectory.resolve(filename);
       executionReportPaths.put(executionId, reportPath.toString());
+
+      // Capture log file size at start of execution
+      java.io.File logFile = getLogFile();
+      long logFileSize = 0;
+      if (logFile != null) {
+        if (logFile.exists()) {
+          logFileSize = logFile.length();
+        } else {
+          log.warn("Log file does not exist at execution start: {}", logFile.getAbsolutePath());
+        }
+      } else {
+        log.warn("Could not determine log file location at execution start");
+      }
+      executionLogFileSizes.put(executionId, logFileSize);
+      log.info("Captured log file size at execution start: {} bytes (executionId: {}, logFile: {})", 
+          logFileSize, executionId, logFile != null ? logFile.getAbsolutePath() : "null");
 
       // Initialize event storage
       List<ExecutionEvent> events = new ArrayList<>();
@@ -368,6 +438,8 @@ public class InferenceLogger {
                   Map.of("durationMs", durationMs, "success", success)));
 
           // Generate and write report (synchronously to ensure it's written before path is retrieved)
+          // NOTE: captureServerLog() is called during generateTextReport(), so we must NOT
+          // remove executionLogFileSizes until AFTER the report is generated
           String reportContent = generateTextReport(executionId, events, durationMs, success, startTimeMs);
           Files.writeString(reportPath, reportContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
           
@@ -384,8 +456,11 @@ public class InferenceLogger {
           // Set the report path only after successful write
           currentReportPath.set(reportPathStr);
           
-          // Clean up events, but keep executionReportPaths until it's retrieved
+          // Clean up events, but keep executionReportPaths and executionLogFileSizes until report is retrieved
+          // (executionLogFileSizes is needed for captureServerLog which runs during report generation)
           executionEvents.remove(executionId);
+          // NOTE: executionLogFileSizes is NOT removed here - it will be removed when report is retrieved
+          // This ensures captureServerLog can access it if report is regenerated or accessed later
           currentExecutionId.remove();
           // Note: executionReportPaths and currentReportPath are NOT removed here - 
           // they will be removed when retrieved via getCurrentReportPath()
@@ -533,7 +608,10 @@ public class InferenceLogger {
 
     // Combined Execution Summary
     long apiCalls = events.stream().filter(e -> "api_call".equals(e.type)).count();
-    long errors = events.stream().filter(e -> "api_call_error".equals(e.type)).count();
+    // Count both API call errors and validation errors (execution errors, plan generation errors, etc.)
+    long errors = events.stream()
+        .filter(e -> "api_call_error".equals(e.type) || "validation_error".equals(e.type))
+        .count();
     
     // Check execution plan cache status (preferred over LLM cache status)
     Boolean planCacheHit = null;
@@ -586,8 +664,9 @@ public class InferenceLogger {
     long totalLLMDuration = 0;
     long totalExecutionDuration = 0;
 
-    // Track phase counts for retry numbering
+    // Track phase counts for retry numbering and summary
     Map<String, Integer> phaseCounts = new HashMap<>();
+    Set<String> phasesSeen = new HashSet<>();
 
     // Process events in chronological order (they're already sorted by timestamp)
     for (ExecutionEvent event : events) {
@@ -624,15 +703,7 @@ public class InferenceLogger {
         
         String phaseStr =
             (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
-        // If phase already includes attempt number (e.g., "normalize#2"), use it as-is
-        // Otherwise, track phase counts and append retry number if > 1
-        if (!phaseStr.contains("#")) {
-          int phaseCount = phaseCounts.getOrDefault(phaseStr, 0) + 1;
-          phaseCounts.put(phaseStr, phaseCount);
-          if (phaseCount > 1) {
-            phaseStr = phaseStr + "#" + phaseCount;
-          }
-        }
+        // Use phase as-is from the event - the source of the log entry should include #N if needed
         // Cache status is shown in summary only, not in individual call headers
         // Format: "  LLM Call N (phase):    DURATIONms | Tokens: X+Y=Z"
         // Phase name without padding, then add padding before values
@@ -709,94 +780,100 @@ public class InferenceLogger {
 
     // Note: Normalized prompt schema section removed - will be re-enabled when caching mode is added
 
-    // LLM Interactions - each call gets its own box header
-    int llmInteractionNum = 1;
-    String previousInputMessages = null;
-    // Track phase counts for retry numbering
-    Map<String, Integer> phaseCountsDetailed = new HashMap<>();
+    // PHASE-BASED REPORT GENERATION
+    // Find all phase_begin events and display everything between phase_begin and phase_end
     for (int i = 0; i < events.size(); i++) {
       ExecutionEvent event = events.get(i);
-      if ("llm_inference_complete".equals(event.type)) {
-        Object duration = event.data.get("durationMs");
-        Object phase = event.data.get("phase");
-        Object response = event.data.get("response");
-
-        Object promptTokens = event.data.get("promptTokens");
-        Object completionTokens = event.data.get("completionTokens");
-
-        long promptT = 0;
-        long completionT = 0;
-        if (promptTokens instanceof Number) promptT = ((Number) promptTokens).longValue();
-        if (completionTokens instanceof Number)
-          completionT = ((Number) completionTokens).longValue();
-
-        // Skip events with 0 tokens (likely duplicate/fallback events)
-        if (promptT == 0 && completionT == 0) {
-          continue; // Skip this event
-        }
-
-        Object cacheHitObj = event.data.get("cacheHit");
-        Boolean cacheHit = cacheHitObj instanceof Boolean ? (Boolean) cacheHitObj : null;
+      if ("phase_begin".equals(event.type)) {
+        // Extract phase information
+        Object phaseObj = event.data.get("phase");
+        Object attemptObj = event.data.get("attempt");
+        String phase = phaseObj != null ? phaseObj.toString() : "unknown";
+        Integer attempt = attemptObj instanceof Number ? ((Number) attemptObj).intValue() : null;
         
-        String phaseStr =
-            (phase != null && !phase.toString().equals("unknown")) ? phase.toString() : "?";
-        // If phase already includes attempt number (e.g., "normalize#2"), use it as-is
-        // Otherwise, track phase counts and append retry number if > 1
-        int phaseCount;
-        if (!phaseStr.contains("#")) {
-          phaseCount = phaseCountsDetailed.getOrDefault(phaseStr, 0) + 1;
-          phaseCountsDetailed.put(phaseStr, phaseCount);
-          if (phaseCount > 1) {
-            phaseStr = phaseStr + "#" + phaseCount;
-          }
-        } else {
-          // Extract attempt number from phaseStr
-          try {
-            String attemptPart = phaseStr.substring(phaseStr.indexOf("#") + 1);
-            phaseCount = Integer.parseInt(attemptPart);
-          } catch (NumberFormatException e) {
-            // If parsing fails, use 1 as default
-            phaseCount = 1;
-          }
+        // Skip cache_hit - it's not a real phase
+        if ("cache_hit".equals(phase)) {
+          continue;
         }
-        // Cache status is shown in summary only, not in individual call headers
-        String callHeader = "LLM Call " + llmInteractionNum + " (" + phaseStr + ")";
-
-        // Box header for this LLM call
-        sb.append(
-            "┌──────────────────────────────────────────────────────────────────────────────┐\n");
-        sb.append("│ ").append(String.format("%-76s", callHeader)).append(" │\n");
-        sb.append(
-            "└──────────────────────────────────────────────────────────────────────────────┘\n");
-        sb.append("\n");
-
-        llmInteractionNum++; // Increment after processing this event
-
-        // Find corresponding input messages event (look backwards from current event)
-        boolean foundInput = false;
-        String currentInputMessages = null;
-        for (int j = i - 1; j >= 0 && j >= i - 5; j--) { // Look back up to 5 events
-          ExecutionEvent prevEvent = events.get(j);
-          if ("llm_input_messages".equals(prevEvent.type)) {
-            Object messages = prevEvent.data.get("messages");
-            if (messages != null && !messages.toString().trim().isEmpty()) {
-              currentInputMessages = messages.toString();
-              foundInput = true;
+        
+        // Use phase as-is - the source should include #N in the phase name if needed
+        // The attempt number is used for matching phase_begin/phase_end pairs, not for display
+        String phaseHeader = phase;
+        
+        // Collect all events until matching phase_end
+        List<ExecutionEvent> phaseEvents = new ArrayList<>();
+        int endIndex = i + 1;
+        boolean foundMatchingEnd = false;
+        for (int j = i + 1; j < events.size(); j++) {
+          ExecutionEvent nextEvent = events.get(j);
+          
+          // If we encounter another phase_begin before finding our phase_end, stop collecting
+          // (this phase's events end when the next phase begins)
+          if ("phase_begin".equals(nextEvent.type)) {
+            Object nextPhaseObj = nextEvent.data.get("phase");
+            Object nextAttemptObj = nextEvent.data.get("attempt");
+            String nextPhase = nextPhaseObj != null ? nextPhaseObj.toString() : "unknown";
+            Integer nextAttempt = nextAttemptObj instanceof Number ? ((Number) nextAttemptObj).intValue() : null;
+            
+            // If it's a different phase, or same phase but different attempt, stop here
+            if (!phase.equals(nextPhase) || !Objects.equals(attempt, nextAttempt)) {
+              endIndex = j;
               break;
             }
+            // Same phase and attempt - this shouldn't happen, but continue collecting
           }
+          
+          if ("phase_end".equals(nextEvent.type)) {
+            Object endPhaseObj = nextEvent.data.get("phase");
+            Object endAttemptObj = nextEvent.data.get("attempt");
+            String endPhase = endPhaseObj != null ? endPhaseObj.toString() : "unknown";
+            Integer endAttempt = endAttemptObj instanceof Number ? ((Number) endAttemptObj).intValue() : null;
+            
+            // Check if this is the matching phase_end
+            if (phase.equals(endPhase) && Objects.equals(attempt, endAttempt)) {
+              endIndex = j;
+              foundMatchingEnd = true;
+              break;
+            }
+            // Don't add phase_end events to phaseEvents - they're just boundaries
+            continue;
+          }
+          phaseEvents.add(nextEvent);
         }
+        
+        // If we didn't find a matching phase_end, warn but still display what we collected
+        if (!foundMatchingEnd && !phaseEvents.isEmpty()) {
+          log.warn("Phase {} (attempt: {}) has no matching phase_end - events may be incomplete", phase, attempt);
+        }
+        
+        // Display phase section
+        sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        sb.append("│ PHASE: ").append(String.format("%-68s", phaseHeader)).append(" │\n");
+        sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+        sb.append("\n");
 
-        // Show INPUT first
-        if (foundInput && currentInputMessages != null) {
-          if (currentInputMessages.equals(previousInputMessages)) {
-            sb.append(
-                "┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
+        // Reset previousInputMessages for each phase (each phase is independent)
+        String previousInputMessages = null;
+        
+        // Display all events within this phase as subsections
+        for (ExecutionEvent phaseEvent : phaseEvents) {
+          String eventType = phaseEvent.type;
+          
+          // Handle different event types
+          if ("llm_input_messages".equals(eventType)) {
+            Object messages = phaseEvent.data.get("messages");
+            if (messages != null && !messages.toString().trim().isEmpty()) {
+              String currentInputMessages = messages.toString();
+              boolean hasErrorFeedback = currentInputMessages.contains("error_feedback") && 
+                                       !currentInputMessages.contains("\"error_feedback\" : null") &&
+                                       !currentInputMessages.contains("\"error_feedback\":null");
+              
+              if (currentInputMessages.equals(previousInputMessages) && !hasErrorFeedback) {
+                sb.append("┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
             sb.append("│ [Same as previous LLM call]\n");
             sb.append("\n");
           } else {
-            sb.append(
-                "┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
+                sb.append("┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
             String messagesStr = currentInputMessages;
             
             // If we have a previous input, elide common prefix
@@ -804,18 +881,16 @@ public class InferenceLogger {
               messagesStr = elideCommonPrefix(previousInputMessages, messagesStr);
             }
             
-            // Format messages nicely - they should already be formatted with [role] prefix
+                // Format messages nicely
             String[] lines = messagesStr.split("\n");
             for (String line : lines) {
               if (line.isEmpty()) {
                 sb.append("│\n");
               } else {
-                // Wrap long lines
                 int maxWidth = 76;
                 if (line.length() <= maxWidth) {
                   sb.append("│ ").append(line).append("\n");
                 } else {
-                  // Split long lines
                   int start = 0;
                   while (start < line.length()) {
                     int end = Math.min(start + maxWidth, line.length());
@@ -829,29 +904,33 @@ public class InferenceLogger {
             sb.append("\n");
             previousInputMessages = currentInputMessages;
           }
-        } else {
-          sb.append(
-              "┌─ INPUT ────────────────────────────────────────────────────────────────────────\n");
-          sb.append("│ [No input messages captured]\n");
-          sb.append("\n");
-        }
-
-        // Show OUTPUT after INPUT
+            }
+          } else if ("llm_inference_complete".equals(eventType)) {
+            Object response = phaseEvent.data.get("response");
+            Object duration = phaseEvent.data.get("durationMs");
+            Object promptTokens = phaseEvent.data.get("promptTokens");
+            Object completionTokens = phaseEvent.data.get("completionTokens");
+            
+            long promptT = 0;
+            long completionT = 0;
+            if (promptTokens instanceof Number) promptT = ((Number) promptTokens).longValue();
+            if (completionTokens instanceof Number) completionT = ((Number) completionTokens).longValue();
+            
+            // Show all LLM events - don't filter by token count
+            // (Everything should show up by default, user can hide things if needed)
+            
+            // Show OUTPUT
         if (response != null && !response.toString().trim().isEmpty()) {
-          sb.append("┌─ OUTPUT (")
-              .append(callHeader)
-              .append(") ────────────────────────────────────────────────────────────────\n");
+              sb.append("┌─ OUTPUT ───────────────────────────────────────────────────────────────────────\n");
           String[] lines = response.toString().split("\n");
           for (String line : lines) {
             if (line.isEmpty()) {
               sb.append("│\n");
             } else {
-              // Wrap long lines
               int maxWidth = 76;
               if (line.length() <= maxWidth) {
                 sb.append("│ ").append(line).append("\n");
               } else {
-                // Split long lines
                 int start = 0;
                 while (start < line.length()) {
                   int end = Math.min(start + maxWidth, line.length());
@@ -864,161 +943,318 @@ public class InferenceLogger {
           }
           sb.append("\n");
         } else {
-          sb.append("┌─ OUTPUT (")
-              .append(callHeader)
-              .append(") ────────────────────────────────────────────────────────────────\n");
+              sb.append("┌─ OUTPUT ───────────────────────────────────────────────────────────────────────\n");
           sb.append("│ [No response text captured]\n");
           sb.append("\n");
         }
-        
-        // Check if there's any error for this phase
-        // Show error after OUTPUT for all attempts (not just first)
-        String errorMsg = null;
-        // Extract base phase (remove attempt number if present)
-        // phaseStr might already have "#2" from source, or it might have been added by report
-        String basePhase = phaseStr.replaceAll("#\\d+$", "");
-        // phaseCount is already computed above
-        
-        // Helper to check if an event has an error for this phase
-        java.util.function.Function<ExecutionEvent, String> extractError = (evt) -> {
-          // Check if event has an error field
-          Object errorField = evt.data != null ? evt.data.get("error") : null;
-          if (errorField != null && !errorField.toString().trim().isEmpty()) {
-            // Check if phase matches
-            Object eventPhase = evt.data.get("phase");
-            if (eventPhase != null) {
-              String eventPhaseStr = eventPhase.toString().replaceAll("#\\d+$", "");
-              if (eventPhaseStr.equals(basePhase)) {
-                return errorField.toString();
-              }
-            }
-          }
-          // Check if event type itself indicates an error (e.g., api_call_error)
-          if ("api_call_error".equals(evt.type) || "validation_error".equals(evt.type)) {
-            Object eventPhase = evt.data != null ? evt.data.get("phase") : null;
-            if (eventPhase != null) {
-              String eventPhaseStr = eventPhase.toString().replaceAll("#\\d+$", "");
-              if (eventPhaseStr.equals(basePhase)) {
-                // For api_call_error, construct error message from event data
-                if ("api_call_error".equals(evt.type)) {
-                  Object apiError = evt.data.get("error");
-                  Object url = evt.data.get("url");
-                  if (apiError != null && !apiError.toString().trim().isEmpty()) {
-                    return "API call error" + (url != null ? " (" + url + ")" : "") + ": " + apiError.toString();
-                  }
+          } else if ("validation_error".equals(eventType)) {
+            Object error = phaseEvent.data.get("error");
+            if (error != null && !error.toString().trim().isEmpty()) {
+              sb.append("┌─ ERROR ────────────────────────────────────────────────────────────────────────\n");
+              String errorMsg = error.toString();
+              String[] errorLines = errorMsg.split("\n");
+              for (String errorLine : errorLines) {
+                if (errorLine.length() <= 76) {
+                  sb.append("│ ").append(errorLine).append("\n");
                 } else {
-                  // validation_error
-                  Object valError = evt.data.get("error");
-                  if (valError != null && !valError.toString().trim().isEmpty()) {
-                    return valError.toString();
+                  int start = 0;
+                  while (start < errorLine.length()) {
+                    int end = Math.min(start + 76, errorLine.length());
+                    sb.append("│ ").append(errorLine.substring(start, end)).append("\n");
+                    start = end;
+                  }
+                }
+              }
+              sb.append("\n");
+            }
+          } else if ("api_call".equals(eventType)) {
+            Object url = phaseEvent.data.get("url");
+            Object method = phaseEvent.data.get("method");
+            Object status = phaseEvent.data.get("status");
+            Object duration = phaseEvent.data.get("durationMs");
+            
+            sb.append("┌─ API CALL ──────────────────────────────────────────────────────────────────────\n");
+            if (method != null) sb.append("│ Method: ").append(method).append("\n");
+            if (url != null) sb.append("│ URL: ").append(url).append("\n");
+            if (status != null) sb.append("│ Status: ").append(status).append("\n");
+            if (duration != null) sb.append("│ Duration: ").append(duration).append("ms\n");
+            sb.append("\n");
+          } else if ("api_call_error".equals(eventType)) {
+            Object error = phaseEvent.data.get("error");
+            Object url = phaseEvent.data.get("url");
+            
+            sb.append("┌─ API CALL ERROR ───────────────────────────────────────────────────────────────\n");
+            if (url != null) sb.append("│ URL: ").append(url).append("\n");
+            if (error != null) {
+              String errorMsg = error.toString();
+              String[] errorLines = errorMsg.split("\n");
+              for (String errorLine : errorLines) {
+                if (errorLine.length() <= 76) {
+                  sb.append("│ ").append(errorLine).append("\n");
+                } else {
+                  int start = 0;
+                  while (start < errorLine.length()) {
+                    int end = Math.min(start + 76, errorLine.length());
+                    sb.append("│ ").append(errorLine.substring(start, end)).append("\n");
+                    start = end;
                   }
                 }
               }
             }
-          }
-          return null;
-        };
-        
-        // Strategy 1: Look ahead for error events (up to 50 events ahead to catch errors)
-        // Try exact phase and attempt match first
-        for (int j = i + 1; j < events.size() && j <= i + 50; j++) {
-          ExecutionEvent nextEvent = events.get(j);
-          String foundError = extractError.apply(nextEvent);
-          if (foundError != null) {
-            // Check attempt match if available
-            Object errorAttempt = nextEvent.data != null ? nextEvent.data.get("attempt") : null;
-            if (errorAttempt instanceof Number) {
-              int errorAttemptNum = ((Number) errorAttempt).intValue();
-              if (errorAttemptNum == phaseCount) {
-                errorMsg = foundError;
-                log.debug("Found matching error for phase {} attempt {}: {}", basePhase, phaseCount, errorMsg.substring(0, Math.min(100, errorMsg.length())));
-                break;
+            sb.append("\n");
+          } else if ("execution_plan".equals(eventType)) {
+            // Only show execution plan in execute phase
+            if (!"execute".equals(phase)) {
+              continue;
+            }
+            
+            Object plan = phaseEvent.data.get("plan");
+            Object groundedPlan = phaseEvent.data.get("groundedPlan");
+            Object executionResult = phaseEvent.data.get("executionResult");
+            Object error = phaseEvent.data.get("error");
+            Object promptSchema = phaseEvent.data.get("promptSchema");
+            
+            // Show Prompt Schema if available
+            if (promptSchema != null && !promptSchema.toString().trim().isEmpty()) {
+              sb.append("┌─ PROMPT SCHEMA (PS) ──────────────────────────────────────────────────────────\n");
+              sb.append("│\n");
+              String psStr = promptSchema.toString();
+              try {
+                // Try to pretty-print as JSON
+                Object parsed = JacksonUtility.getJsonMapper().readValue(psStr, Object.class);
+                psStr = JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
+              } catch (Exception e) {
+                // Not JSON, use as-is
+              }
+              String[] lines = psStr.split("\n");
+              for (String line : lines) {
+                if (line.isEmpty()) {
+                  sb.append("│\n");
+                } else {
+                  int maxWidth = 76;
+                  if (line.length() <= maxWidth) {
+                    sb.append("│ ").append(line).append("\n");
+                  } else {
+                    int start = 0;
+                    while (start < line.length()) {
+                      int end = Math.min(start + maxWidth, line.length());
+                      String chunk = line.substring(start, end);
+                      sb.append("│ ").append(chunk).append("\n");
+                      start = end;
+                    }
+                  }
+                }
+              }
+              sb.append("│\n");
+              sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+              sb.append("\n");
+            }
+            
+            // Show execution plan subsection
+            sb.append("┌─ EXECUTION PLAN ─────────────────────────────────────────────────────────────\n");
+            sb.append("│\n");
+            
+            // Show original plan (with @value references)
+            if (plan != null && !plan.toString().trim().isEmpty()) {
+              sb.append("│ Original Plan (with @value references):\n");
+              sb.append("│\n");
+              String planStr = plan.toString();
+              try {
+                // Try to pretty-print as JSON
+                Object parsed = JacksonUtility.getJsonMapper().readValue(planStr, Object.class);
+                planStr = JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
+              } catch (Exception e) {
+                // Not JSON, use as-is
+              }
+              String[] lines = planStr.split("\n");
+              for (String line : lines) {
+                if (line.isEmpty()) {
+                  sb.append("│\n");
+                } else {
+                  int maxWidth = 76;
+                  if (line.length() <= maxWidth) {
+                    sb.append("│ ").append(line).append("\n");
+                  } else {
+                    int start = 0;
+                    while (start < line.length()) {
+                      int end = Math.min(start + maxWidth, line.length());
+                      String chunk = line.substring(start, end);
+                      sb.append("│ ").append(chunk).append("\n");
+                      start = end;
+                    }
+                  }
+                }
               }
             } else {
-              // No attempt number, use it anyway
-              errorMsg = foundError;
-              log.debug("Found error for phase {} (no attempt match): {}", basePhase, errorMsg.substring(0, Math.min(100, errorMsg.length())));
-              break;
+              // Plan is null or empty
+              sb.append("│ [No execution plan captured]\n");
             }
-          }
-        }
-        
-        // Strategy 2: If no exact match, try to find ANY error for this phase (ignore attempt number)
-        if (errorMsg == null) {
-          for (int j = i + 1; j < events.size() && j <= i + 50; j++) {
-            ExecutionEvent nextEvent = events.get(j);
-            String foundError = extractError.apply(nextEvent);
-            if (foundError != null) {
-              errorMsg = foundError;
-              log.debug("Found error for phase {} (ignoring attempt number): {}", basePhase, errorMsg.substring(0, Math.min(100, errorMsg.length())));
-              break;
-            }
-          }
-        }
-        
-        // Strategy 3: Check pendingRetryReasons map (most reliable fallback)
-        if (errorMsg == null) {
-          String pendingKey = executionId + ":" + basePhase;
-          String pendingError = pendingRetryReasons.get(pendingKey);
-          if (pendingError != null && !pendingError.trim().isEmpty()) {
-            errorMsg = pendingError;
-            log.debug("Found retry reason from pendingRetryReasons for key {}: {}", pendingKey, errorMsg.substring(0, Math.min(100, errorMsg.length())));
-          }
-        }
-        
-        // Strategy 4: Final fallback - look for ANY error in the entire event list for this phase
-        // This ensures we never miss an error, even if phase matching fails
-        if (errorMsg == null) {
-          for (ExecutionEvent errorEvent : events) {
-            String foundError = extractError.apply(errorEvent);
-            if (foundError != null) {
-              errorMsg = foundError;
-              log.debug("Found error via final fallback for phase {}: {}", basePhase, errorMsg.substring(0, Math.min(100, errorMsg.length())));
-              break;
-            }
-          }
-        }
-        
-        // If we found an error, display it right after OUTPUT
-        if (errorMsg != null) {
-          sb.append("┌─ ERROR ────────────────────────────────────────────────────────────────────────\n");
-          String[] errorLines = errorMsg.split("\n");
-          for (String errorLine : errorLines) {
-            if (errorLine.length() <= 76) {
-              sb.append("│ ").append(errorLine).append("\n");
+            sb.append("│\n");
+            
+            // Show grounded plan (with actual values) if available
+            if (groundedPlan != null && !groundedPlan.toString().trim().isEmpty()) {
+              sb.append("│ Grounded Plan (with actual values):\n");
+              sb.append("│\n");
+              String groundedPlanStr = groundedPlan.toString();
+              try {
+                // Try to pretty-print as JSON
+                Object parsed = JacksonUtility.getJsonMapper().readValue(groundedPlanStr, Object.class);
+                groundedPlanStr = JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
+              } catch (Exception e) {
+                // Not JSON, use as-is
+              }
+              String[] lines = groundedPlanStr.split("\n");
+              for (String line : lines) {
+                if (line.isEmpty()) {
+                  sb.append("│\n");
+                } else {
+                  int maxWidth = 76;
+                  if (line.length() <= maxWidth) {
+                    sb.append("│ ").append(line).append("\n");
+                  } else {
+                    int start = 0;
+                    while (start < line.length()) {
+                      int end = Math.min(start + maxWidth, line.length());
+                      String chunk = line.substring(start, end);
+                      sb.append("│ ").append(chunk).append("\n");
+                      start = end;
+                    }
+                  }
+                }
+              }
             } else {
-              int start = 0;
-              while (start < errorLine.length()) {
-                int end = Math.min(start + 76, errorLine.length());
-                sb.append("│ ").append(errorLine.substring(start, end)).append("\n");
-                start = end;
+              // No grounded plan - show note
+              sb.append("│ [Grounded plan not available]\n");
+            }
+            sb.append("│\n");
+            sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+            sb.append("\n");
+            
+            if (executionResult != null && !executionResult.toString().trim().isEmpty()) {
+              sb.append("┌─ EXECUTION RESULT ───────────────────────────────────────────────────────────\n");
+              String resultStr = executionResult.toString();
+              try {
+                Object parsed = JacksonUtility.getJsonMapper().readValue(resultStr, Object.class);
+                resultStr = JacksonUtility.getJsonMapper()
+                    .writerWithDefaultPrettyPrinter()
+                    .writeValueAsString(parsed);
+              } catch (Exception e) {
+                // Not JSON, use as-is
+              }
+              String[] lines = resultStr.split("\n");
+              for (String line : lines) {
+                if (line.isEmpty()) {
+                  sb.append("│\n");
+                } else {
+                  int maxWidth = 76;
+                  if (line.length() <= maxWidth) {
+                    sb.append("│ ").append(line).append("\n");
+                  } else {
+                    int start = 0;
+                    while (start < line.length()) {
+                      int end = Math.min(start + maxWidth, line.length());
+                      String chunk = line.substring(start, end);
+                      sb.append("│ ").append(chunk).append("\n");
+                      start = end;
+                    }
+                  }
+                }
+              }
+              sb.append("\n");
+            }
+            
+            if (error != null && !error.toString().trim().isEmpty()) {
+              sb.append("┌─ EXECUTION ERROR ─────────────────────────────────────────────────────────────\n");
+              String errorMsg = error.toString();
+            String[] errorLines = errorMsg.split("\n");
+            for (String errorLine : errorLines) {
+              if (errorLine.length() <= 76) {
+                sb.append("│ ").append(errorLine).append("\n");
+              } else {
+                int start = 0;
+                while (start < errorLine.length()) {
+                  int end = Math.min(start + 76, errorLine.length());
+                  sb.append("│ ").append(errorLine.substring(start, end)).append("\n");
+                  start = end;
               }
             }
           }
           sb.append("\n");
-        } else {
-          // Debug: Log if we expected to find an error but didn't
-          long totalErrorEvents = events.stream()
-              .filter(e -> {
-                // Count events with error fields or error event types
-                if (e.data != null && e.data.containsKey("error")) {
-                  Object err = e.data.get("error");
-                  return err != null && !err.toString().trim().isEmpty();
+            }
+          }
+          // Add more event types as needed - for now, we show everything
+        }
+        
+        // Skip to the end of this phase
+        i = endIndex;
+      }
+    }
+    
+    // Legacy: Also handle events that aren't within phase boundaries (for backward compatibility)
+    // This handles any events that might have been logged before phase boundaries were implemented
+    boolean hasUnboundedEvents = false;
+    for (ExecutionEvent event : events) {
+      if ("llm_inference_complete".equals(event.type)) {
+        // Check if this event is already within a phase we processed
+        boolean inPhase = false;
+        for (int i = 0; i < events.size(); i++) {
+          ExecutionEvent e = events.get(i);
+          if ("phase_begin".equals(e.type)) {
+            // Check if this llm_inference_complete is between this phase_begin and its phase_end
+            for (int j = i + 1; j < events.size(); j++) {
+              ExecutionEvent nextEvent = events.get(j);
+              if (nextEvent == event) {
+                inPhase = true;
+                break;
+              }
+              if ("phase_end".equals(nextEvent.type)) {
+                Object endPhaseObj = nextEvent.data.get("phase");
+                Object beginPhaseObj = e.data.get("phase");
+                if (endPhaseObj != null && beginPhaseObj != null && 
+                    endPhaseObj.equals(beginPhaseObj)) {
+                  break; // End of phase, event not in this phase
                 }
-                return "api_call_error".equals(e.type) || "validation_error".equals(e.type);
-              })
-              .count();
-          log.debug("No error found for phase {} (attempt {}) after OUTPUT section. " +
-              "Total error events in execution: {}",
-              basePhase, phaseCount, totalErrorEvents);
+              }
+            }
+            if (inPhase) break;
+          }
+        }
+        if (!inPhase) {
+          hasUnboundedEvents = true;
+          break;
         }
       }
     }
+    
+    // If we have unbounded events, show them with a warning
+    if (hasUnboundedEvents) {
+      sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+      sb.append("│ NOTE: Some events were logged outside of phase boundaries                      │\n");
+      sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+      sb.append("\n");
+    }
+    
+    // OLD CODE REMOVED - replaced with phase-boundary approach above
+    // The old code iterated through llm_inference_complete events and searched for related events
+    // This was complex and error-prone. The new approach uses phase boundaries to naturally group events.
+    // Removed old code - no longer needed
+    
     sb.append("\n");
 
     // Execution Plans (may have multiple due to retries)
     List<ExecutionEvent> planEvents = events.stream()
         .filter(e -> "execution_plan".equals(e.type))
+        .collect(java.util.stream.Collectors.toList());
+    
+    // Check for validation errors first - they should be shown prominently
+    List<ExecutionEvent> validationErrors = events.stream()
+        .filter(e -> "validation_error".equals(e.type))
         .collect(java.util.stream.Collectors.toList());
     
     // If no plan events but we have errors, show error in EXECUTION RESULT section
@@ -1032,6 +1268,56 @@ public class InferenceLogger {
             errorFromAnyEvent = err;
             break;
           }
+        }
+      }
+      
+      // If we have validation errors, show them with detailed explanation
+      if (!validationErrors.isEmpty()) {
+        sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        sb.append("│ EXECUTION PLAN                                                               │\n");
+        sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+        sb.append("\n");
+        sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
+        sb.append("│ [No execution plan captured - validation failed]\n");
+        sb.append("\n");
+        
+        // Show validation error details
+        ExecutionEvent latestValidationError = validationErrors.get(validationErrors.size() - 1);
+        String validationErrorMsg = latestValidationError.data != null && 
+            latestValidationError.data.containsKey("error") ?
+            latestValidationError.data.get("error").toString() : "";
+        
+        if (validationErrorMsg.contains("Legacy execution plan schema") || 
+            validationErrorMsg.contains("'nodes' is no longer supported")) {
+          sb.append("┌─ VALIDATION ERROR ────────────────────────────────────────────────────────\n");
+          sb.append("│\n");
+          sb.append("│ PROBLEM: The generated plan uses the old schema format.\n");
+          sb.append("│\n");
+          sb.append("│ ❌ WHAT'S WRONG:\n");
+          sb.append("│    The plan has a 'nodes' array with an 'entryPoint' field.\n");
+          sb.append("│    This format is no longer supported.\n");
+          sb.append("│\n");
+          sb.append("│ ✅ EXPECTED FORMAT:\n");
+          sb.append("│    The plan must use 'start_node' object with top-level node entries.\n");
+          sb.append("│\n");
+          sb.append("│ Example of CORRECT format:\n");
+          sb.append("│ {\n");
+          sb.append("│   \"start_node\": { \"route\": \"api_call\" },\n");
+          sb.append("│   \"api_call\": {\n");
+          sb.append("│     \"operation\": \"http_call\",\n");
+          sb.append("│     \"route\": \"out\"\n");
+          sb.append("│   },\n");
+          sb.append("│   \"out\": { \"completed\": true, \"vars\": {...} }\n");
+          sb.append("│ }\n");
+          sb.append("│\n");
+          sb.append("│ Example of INCORRECT format (what was generated):\n");
+          sb.append("│ {\n");
+          sb.append("│   \"nodes\": [...],\n");
+          sb.append("│   \"entryPoint\": \"...\"\n");
+          sb.append("│ }\n");
+          sb.append("│\n");
+          sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+          sb.append("\n");
         }
       }
       
@@ -1072,19 +1358,85 @@ public class InferenceLogger {
             events.stream().map(e -> e.type).collect(java.util.stream.Collectors.toList()));
       }
       
-      // Always show EXECUTION PLAN section, then EXECUTION RESULT if we have an error
-      sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
-      sb.append("│ EXECUTION PLAN                                                               │\n");
-      sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
-      sb.append("\n");
-      sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
-      sb.append("│ [No execution plan captured]\n");
-      sb.append("\n");
+      // Note: Execution plan is now shown in the execute phase section, not here
+      // This section is only for validation errors that prevent plan generation
+      if (!validationErrors.isEmpty()) {
+        sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        sb.append("│ VALIDATION ERRORS                                                           │\n");
+        sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+        sb.append("\n");
+        
+        // Show validation error details
+        ExecutionEvent latestValidationError = validationErrors.get(validationErrors.size() - 1);
+        String validationErrorMsg = latestValidationError.data != null && 
+            latestValidationError.data.containsKey("error") ?
+            latestValidationError.data.get("error").toString() : "";
+        
+        if (validationErrorMsg.contains("Legacy execution plan schema") || 
+            validationErrorMsg.contains("'nodes' is no longer supported")) {
+          sb.append("┌─ VALIDATION ERROR ────────────────────────────────────────────────────────\n");
+          sb.append("│\n");
+          sb.append("│ PROBLEM: The generated plan uses the old schema format.\n");
+          sb.append("│\n");
+          sb.append("│ ❌ WHAT'S WRONG:\n");
+          sb.append("│    The plan has a 'nodes' array with an 'entryPoint' field.\n");
+          sb.append("│    This format is no longer supported.\n");
+          sb.append("│\n");
+          sb.append("│ ✅ EXPECTED FORMAT:\n");
+          sb.append("│    The plan must use 'start_node' object with top-level node entries.\n");
+          sb.append("│\n");
+          sb.append("│ Example of CORRECT format:\n");
+          sb.append("│ {\n");
+          sb.append("│   \"start_node\": { \"route\": \"api_call\" },\n");
+          sb.append("│   \"api_call\": {\n");
+          sb.append("│     \"operation\": \"http_call\",\n");
+          sb.append("│     \"route\": \"out\"\n");
+          sb.append("│   },\n");
+          sb.append("│   \"out\": { \"completed\": true, \"vars\": {...} }\n");
+          sb.append("│ }\n");
+          sb.append("│\n");
+          sb.append("│ Example of INCORRECT format (what was generated):\n");
+          sb.append("│ {\n");
+          sb.append("│   \"nodes\": [...],\n");
+          sb.append("│   \"entryPoint\": \"...\"\n");
+          sb.append("│ }\n");
+          sb.append("│\n");
+          sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+          sb.append("\n");
+        } else if (!validationErrorMsg.isEmpty()) {
+          sb.append("┌─ VALIDATION ERROR ────────────────────────────────────────────────────────\n");
+          sb.append("│\n");
+          String[] errorLines = validationErrorMsg.split("\n");
+          for (String line : errorLines) {
+            if (line.isEmpty()) {
+              sb.append("│\n");
+            } else {
+              int maxWidth = 76;
+              if (line.length() <= maxWidth) {
+                sb.append("│ ").append(line).append("\n");
+              } else {
+                int start = 0;
+                while (start < line.length()) {
+                  int end = Math.min(start + maxWidth, line.length());
+                  sb.append("│ ").append(line.substring(start, end)).append("\n");
+                  start = end;
+                }
+              }
+            }
+          }
+          sb.append("│\n");
+          sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+          sb.append("\n");
+        }
+      }
       
       if (errorFromAnyEvent != null) {
         // Show EXECUTION RESULT section with the error
-        sb.append("┌─ EXECUTION RESULT ─────────────────────────────────────────────────────────\n");
-        sb.append("│ [ERROR]\n");
+        sb.append("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        sb.append("│ EXECUTION RESULT                                                           │\n");
+        sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+        sb.append("\n");
+        sb.append("┌─ ERROR ─────────────────────────────────────────────────────────────────────\n");
         String errorStr = errorFromAnyEvent.toString();
         String[] errorLines = errorStr.split("\n");
         for (String line : errorLines) {
@@ -1119,7 +1471,7 @@ public class InferenceLogger {
         Object executionResult = event.data.get("executionResult");
         Object error = event.data.get("error");
         
-        // Always show plan section, even if empty (so errors are visible)
+        // Always show plan section - display everything by default
         if (plan != null && !plan.toString().trim().isEmpty()) {
           String planStr = plan.toString();
           // Try to extract and pretty-print plan data from JSON
@@ -1130,27 +1482,7 @@ public class InferenceLogger {
               @SuppressWarnings("unchecked")
               Map<String, Object> planMap = (Map<String, Object>) parsed;
               
-              // Show PS (Prompt Schema) information first
-              sb.append("┌─ PROMPT SCHEMA (PS) ──────────────────────────────────────────────────\n");
-              if (planMap.containsKey("table")) {
-                sb.append("│ Table: ").append(String.valueOf(planMap.get("table"))).append("\n");
-              }
-              if (planMap.containsKey("values")) {
-                Object valuesObj = planMap.get("values");
-                String valuesStr = JacksonUtility.getJsonMapper().writeValueAsString(valuesObj);
-                sb.append("│ Values: ").append(valuesStr).append("\n");
-              }
-              if (planMap.containsKey("columns")) {
-                Object columnsObj = planMap.get("columns");
-                String columnsStr = JacksonUtility.getJsonMapper().writeValueAsString(columnsObj);
-                sb.append("│ Columns: ").append(columnsStr).append("\n");
-              }
-              if (planMap.containsKey("cache_key")) {
-                sb.append("│ Cache Key: ").append(String.valueOf(planMap.get("cache_key"))).append("\n");
-              }
-              sb.append("\n");
-              
-              // Show TypeScript code
+              // Show TypeScript code if present (old format)
               Object typescriptObj = planMap.get("typescript");
               if (typescriptObj != null) {
                 sb.append("┌─ TYPESCRIPT PLAN ───────────────────────────────────────────────────\n");
@@ -1179,7 +1511,6 @@ public class InferenceLogger {
                 sb.append("\n");
               } else {
                 // No TypeScript, show full JSON
-                sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
                 planStr = JacksonUtility.getJsonMapper()
                     .writerWithDefaultPrettyPrinter()
                     .writeValueAsString(parsed);
@@ -1209,7 +1540,6 @@ public class InferenceLogger {
               planStr = JacksonUtility.getJsonMapper()
                   .writerWithDefaultPrettyPrinter()
                   .writeValueAsString(parsed);
-              sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
               String[] lines = planStr.split("\n");
               for (String line : lines) {
                 if (line.isEmpty()) {
@@ -1233,7 +1563,6 @@ public class InferenceLogger {
             }
           } catch (Exception e) {
             // Not JSON, use as-is
-            sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
             String[] lines = planStr.split("\n");
             for (String line : lines) {
               if (line.isEmpty()) {
@@ -1257,11 +1586,79 @@ public class InferenceLogger {
           }
         } else {
           // Show plan section even if empty, so execution result/error is visible
-          sb.append("┌─ PLAN ─────────────────────────────────────────────────────────────────────\n");
           sb.append("│ [No execution plan captured]\n");
           sb.append("\n");
         }
 
+        // Check for validation errors first - show them with detailed explanations
+        // (validationErrors is already defined at method level, reuse it)
+        
+        // If we have a validation error, show detailed explanation
+        if (!validationErrors.isEmpty() && plan != null && !plan.toString().trim().isEmpty()) {
+          sb.append("┌─ VALIDATION ERROR ────────────────────────────────────────────────────────\n");
+          sb.append("│\n");
+          
+          // Get the most recent validation error
+          ExecutionEvent latestValidationError = validationErrors.get(validationErrors.size() - 1);
+          String validationErrorMsg = latestValidationError.data != null && 
+              latestValidationError.data.containsKey("error") ?
+              latestValidationError.data.get("error").toString() : "";
+          
+          // Check if it's the legacy schema error
+          if (validationErrorMsg.contains("Legacy execution plan schema") || 
+              validationErrorMsg.contains("'nodes' is no longer supported")) {
+            sb.append("│ PROBLEM: The generated plan uses the old schema format.\n");
+            sb.append("│\n");
+            sb.append("│ ❌ WHAT'S WRONG:\n");
+            sb.append("│    The plan has a 'nodes' array with an 'entryPoint' field.\n");
+            sb.append("│    This format is no longer supported.\n");
+            sb.append("│\n");
+            sb.append("│ ✅ EXPECTED FORMAT:\n");
+            sb.append("│    The plan must use 'start_node' object with top-level node entries.\n");
+            sb.append("│\n");
+            sb.append("│ Example of CORRECT format:\n");
+            sb.append("│ {\n");
+            sb.append("│   \"start_node\": { \"route\": \"api_call\" },\n");
+            sb.append("│   \"api_call\": {\n");
+            sb.append("│     \"operation\": \"http_call\",\n");
+            sb.append("│     \"route\": \"out\"\n");
+            sb.append("│   },\n");
+            sb.append("│   \"out\": { \"completed\": true, \"vars\": {...} }\n");
+            sb.append("│ }\n");
+            sb.append("│\n");
+            sb.append("│ Example of INCORRECT format (what was generated):\n");
+            sb.append("│ {\n");
+            sb.append("│   \"nodes\": [...],\n");
+            sb.append("│   \"entryPoint\": \"...\"\n");
+            sb.append("│ }\n");
+            sb.append("│\n");
+          } else {
+            // Generic validation error - show the error message
+            sb.append("│ VALIDATION FAILED:\n");
+            String[] errorLines = validationErrorMsg.split("\n");
+            for (String line : errorLines) {
+              if (line.isEmpty()) {
+                sb.append("│\n");
+              } else {
+                int maxWidth = 76;
+                if (line.length() <= maxWidth) {
+                  sb.append("│ ").append(line).append("\n");
+                } else {
+                  int start = 0;
+                  while (start < line.length()) {
+                    int end = Math.min(start + maxWidth, line.length());
+                    sb.append("│ ").append(line.substring(start, end)).append("\n");
+                    start = end;
+                  }
+                }
+              }
+            }
+            sb.append("│\n");
+          }
+          sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
+          sb.append("\n");
+        }
+        
         // Execution Result - show error or result for this attempt
         // Each attempt gets its own result section
         boolean hasError = error != null && !error.toString().trim().isEmpty();
@@ -1273,6 +1670,15 @@ public class InferenceLogger {
           if (hasError) {
             sb.append("│ [ERROR]\n");
             String errorStr = error.toString();
+            
+            // If this is a validation error, enhance the message
+            if (errorStr.contains("Legacy execution plan schema") || 
+                errorStr.contains("'nodes' is no longer supported")) {
+              sb.append("│\n");
+              sb.append("│ This error occurred because the plan validation failed.\n");
+              sb.append("│ See the VALIDATION ERROR section above for details.\n");
+              sb.append("│\n");
+            }
             
             // Strategy: Extract the most useful error message
             // 1. First try to extract from API call events (most reliable - direct from response body)
@@ -1646,7 +2052,7 @@ public class InferenceLogger {
     sb.append("└──────────────────────────────────────────────────────────────────────────────┘\n");
     sb.append("\n");
     
-    String serverLog = captureServerLog(startTimeMs, durationMs);
+    String serverLog = captureServerLog(executionId);
     if (serverLog != null && !serverLog.trim().isEmpty()) {
       String[] lines = serverLog.split("\n");
       for (String line : lines) {
@@ -1669,7 +2075,36 @@ public class InferenceLogger {
       }
       sb.append("\n");
     } else {
+      // Show diagnostic information when log capture fails
       sb.append("│ [No server log entries captured during execution]\n");
+      
+      // Add diagnostic info to help debug
+      try {
+        java.io.File logFile = getLogFile();
+        if (logFile == null) {
+          sb.append("│\n");
+          sb.append("│ Diagnostic: Could not determine log file location\n");
+        } else if (!logFile.exists()) {
+          sb.append("│\n");
+          sb.append("│ Diagnostic: Log file does not exist: ").append(logFile.getAbsolutePath()).append("\n");
+        } else if (!logFile.canRead()) {
+          sb.append("│\n");
+          sb.append("│ Diagnostic: Log file is not readable: ").append(logFile.getAbsolutePath()).append("\n");
+        } else {
+          Long startSize = executionLogFileSizes.get(executionId);
+          long currentSize = logFile.length();
+          sb.append("│\n");
+          sb.append("│ Diagnostic: Log file found: ").append(logFile.getAbsolutePath()).append("\n");
+          sb.append("│   Start size: ").append(startSize != null ? String.valueOf(startSize) : "not recorded").append(" bytes\n");
+          sb.append("│   Current size: ").append(currentSize).append(" bytes\n");
+          if (startSize != null && currentSize <= startSize) {
+            sb.append("│   Reason: No new log entries (current size <= start size)\n");
+          }
+        }
+      } catch (Exception e) {
+        sb.append("│\n");
+        sb.append("│ Diagnostic: Error checking log file: ").append(e.getMessage()).append("\n");
+      }
       sb.append("\n");
     }
 
@@ -1740,7 +2175,13 @@ public class InferenceLogger {
   public void logLlmInputMessages(List<LlmClient.Message> messages) {
     String executionId = currentExecutionId.get();
     if (executionId == null) {
-      log.warn("Cannot log LLM input messages: execution ID is null");
+      // Only warn if report mode is enabled (meaning we're trying to log but can't)
+      // Otherwise, this is expected (e.g., LLM calls outside execution context)
+      if (reportModeEnabled) {
+        log.warn("Cannot log LLM input messages: execution ID is null (report mode enabled)");
+      } else {
+        log.debug("Skipping LLM input messages logging: no execution ID (report mode disabled)");
+      }
       return;
     }
 
@@ -1927,15 +2368,19 @@ public class InferenceLogger {
   }
 
   public void logExecutionPlan(String planJson) {
-    logExecutionPlan(planJson, null, null, null);
+    logExecutionPlan(planJson, null, null, null, null);
   }
 
   public void logExecutionPlan(String planJson, Boolean planCacheHit) {
-    logExecutionPlan(planJson, null, null, planCacheHit);
+    logExecutionPlan(planJson, null, null, planCacheHit, null);
+  }
+
+  public void logExecutionPlan(String planJson, Boolean planCacheHit, String promptSchemaJson) {
+    logExecutionPlan(planJson, null, null, planCacheHit, promptSchemaJson);
   }
 
   public void logExecutionPlan(String planJson, String executionResult, String error) {
-    logExecutionPlan(planJson, executionResult, error, null);
+    logExecutionPlan(planJson, executionResult, error, null, null);
   }
 
   /**
@@ -1993,6 +2438,7 @@ public class InferenceLogger {
         if (planCacheHit != null) {
           data.put("planCacheHit", planCacheHit);
         }
+        // Note: promptSchema is handled by the overloaded method
         events.add(
             new ExecutionEvent("execution_plan", executionId, Instant.now().toString(), data));
         log.debug("Execution plan logged as new event (length: {}, executionId: {}, hasResult: {}, hasError: {}, planCacheHit: {})", 
@@ -2006,6 +2452,10 @@ public class InferenceLogger {
   }
 
   public void logExecutionPlan(String planJson, String executionResult, String error, Boolean planCacheHit) {
+    logExecutionPlan(planJson, executionResult, error, planCacheHit, null);
+  }
+
+  public void logExecutionPlan(String planJson, String executionResult, String error, Boolean planCacheHit, String promptSchemaJson) {
     String executionId = currentExecutionId.get();
     if (executionId == null) {
       log.warn("Cannot log execution plan: executionId is null");
@@ -2033,6 +2483,9 @@ public class InferenceLogger {
               if (planCacheHit != null) {
                 event.data.put("planCacheHit", planCacheHit);
               }
+              if (promptSchemaJson != null) {
+                event.data.put("promptSchema", promptSchemaJson);
+              }
               log.debug("Updated execution plan with result (executionId: {}, hasResult: {}, hasError: {}, planCacheHit: {})", 
                   executionId, executionResult != null, error != null, planCacheHit);
               return;
@@ -2054,6 +2507,9 @@ public class InferenceLogger {
                 event.data.put("error", error);
               }
               event.data.put("planCacheHit", planCacheHit);
+              if (promptSchemaJson != null) {
+                event.data.put("promptSchema", promptSchemaJson);
+              }
               log.debug("Updated execution plan with cache status (executionId: {}, planCacheHit: {})", 
                   executionId, planCacheHit);
               return;
@@ -2077,6 +2533,9 @@ public class InferenceLogger {
         } else {
           log.debug("planCacheHit is null - not setting cache status in execution plan event");
         }
+        if (promptSchemaJson != null) {
+          data.put("promptSchema", promptSchemaJson);
+        }
         events.add(
             new ExecutionEvent("execution_plan", executionId, Instant.now().toString(), data));
         log.debug("Execution plan logged (length: {}, executionId: {}, hasResult: {}, hasError: {}, planCacheHit: {})", 
@@ -2090,22 +2549,87 @@ public class InferenceLogger {
   }
 
   public void logPhaseChange(String phase) {
+    logPhaseBegin(phase);
+  }
+
+  /**
+   * Log the beginning of a phase. All subsequent events belong to this phase until phase_end.
+   * 
+   * @param phase The phase name (e.g., "normalize", "plan-dag")
+   * @param attempt Optional attempt number (for retries)
+   */
+  public void logPhaseBegin(String phase, Integer attempt) {
     String executionId = currentExecutionId.get();
     if (executionId == null) return;
+
+    // Set thread-local phase and attempt for automatic exception logging
+    currentPhase.set(phase != null ? phase : "unknown");
+    currentAttempt.set(attempt);
 
     if (reportModeEnabled) {
       List<ExecutionEvent> events = executionEvents.get(executionId);
       if (events != null) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("phase", phase != null ? phase : "unknown");
+        if (attempt != null) {
+          data.put("attempt", attempt);
+        }
         events.add(
             new ExecutionEvent(
-                "phase_change",
+                "phase_begin",
                 executionId,
                 Instant.now().toString(),
-                Map.of("phase", phase != null ? phase : "unknown")));
+                data));
+        log.debug("Phase begin: {} (attempt: {})", phase, attempt);
       }
     }
+  }
 
-    log.debug("Phase change: {}", phase);
+  /**
+   * Log the beginning of a phase (without attempt number).
+   */
+  public void logPhaseBegin(String phase) {
+    logPhaseBegin(phase, null);
+  }
+
+  /**
+   * Log the end of a phase. This marks the boundary for grouping events.
+   * 
+   * @param phase The phase name (e.g., "normalize", "plan-dag")
+   * @param attempt Optional attempt number (for retries)
+   */
+  public void logPhaseEnd(String phase, Integer attempt) {
+    String executionId = currentExecutionId.get();
+    if (executionId == null) return;
+
+    // Clear thread-local phase and attempt when phase ends
+    currentPhase.remove();
+    currentAttempt.remove();
+
+    if (reportModeEnabled) {
+      List<ExecutionEvent> events = executionEvents.get(executionId);
+      if (events != null) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("phase", phase != null ? phase : "unknown");
+        if (attempt != null) {
+          data.put("attempt", attempt);
+        }
+        events.add(
+            new ExecutionEvent(
+                "phase_end",
+                executionId,
+                Instant.now().toString(),
+                data));
+        log.debug("Phase end: {} (attempt: {})", phase, attempt);
+      }
+    }
+  }
+
+  /**
+   * Log the end of a phase (without attempt number).
+   */
+  public void logPhaseEnd(String phase) {
+    logPhaseEnd(phase, null);
   }
 
   /**
@@ -2261,6 +2785,86 @@ public class InferenceLogger {
     }
 
     log.debug("Validation error logged for phase {} (attempt {}): {}", phase, attempt, errorMessage);
+  }
+
+  /**
+   * Automatically log an exception with the current phase and attempt from thread-local context.
+   * This simplifies exception handling - just call this method in catch blocks.
+   * 
+   * @param e The exception to log
+   */
+  public void logException(Exception e) {
+    String phase = currentPhase.get();
+    Integer attempt = currentAttempt.get();
+    
+    if (phase == null) {
+      phase = "unknown";
+    }
+    if (attempt == null) {
+      attempt = 1; // Default to attempt 1 if not set
+    }
+    
+    // Format error with stack trace
+    String errorMessage = formatExceptionWithStackTrace(e);
+    
+    // Log as validation error
+    logValidationError(phase, attempt, errorMessage);
+  }
+
+  /**
+   * Format an exception with its full stack trace for inclusion in reports.
+   */
+  private String formatExceptionWithStackTrace(Exception e) {
+    if (e == null) {
+      return "Unknown error";
+    }
+    
+    StringBuilder sb = new StringBuilder();
+    
+    // Build error message chain
+    Throwable current = e;
+    int depth = 0;
+    int maxDepth = 10;
+    
+    while (current != null && depth < maxDepth) {
+      String message = current.getMessage();
+      if (message == null || message.isEmpty()) {
+        message = current.getClass().getSimpleName();
+      }
+      
+      if (depth == 0) {
+        sb.append(current.getClass().getSimpleName());
+        if (!message.equals(current.getClass().getSimpleName())) {
+          sb.append(": ").append(message);
+        }
+      } else {
+        sb.append(" -> ").append(current.getClass().getSimpleName());
+        if (!message.equals(current.getClass().getSimpleName())) {
+          sb.append(": ").append(message);
+        }
+      }
+      
+      current = current.getCause();
+      depth++;
+      
+      if (current != null && current == e) {
+        break;
+      }
+    }
+    
+    String errorChain = sb.toString();
+    if (errorChain.isEmpty()) {
+      errorChain = e.getClass().getSimpleName();
+    }
+    
+    // Add stack trace
+    sb.append("\n\nStack trace:\n");
+    java.io.StringWriter sw = new java.io.StringWriter();
+    java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+    e.printStackTrace(pw);
+    sb.append(sw.toString());
+    
+    return sb.toString();
   }
 
   public void logNormalizedPromptSchema(String normalizedSchemaJson, long durationMs) {
@@ -2563,62 +3167,270 @@ public class InferenceLogger {
   }
 
   /**
-   * Capture server log entries that occurred during the execution timeframe.
+   * Get the current log file size in bytes.
+   * 
+   * @return log file size in bytes, or 0 if file doesn't exist or can't be read
+   */
+  private long getLogFileSize() {
+    try {
+      java.io.File logFile = getLogFile();
+      if (logFile != null && logFile.exists() && logFile.canRead()) {
+        return logFile.length();
+      }
+    } catch (Exception e) {
+      log.debug("Failed to get log file size: {}", e.getMessage());
+    }
+    return 0;
+  }
+
+  /**
+   * Get the log file location.
+   * 
+   * <p>First tries to get the actual log file path from Logback appenders.
+   * Falls back to guessing based on environment variables.
+   * 
+   * @return log file, or null if unable to determine location
+   */
+  private java.io.File getLogFile() {
+    // Determine log directory - try multiple sources
+    java.io.File logDir = null;
+    java.io.File logbackFile = null;
+    
+    // First, try to get log directory from Logback appenders (but don't return early)
+    try {
+      ch.qos.logback.classic.LoggerContext context = 
+          (ch.qos.logback.classic.LoggerContext) org.slf4j.LoggerFactory.getILoggerFactory();
+      ch.qos.logback.classic.Logger rootLogger = context.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME);
+      
+      // Look for RollingFileAppender or FileAppender
+      for (java.util.Iterator<ch.qos.logback.core.Appender<ch.qos.logback.classic.spi.ILoggingEvent>> it = 
+          rootLogger.iteratorForAppenders(); it.hasNext(); ) {
+        ch.qos.logback.core.Appender<ch.qos.logback.classic.spi.ILoggingEvent> appender = it.next();
+        
+        if (appender instanceof ch.qos.logback.core.rolling.RollingFileAppender) {
+          ch.qos.logback.core.rolling.RollingFileAppender<?> fileAppender = 
+              (ch.qos.logback.core.rolling.RollingFileAppender<?>) appender;
+          String filePath = fileAppender.getFile();
+          if (filePath != null && !filePath.isEmpty()) {
+            logbackFile = new java.io.File(filePath);
+            if (logbackFile.exists()) {
+              log.debug("Found log file from Logback appender: {}", logbackFile.getAbsolutePath());
+              // Extract directory from the file path
+              logDir = logbackFile.getParentFile();
+            }
+          }
+        } else if (appender instanceof ch.qos.logback.core.FileAppender) {
+          ch.qos.logback.core.FileAppender<?> fileAppender = 
+              (ch.qos.logback.core.FileAppender<?>) appender;
+          String filePath = fileAppender.getFile();
+          if (filePath != null && !filePath.isEmpty()) {
+            logbackFile = new java.io.File(filePath);
+            if (logbackFile.exists()) {
+              log.debug("Found log file from Logback FileAppender: {}", logbackFile.getAbsolutePath());
+              // Extract directory from the file path
+              logDir = logbackFile.getParentFile();
+            }
+          }
+        }
+      }
+    } catch (Exception e) {
+      log.debug("Could not get log file from Logback appenders: {}", e.getMessage());
+    }
+    
+    // If we didn't get log directory from Logback, try environment variables
+    if (logDir == null || !logDir.exists()) {
+      // Check environment variable first, then system property (for testing)
+      String logDirEnv = System.getenv("ONEMCP_LOG_DIR");
+      if (logDirEnv == null || logDirEnv.isBlank()) {
+        logDirEnv = System.getProperty("ONEMCP_LOG_DIR");
+      }
+      
+      if (logDirEnv != null && !logDirEnv.isBlank()) {
+        logDir = new java.io.File(logDirEnv);
+      } else {
+        // Check environment variable first, then system property (for testing)
+        String homeDirEnv = System.getenv("ONEMCP_HOME_DIR");
+        if (homeDirEnv == null || homeDirEnv.isBlank()) {
+          homeDirEnv = System.getProperty("ONEMCP_HOME_DIR");
+        }
+        if (homeDirEnv != null && !homeDirEnv.isBlank()) {
+          logDir = new java.io.File(homeDirEnv, "logs");
+        } else {
+          String userHome = System.getProperty("user.home");
+          logDir = new java.io.File(
+              userHome != null ? userHome : System.getProperty("java.io.tmpdir"),
+              ".onemcp/logs");
+        }
+      }
+    }
+    
+    if (logDir != null && logDir.exists()) {
+      // In CLI mode, the CLI pipes stdout/stderr to app.log, which is the actual log file
+      // The Java server's Logback might write to onemcp.log, but app.log is what we want
+      // CRITICAL: In CLI mode, prefer app.log if it exists (even if it's smaller)
+      boolean isCliMode = (System.getenv("ONEMCP_HOME_DIR") != null || 
+                          System.getProperty("ONEMCP_HOME_DIR") != null);
+      
+      if (isCliMode) {
+        // CLI mode: prefer app.log (where CLI pipes stdout/stderr)
+        java.io.File appLogFile = new java.io.File(logDir, "app.log");
+        if (appLogFile.exists() && appLogFile.canRead()) {
+          log.info("Found log file (CLI mode): {} (size: {} bytes)", 
+              appLogFile.getAbsolutePath(), appLogFile.length());
+          return appLogFile;
+        }
+      }
+      
+      // Check all log files and pick the best one
+      String[] logFileNames = {"app.log", "onemcp.log", "server.log"};
+      
+      // Check which files exist and their sizes
+      java.io.File bestFile = null;
+      long bestSize = 0;
+      for (String fileName : logFileNames) {
+        java.io.File logFile = new java.io.File(logDir, fileName);
+        if (logFile.exists() && logFile.canRead()) {
+          long size = logFile.length();
+          // Prefer the largest file (most likely to be the active one)
+          if (size > bestSize) {
+            bestFile = logFile;
+            bestSize = size;
+          }
+        }
+      }
+      
+      if (bestFile != null) {
+        log.info("Found log file: {} (size: {} bytes)", bestFile.getAbsolutePath(), bestSize);
+        return bestFile;
+      }
+      
+      // If no existing file found, return the most likely one (app.log for CLI, onemcp.log otherwise)
+      // This allows us to show diagnostic info even if file doesn't exist yet
+      if (isCliMode) {
+        // CLI mode - likely app.log
+        return new java.io.File(logDir, "app.log");
+      } else {
+        // Server mode - likely onemcp.log
+        return new java.io.File(logDir, "onemcp.log");
+      }
+    }
+    
+    // Last resort: return the expected location even if it doesn't exist
+    // (so we can show an error message)
+    if (logDir != null) {
+      return new java.io.File(logDir, "onemcp.log");
+    }
+    
+    return null;
+      }
+
+  /**
+   * Capture server log entries that occurred during the execution.
+   * 
+   * <p>This method reads only the new log entries that were written after the execution started.
+   * It uses the log file size captured at execution start to determine where to start reading.
    *
-   * @param startTimeMs execution start time in milliseconds
-   * @param durationMs execution duration in milliseconds
+   * @param executionId the execution ID to look up the starting log file size
    * @return log entries as a string, or null if unable to capture
    */
-  private String captureServerLog(long startTimeMs, long durationMs) {
-    if (startTimeMs == 0) {
-      return null; // No start time provided, can't capture logs
+  private String captureServerLog(String executionId) {
+    if (executionId == null || executionId.isEmpty()) {
+      log.warn("captureServerLog: executionId is null or empty");
+      return null;
+    }
+
+    Long startLogFileSize = executionLogFileSizes.get(executionId);
+    if (startLogFileSize == null) {
+      log.warn("No log file size recorded for execution: {} (available executions: {})", 
+          executionId, executionLogFileSizes.keySet());
+      return null;
     }
 
     try {
-      // Determine log file location (same logic as OneMcp.configureFileOnlyLogging)
-      String logDirEnv = System.getenv("ONEMCP_LOG_DIR");
-      java.io.File logFile;
-      if (logDirEnv != null && !logDirEnv.isBlank()) {
-        logFile = new java.io.File(logDirEnv, "onemcp.log");
-      } else {
-        String homeDirEnv = System.getenv("ONEMCP_HOME_DIR");
-        if (homeDirEnv != null && !homeDirEnv.isBlank()) {
-          logFile = new java.io.File(homeDirEnv, "logs/onemcp.log");
-        } else {
-          String userHome = System.getProperty("user.home");
-          logFile = new java.io.File(
-              userHome != null ? userHome : System.getProperty("java.io.tmpdir"),
-              ".onemcp/logs/onemcp.log");
-        }
+      java.io.File logFile = getLogFile();
+      if (logFile == null) {
+        log.warn("captureServerLog: Could not determine log file location");
+        return null;
       }
-
-      if (!logFile.exists() || !logFile.canRead()) {
-        log.debug("Log file not found or not readable: {}", logFile);
+      
+      if (!logFile.exists()) {
+        log.warn("captureServerLog: Log file does not exist: {}", logFile.getAbsolutePath());
+        return null;
+      }
+      
+      if (!logFile.canRead()) {
+        log.warn("captureServerLog: Log file is not readable: {}", logFile.getAbsolutePath());
         return null;
       }
 
-      // Read log file and filter entries within execution timeframe
-      long endTimeMs = startTimeMs + durationMs;
-      List<String> relevantLines = new ArrayList<>();
+      long currentFileSize = logFile.length();
+      log.info("captureServerLog: start={} bytes, current={} bytes, file={}", 
+          startLogFileSize, currentFileSize, logFile.getAbsolutePath());
       
-      try (java.io.BufferedReader reader = java.nio.file.Files.newBufferedReader(logFile.toPath())) {
+      // Handle case where file was rotated (current size < start size)
+      // In this case, read from the beginning of the current file
+      if (currentFileSize < startLogFileSize) {
+        log.debug("Log file appears to have been rotated (current {} < start {}), reading entire current file", 
+            currentFileSize, startLogFileSize);
+        startLogFileSize = 0L; // Read from beginning
+      }
+      
+      if (currentFileSize <= startLogFileSize) {
+        // No new log entries
+        log.debug("No new log entries (start: {} bytes, current: {} bytes)", startLogFileSize, currentFileSize);
+        return null;
+      }
+
+      // Read only the new portion of the log file
+      List<String> relevantLines = new ArrayList<>();
+      try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(logFile, "r")) {
+        // Check if we're at the start of a line by looking at the previous byte
+        long readPosition = startLogFileSize;
+        if (startLogFileSize > 0) {
+          // Check the byte before our start position
+          raf.seek(startLogFileSize - 1);
+          int prevByte = raf.read();
+          if (prevByte == '\n' || prevByte == -1) {
+            // We're at the start of a line, read from here
+            readPosition = startLogFileSize;
+          } else {
+            // We're in the middle of a line, skip to the next line
+            raf.seek(startLogFileSize);
+            String skippedLine = raf.readLine(); // Skip the partial line
+            if (skippedLine == null) {
+              // No more lines
+              return null;
+            }
+            readPosition = raf.getFilePointer();
+          }
+        }
+        
+        // Seek to the correct position and read all remaining lines
+        raf.seek(readPosition);
+        
+        // Read all remaining lines
         String line;
-        while ((line = reader.readLine()) != null) {
-          // Try to extract timestamp from log line (format varies by logback config)
-          // Common formats: "2025-12-01 05:27:32.123" or ISO format
-          // For now, include all lines - timestamp parsing can be improved later
+        while ((line = raf.readLine()) != null) {
           relevantLines.add(line);
         }
       }
 
-      // If log file is too large, only return recent lines (last 1000 lines)
-      if (relevantLines.size() > 1000) {
-        relevantLines = relevantLines.subList(relevantLines.size() - 1000, relevantLines.size());
+      if (relevantLines.isEmpty()) {
+        return null;
       }
 
-      return String.join("\n", relevantLines);
+      // Limit to last 5000 lines if too many (to avoid huge reports)
+      if (relevantLines.size() > 5000) {
+        relevantLines = relevantLines.subList(relevantLines.size() - 5000, relevantLines.size());
+        log.debug("Truncated log capture to last 5000 lines (execution: {})", executionId);
+      }
+
+      String result = String.join("\n", relevantLines);
+      log.debug("captureServerLog: Captured {} lines ({} bytes) for execution {}", 
+          relevantLines.size(), result.length(), executionId);
+      return result;
     } catch (Exception e) {
-      log.debug("Failed to capture server log: {}", e.getMessage());
+      log.warn("Failed to capture server log for execution {}: {}", executionId, e.getMessage(), e);
       return null;
     }
   }
@@ -2785,14 +3597,14 @@ public class InferenceLogger {
     // Show phase messages (excluding lexicon-final which is shown later)
     for (ExecutionEvent event : events) {
       if ("lexifier_phase".equals(event.type)) {
-      String phase = (String) event.data.getOrDefault("phase", "unknown");
-      String message = (String) event.data.getOrDefault("message", "");
+        String phase = (String) event.data.getOrDefault("phase", "unknown");
+        String message = (String) event.data.getOrDefault("message", "");
         if (!"lexicon-final".equals(phase)) {
           sb.append(String.format("  %-25s  %s\n", phase, message));
-      }
         }
       }
-      sb.append("\n");
+    }
+    sb.append("\n");
 
     // Show each LLM call with tokens and latency
     List<ExecutionEvent> llmEvents = events.stream()
@@ -2828,10 +3640,8 @@ public class InferenceLogger {
         
         // Track phase counts for retry numbering
         int phaseCount = phaseCounts.getOrDefault(phaseStr, 0) + 1;
+        // Use phase as-is - the source should include #N if needed
         phaseCounts.put(phaseStr, phaseCount);
-        if (phaseCount > 1) {
-          phaseStr = phaseStr + "#" + phaseCount;
-        }
         
         sb.append(String.format("    %d. %-30s  %6dms  %5d+%5d=%6d tokens\n", 
             callNum++, phaseStr, duration, promptT, completionT, promptT + completionT));
@@ -2990,10 +3800,8 @@ public class InferenceLogger {
               ? phase.toString() : "?";
           // Track phase counts and append retry number if > 1
           int phaseCount = phaseCountsDetailed.getOrDefault(phaseStr, 0) + 1;
+          // Use phase as-is - the source should include #N if needed
           phaseCountsDetailed.put(phaseStr, phaseCount);
-          if (phaseCount > 1) {
-            phaseStr = phaseStr + "#" + phaseCount;
-          }
           
           String callHeader = "LLM Call " + llmInteractionNum + " (" + phaseStr + ")";
           

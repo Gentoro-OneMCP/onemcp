@@ -344,11 +344,23 @@ public class OrientGraphDriver implements GraphDriver {
 
   @Override
   public void shutdown() {
+    if (!initialized.get()) {
+      return; // Already shut down
+    }
     initialized.set(false);
     try {
-      if (orientDbPool != null) orientDbPool.close();
-      if (orient != null) orient.close();
-    } catch (Exception ignore) {
+      if (orientDbPool != null) {
+        orientDbPool.close();
+        orientDbPool = null;
+      }
+      if (orient != null) {
+        orient.close();
+        orient = null;
+      }
+    } catch (Exception e) {
+      // Log but don't throw - shutdown should be best effort
+      org.slf4j.Logger log = com.gentoro.onemcp.logging.LoggingService.getLogger(OrientGraphDriver.class);
+      log.debug("Error during OrientDB shutdown", e);
     }
   }
 

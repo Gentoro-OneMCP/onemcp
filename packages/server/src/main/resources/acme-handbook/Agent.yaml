@@ -159,7 +159,7 @@ apis:
             description: "In the context of a collection of products, Category can also be referred as Group."
         openApiTag: Category
         description: |
-          A collection of products sharing attributes. *Example: Electronics, Clothing.*
+          A collection of products sharing attributes. *Example: Books, Clothing.*
         relationships:
           - name: Product
             type: toMany

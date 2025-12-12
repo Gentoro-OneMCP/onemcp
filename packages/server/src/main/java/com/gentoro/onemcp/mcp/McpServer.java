@@ -166,31 +166,63 @@ public class McpServer implements AutoCloseable {
                             }
 
                             // Extract prompt
-                            String prompt = request.arguments().get("prompt").toString();
+                            String prompt = request.arguments().get("prompt").toString().trim();
 
-                            AssigmentResult result = null;
+                            String result = null;
                             String reportPath = null;
                             
                             try {
                               // Check for special index command
                               if ("__index_schema__".equals(prompt)) {
-                                // Index schema only (no normalization/planning)
-                                reportPath = oneMcp.orchestrator().indexSchema();
-                                
-                                // Return success response with report path
-                                Map<String, Object> response = new HashMap<>();
-                                response.put("content", "Schema indexed successfully");
-                                if (reportPath != null) {
-                                  response.put("reportPath", reportPath);
+                                log.info("Received index schema command");
+                                try {
+                                  // indexSchema() returns a JSON string with status, messages, content, reportPath, etc.
+                                  String indexResult = oneMcp.orchestrator().indexSchema();
+                                  
+                                  // Parse it to extract reportPath for logging
+                                  try {
+                                    com.fasterxml.jackson.databind.JsonNode resultJson = 
+                                        JacksonUtility.getJsonMapper().readTree(indexResult);
+                                    if (resultJson.has("reportPath") && !resultJson.get("reportPath").isNull()) {
+                                      reportPath = resultJson.get("reportPath").asText();
+                                    }
+                                  } catch (Exception e) {
+                                    // Ignore parsing errors, just log
+                                    log.debug("Could not parse index result JSON for reportPath", e);
+                                  }
+                                  
+                                  log.info("Index schema completed successfully, reportPath: {}", reportPath);
+                                  // Return the JSON string directly (it's already properly formatted)
+                                  return new McpSchema.CallToolResult(indexResult, false);
+                                } catch (Exception indexError) {
+                                  log.error("Index schema command failed", indexError);
+                                  
+                                  // Try to extract report path from error message if it's JSON
+                                  String errorMessage = indexError.getMessage();
+                                  try {
+                                    com.fasterxml.jackson.databind.JsonNode errorJson = 
+                                        JacksonUtility.getJsonMapper().readTree(errorMessage);
+                                    if (errorJson.has("reportPath") && !errorJson.get("reportPath").isNull()) {
+                                      reportPath = errorJson.get("reportPath").asText();
+                                    }
+                                    // Return the error JSON as-is if it's already formatted
+                                    return new McpSchema.CallToolResult(errorMessage, true);
+                                  } catch (Exception e) {
+                                    // Not JSON, build error response
+                                    Map<String, Object> errorResponse = new HashMap<>();
+                                    errorResponse.put("status", "error");
+                                    errorResponse.put("content", "Failed to index schema: " + errorMessage);
+                                    errorResponse.put("message", "Index schema failed: " + errorMessage);
+                                    if (reportPath != null) {
+                                      errorResponse.put("reportPath", reportPath);
+                                    }
+                                    return new McpSchema.CallToolResult(
+                                        JacksonUtility.toJson(errorResponse), true);
+                                  }
                                 }
-                                return new McpSchema.CallToolResult(
-                                    JacksonUtility.toJson(response), false);
                               }
                               
-                              result =
-                                  oneMcp
-                                      .orchestrator()
-                                      .handlePrompt(prompt, sink);
+                              result = oneMcp.orchestrator().handlePrompt(prompt, false);
 
                               // Get report path if available (after successful execution)
                               reportPath = oneMcp.inferenceLogger().getCurrentReportPath();
@@ -198,46 +230,53 @@ public class McpServer implements AutoCloseable {
                               // Build response with content and report path
                               Map<String, Object> response = new HashMap<>();
                               try {
-                                // Serialize result to JSON string first
-                                String resultJson = JacksonUtility.toJson(result);
-                                // Parse it to extract content if it's a structured response
-                                com.fasterxml.jackson.databind.ObjectMapper mapper = JacksonUtility.getJsonMapper();
-                                com.fasterxml.jackson.databind.JsonNode jsonNode = mapper.readTree(resultJson);
-                                
-                                // Check if result has parts with content
+                                // Parse result - it may be JSON with content and reportPath, or plain string
                                 String extractedContent = null;
-                                if (jsonNode.has("parts") && jsonNode.get("parts").isArray()) {
-                                  com.fasterxml.jackson.databind.JsonNode parts = jsonNode.get("parts");
-                                  if (parts.size() > 0) {
-                                    // Extract content from the last assignment part
-                                    com.fasterxml.jackson.databind.JsonNode lastPart = parts.get(parts.size() - 1);
-                                    if (lastPart.has("content") && !lastPart.get("content").isNull()) {
-                                      extractedContent = lastPart.get("content").asText();
+                                if (result != null && !result.trim().isEmpty()) {
+                                  try {
+                                    // Try to parse as JSON
+                                    com.fasterxml.jackson.databind.ObjectMapper mapper = JacksonUtility.getJsonMapper();
+                                    com.fasterxml.jackson.databind.JsonNode jsonNode = mapper.readTree(result);
+                                    
+                                    // Check if it's a structured response with content field
+                                    if (jsonNode.has("content") && !jsonNode.get("content").isNull()) {
+                                      extractedContent = jsonNode.get("content").asText();
                                     }
+                                    // Check if result has parts with content (AssigmentResult format)
+                                    else if (jsonNode.has("parts") && jsonNode.get("parts").isArray()) {
+                                      com.fasterxml.jackson.databind.JsonNode parts = jsonNode.get("parts");
+                                      if (parts.size() > 0) {
+                                        com.fasterxml.jackson.databind.JsonNode lastPart = parts.get(parts.size() - 1);
+                                        if (lastPart.has("content") && !lastPart.get("content").isNull()) {
+                                          extractedContent = lastPart.get("content").asText();
+                                        }
+                                      }
+                                    }
+                                    // Check context.refinedAssignment
+                                    else if (jsonNode.has("context") && !jsonNode.get("context").isNull()) {
+                                      com.fasterxml.jackson.databind.JsonNode context = jsonNode.get("context");
+                                      if (context.has("refinedAssignment") && !context.get("refinedAssignment").isNull()) {
+                                        extractedContent = context.get("refinedAssignment").asText();
+                                      }
+                                    }
+                                  } catch (Exception e) {
+                                    // Not JSON, use as plain string
+                                    extractedContent = result;
                                   }
                                 }
                                 
-                                // Also check context.refinedAssignment if no content from parts
-                                if (extractedContent == null && jsonNode.has("context") && !jsonNode.get("context").isNull()) {
-                                  com.fasterxml.jackson.databind.JsonNode context = jsonNode.get("context");
-                                  if (context.has("refinedAssignment") && !context.get("refinedAssignment").isNull()) {
-                                    extractedContent = context.get("refinedAssignment").asText();
-                                  }
-                                }
-                                
-                                // Set content - never return raw AssigmentResult JSON
+                                // Set content
                                 if (extractedContent != null && !extractedContent.trim().isEmpty()) {
                                   response.put("content", extractedContent);
                                 } else {
-                                  // No content found - provide helpful message
-                                  response.put("content", "No result content. Check the report for details.");
+                                  response.put("content", result != null ? result : "No result content. Check the report for details.");
                                 }
                                 
                                 if (reportPath != null) {
                                   response.put("reportPath", reportPath);
                                 }
                               } catch (Exception e) {
-                                // Fallback: provide error message, not raw JSON
+                                // Fallback: provide error message
                                 response.put("content", "Error processing result: " + e.getMessage());
                                 if (reportPath != null) {
                                   response.put("reportPath", reportPath);

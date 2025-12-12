@@ -31,7 +31,7 @@ export class ChatMode {
     await this.selectHandbook(handbookName);
     this.globalConfig = await configManager.getGlobalConfig();
     
-    // Load cache enabled setting from config (default to false if not set)
+    // Load cache enabled setting from config (not hardcoded default)
     this.cacheEnabled = this.globalConfig?.cache?.enabled ?? false;
     
     // Check if agent is running
@@ -144,12 +144,145 @@ export class ChatMode {
         continue;
       }
 
+      if (userMessage.toLowerCase() === 'index') {
+        console.log(chalk.cyan('🔄 Re-indexing handbook schema...'));
+        console.log();
+        
+        const spinner = ora({
+          text: 'Starting index operation...',
+          spinner: 'dots',
+          color: 'cyan'
+        }).start();
+        
+        try {
+          // Create MCP transport and client (scoped to this command execution)
+          const transport = new StreamableHTTPClientTransport(new URL(this.mcpUrl), {
+            requestInit: {
+              signal: AbortSignal.timeout(this.handbookConfig?.chatTimeout || this.globalConfig?.chatTimeout || 240000),
+            },
+          });
+          const client = new Client(
+            {
+              name: 'onemcp-cli',
+              version: '0.1.0',
+            },
+            {
+              capabilities: {},
+            }
+          );
+
+          await client.connect(transport);
+
+          try {
+            // Call the onemcp.run tool with __index_schema__ command
+            const result: any = await client.callTool(
+              {
+                name: 'onemcp.run',
+                arguments: {
+                  prompt: '__index_schema__',
+                },
+              },
+              undefined,
+              { timeout: this.handbookConfig?.chatTimeout || this.globalConfig?.chatTimeout || 240000 }
+            );
+
+            spinner.stop();
+
+            // Parse response
+            if (result.content && result.content.length > 0) {
+              const content = result.content[0];
+              if (content && typeof content === 'object' && 'type' in content && 'text' in content && content.type === 'text') {
+                try {
+                  const parsed = JSON.parse(content.text);
+                  
+                  // Display status messages if available
+                  if (parsed && typeof parsed === 'object' && 'messages' in parsed && Array.isArray(parsed.messages)) {
+                    for (const msg of parsed.messages) {
+                      if (typeof msg === 'string') {
+                        if (msg.startsWith('✓') || msg.startsWith('✅')) {
+                          console.log(chalk.green(msg));
+                        } else if (msg.startsWith('⚠')) {
+                          console.log(chalk.yellow(msg));
+                        } else if (msg.startsWith('ℹ')) {
+                          console.log(chalk.blue(msg));
+                        } else {
+                          console.log(chalk.cyan(msg));
+                        }
+                      }
+                    }
+                  }
+                  
+                  // Display final result
+                  if (parsed && typeof parsed === 'object' && 'content' in parsed) {
+                    const responseContent = parsed.content;
+                    if (typeof responseContent === 'string' && responseContent.trim().length > 0) {
+                      if (parsed.status === 'success') {
+                        console.log(chalk.green('✅ ' + responseContent));
+                      } else {
+                        console.log(chalk.red('❌ ' + responseContent));
+                      }
+                    }
+                  }
+                  
+                  // Display stats if available
+                  if (parsed && typeof parsed === 'object' && 'stats' in parsed && parsed.stats) {
+                    const stats = parsed.stats;
+                    console.log(chalk.dim(`   Actions: ${stats.actions || 0}, Entities: ${stats.entities || 0}, Fields: ${stats.fields || 0}`));
+                    if (stats.durationMs) {
+                      console.log(chalk.dim(`   Duration: ${(stats.durationMs / 1000).toFixed(1)}s`));
+                    }
+                  }
+                  
+                  // Display report path if available
+                  if (parsed && typeof parsed === 'object' && 'reportPath' in parsed && parsed.reportPath) {
+                    console.log(chalk.dim('   Report: ' + parsed.reportPath));
+                  }
+                  
+                  console.log();
+                  continue;
+                } catch (parseError: any) {
+                  // If parsing fails, show raw response
+                  spinner.stop();
+                  console.log(chalk.red('❌ Failed to parse server response for index command:'), parseError.message);
+                  console.log(chalk.dim('Raw response: ' + content.text));
+                  console.log();
+                  continue;
+                }
+              }
+            }
+            
+            spinner.stop();
+            console.log(chalk.red('❌ Unexpected response format for index command.'));
+            console.log();
+            continue;
+          } catch (toolCallError: any) {
+            spinner.stop();
+            console.log(chalk.red('❌ Failed to execute index command via tool call:'), toolCallError.message);
+            if (toolCallError.stack) {
+              console.log(chalk.dim(toolCallError.stack));
+            }
+            console.log();
+            continue;
+          } finally {
+            await client.close();
+          }
+        } catch (transportError: any) {
+          spinner.stop();
+          console.log(chalk.red('❌ Failed to connect to OneMCP server for index command:'), transportError.message);
+          if (transportError.stack) {
+            console.log(chalk.dim(transportError.stack));
+          }
+          console.log();
+          continue;
+        }
+      }
+
       if (userMessage.toLowerCase() === 'replan' || userMessage.toLowerCase() === 'regenerate') {
         if (!this.lastUserMessage) {
           console.log(chalk.yellow('⚠️  No previous message to replan.'));
           console.log();
-          continue;
-        }
+        continue;
+      }
         console.log(chalk.cyan(`🔄 Replanning for: "${this.lastUserMessage}"`));
         console.log();
         // Delete cache file and resubmit
@@ -158,38 +291,6 @@ export class ChatMode {
           this.lastUserMessage,
           this.handbookConfig?.chatTimeout || this.globalConfig?.chatTimeout || 240000
         );
-        continue;
-      }
-
-      if (userMessage.toLowerCase() === 'index') {
-        // Index command - send special command to regenerate conceptual schema
-        const spinner = ora({
-          text: 'Indexing conceptual schema...',
-          spinner: 'dots',
-          color: 'cyan'
-        }).start();
-
-        const startTime = Date.now();
-        try {
-          const timeout = this.handbookConfig?.chatTimeout || this.globalConfig?.chatTimeout || 240000;
-          // Send the special index command
-          const response = await this.sendIndexCommand(timeout);
-          const latency = Date.now() - startTime;
-          spinner.stop();
-          
-          // Display execution summary
-          console.log(chalk.green('✔ ') + chalk.dim(`⏱  ${latency}ms`));
-          if (this.lastReportPath) {
-            console.log(chalk.dim(`  ${this.lastReportPath}`));
-          }
-          console.log(chalk.green('✨'));
-          console.log(response);
-          console.log();
-        } catch (error: any) {
-          spinner.stop();
-          console.log(chalk.red('❌ Index failed: ' + error.message));
-          console.log();
-        }
         continue;
       }
 
@@ -283,29 +384,18 @@ export class ChatMode {
         return;
       }
 
-      // Delete the cache files
-      // Cache files are stored in cache/plans/ directory
+      // Delete the cache file
       const fs = (await import('fs-extra')).default;
       const { join } = await import('path');
       
-      const plansDir = join(paths.cacheDir, 'plans');
-      const cacheJsonFile = join(plansDir, `${cacheKey}.json`);
-      const cacheTsFile = join(plansDir, `${cacheKey}.ts`);
+      const cacheDir = paths.cacheDir;
+      const cacheFile = join(cacheDir, `${cacheKey}.json`);
       
-      let deleted = false;
-      if (await fs.pathExists(cacheJsonFile)) {
-        await fs.remove(cacheJsonFile);
-        deleted = true;
-      }
-      if (await fs.pathExists(cacheTsFile)) {
-        await fs.remove(cacheTsFile);
-        deleted = true;
-      }
-      
-      if (deleted) {
+      if (await fs.pathExists(cacheFile)) {
+        await fs.remove(cacheFile);
         spinner.succeed(`Deleted cached plan: ${cacheKey}`);
       } else {
-        spinner.succeed(`Cache files not found: ${cacheKey}.{json,ts} (may already be deleted)`);
+        spinner.succeed(`Cache file not found: ${cacheKey}.json (may already be deleted)`);
       }
       
       console.log();
@@ -375,6 +465,7 @@ export class ChatMode {
         const reportsDir = join(paths.logDir, 'reports');
         
         if (!(await fs.pathExists(reportsDir))) {
+          console.error(`[DEBUG] Reports directory does not exist: ${reportsDir}`);
           return null;
         }
         
@@ -389,6 +480,7 @@ export class ChatMode {
           }));
         
         if (reportFiles.length === 0) {
+          console.error(`[DEBUG] No report files found in ${reportsDir}`);
           return null;
         }
         
@@ -400,44 +492,87 @@ export class ChatMode {
         
         reportFiles.sort((a, b) => b.mtime - a.mtime);
         reportPath = reportFiles[0].path;
+        console.log(`[DEBUG] Using most recent report: ${reportPath}`);
+      } else {
+        console.log(`[DEBUG] Using lastReportPath: ${reportPath}`);
       }
       
       if (!(await fs.pathExists(reportPath))) {
+        console.error(`[DEBUG] Report file does not exist: ${reportPath}`);
         return null;
       }
 
       const reportContent = await fs.readFile(reportPath, 'utf-8');
+      console.log(`[DEBUG] Read report file, size: ${reportContent.length} bytes`);
       
-      // Look for cache_key in the report
-      // It can appear in two formats:
-      // 1. JSON format in plan generation prompt input: "cache_key" : "value"
-      // 2. Report display format: │ Cache Key: value
-      // Try JSON format first
-      let cacheKeyMatch = reportContent.match(/"cache_key"\s*:\s*"([^"]+)"/);
+      // Clean the report content to handle box-drawing characters and line breaks
+      // The report uses box-drawing characters (│, ┌, └, etc.) and text can be split across lines
+      // Replace box-drawing chars with spaces and normalize whitespace for easier pattern matching
+      const cleanedContent = reportContent
+        .replace(/[│┌└├┤┬┴┼─═║╔╗╚╝╠╣╦╩╬]/g, ' ') // Replace box-drawing chars with spaces
+        .replace(/\s+/g, ' '); // Normalize whitespace (handles line breaks)
+      
+      // Try multiple patterns to find the cache key (PSK) - 32 hex characters
+      // Pattern 1: Look for any 32-char hex string after "PSK:" (most flexible and simple)
+      // This should catch "PSK: <hex>" anywhere in the cleaned content
+      const pskColonPattern = /PSK:\s*([a-f0-9]{32})/i;
+      const pskColonMatch = cleanedContent.match(pskColonPattern);
+      if (pskColonMatch && pskColonMatch[1]) {
+        console.log(`[DEBUG] Found cache key via Pattern 1 (PSK:): ${pskColonMatch[1].trim()}`);
+        return pskColonMatch[1].trim();
+      }
+      
+      // Pattern 1b: Also try in original content (in case cleaning removed something important)
+      const pskColonPatternOriginal = /PSK:\s*([a-f0-9]{32})/i;
+      const pskColonMatchOriginal = reportContent.match(pskColonPatternOriginal);
+      if (pskColonMatchOriginal && pskColonMatchOriginal[1]) {
+        return pskColonMatchOriginal[1].trim();
+      }
+      
+      // Pattern 2: "Normalized prompt to PSK: <cache_key>" (now handles line breaks after cleaning)
+      const normalizePattern = /Normalized\s+prompt\s+to\s+PSK:\s*([a-f0-9]{32})/i;
+      const normalizeMatch = cleanedContent.match(normalizePattern);
+      if (normalizeMatch && normalizeMatch[1]) {
+        return normalizeMatch[1].trim();
+      }
+      
+      // Pattern 3: "Cache HIT for cache key: <cache_key>" or "Cache HIT for PSK: <cache_key>"
+      const cacheHitPattern = /Cache\s+HIT\s+for\s+(?:cache\s+key|PSK):\s*([a-f0-9]{32})/i;
+      const cacheHitMatch = cleanedContent.match(cacheHitPattern);
+      if (cacheHitMatch && cacheHitMatch[1]) {
+        return cacheHitMatch[1].trim();
+      }
+      
+      // Pattern 4: Look for "cacheKey" in JSON (normalized_prompt_schema) - use original content for JSON
+      const cacheKeyPattern = /"cacheKey"\s*:\s*"([a-f0-9]{32})"/i;
+      const cacheKeyMatch = reportContent.match(cacheKeyPattern);
       if (cacheKeyMatch && cacheKeyMatch[1]) {
         return cacheKeyMatch[1].trim();
       }
       
-      // Try report display format (│ Cache Key: value)
-      // Match box-drawing character (U+2502) or regular pipe, with optional whitespace
-      // Pattern: [box-drawing char or pipe] [optional whitespace] "Cache Key:" [optional whitespace] [value]
-      cacheKeyMatch = reportContent.match(/[\u2502│|]\s*Cache Key:\s*([^\s\n]+)/);
-      if (cacheKeyMatch && cacheKeyMatch[1]) {
-        return cacheKeyMatch[1].trim();
+      // Pattern 5: Legacy: Look for "cache_key" in the report (old format)
+      const legacyCacheKeyMatch = reportContent.match(/"cache_key"\s*:\s*"([^"]+)"/);
+      if (legacyCacheKeyMatch && legacyCacheKeyMatch[1]) {
+        return legacyCacheKeyMatch[1].trim();
       }
       
-      // More flexible pattern - match any line containing "Cache Key:" followed by a value
-      cacheKeyMatch = reportContent.match(/Cache Key:\s*([^\s\n]+)/);
-      if (cacheKeyMatch && cacheKeyMatch[1]) {
-        return cacheKeyMatch[1].trim();
+      // Pattern 6: Fallback - find any 32-char hex string in server logs section (last resort)
+      // Look for patterns like "PSK: <hex>" or "cache key: <hex>" anywhere
+      const fallbackPattern = /(?:PSK|cache\s+key):\s*([a-f0-9]{32})/i;
+      const fallbackMatch = cleanedContent.match(fallbackPattern);
+      if (fallbackMatch && fallbackMatch[1]) {
+        return fallbackMatch[1].trim();
       }
-
+      
       // If cache_key not found, extract schema from normalize output and compute cache key
       // The schema appears in the OUTPUT section of the normalize LLM call
       // It's wrapped in Optional[{...}] and nested in steps[0].ps
       try {
-        // Find the OUTPUT section for normalize
-        const outputStart = reportContent.indexOf('┌─ OUTPUT (LLM Call');
+        // Find the OUTPUT section for normalize (try both formats)
+        let outputStart = reportContent.indexOf('┌─ OUTPUT (LLM Call');
+        if (outputStart === -1) {
+          outputStart = reportContent.indexOf('┌─ OUTPUT ─');
+        }
         if (outputStart === -1) {
           return null;
         }
@@ -589,83 +724,14 @@ export class ChatMode {
         // JSON parsing failed, fall through
       }
 
+      console.error(`[DEBUG] All patterns failed to find cache key`);
       return null;
     } catch (error) {
+      console.error(`[DEBUG] Error in extractCacheKeyFromLastReport:`, error);
       return null;
     }
   }
 
-
-  /**
-   * Send special index command to regenerate conceptual schema
-   */
-  private async sendIndexCommand(timeout: number): Promise<string> {
-    try {
-      // Create MCP transport and client
-      const transport = new StreamableHTTPClientTransport(new URL(this.mcpUrl), {
-        requestInit: {
-          signal: AbortSignal.timeout(timeout),
-        },
-        reconnectionOptions: {
-          maxReconnectionDelay: 30000,
-          initialReconnectionDelay: 1000,
-          reconnectionDelayGrowFactor: 1.5,
-          maxRetries: 3,
-        },
-      });
-      const client = new Client(
-        {
-          name: 'onemcp-cli',
-          version: '0.1.0',
-        },
-        {
-          capabilities: {},
-        }
-      );
-
-      await client.connect(transport);
-
-      try {
-        // Call onemcp.run with special __index_schema__ command
-        const result: any = await client.callTool(
-          {
-            name: 'onemcp.run',
-            arguments: {
-              prompt: '__index_schema__',
-            },
-          },
-          undefined,
-          { timeout }
-        );
-
-        // Parse the response
-        if (result.content && result.content.length > 0) {
-          const content = result.content[0];
-          if (content && typeof content === 'object' && 'type' in content && 'text' in content && content.type === 'text') {
-            try {
-              const parsed = JSON.parse(content.text);
-              // Extract report path if available
-              if (parsed && typeof parsed === 'object' && 'reportPath' in parsed) {
-                this.lastReportPath = parsed.reportPath;
-              }
-              // Return the content field
-              if (parsed && typeof parsed === 'object' && 'content' in parsed) {
-                return parsed.content || 'Schema indexed successfully';
-              }
-              return 'Schema indexed successfully';
-            } catch {
-              return content.text || 'Schema indexed successfully';
-            }
-          }
-        }
-        return 'Schema indexed successfully';
-      } finally {
-        await client.close();
-      }
-    } catch (error: any) {
-      throw new Error(`Index failed: ${error.message}`);
-    }
-  }
 
   /**
    * Internal method to send message to OneMCP via MCP protocol
@@ -800,15 +866,15 @@ export class ChatMode {
     console.log();
     console.log(chalk.bold('Special Commands:'));
     console.log();
-    console.log(chalk.cyan('  ?') + '      - Show this list of special commands');
-    console.log(chalk.cyan('  index') + '  - Regenerate conceptual schema from handbook');
-    console.log(chalk.cyan('  cache') + '  - Toggle cache mode (currently: ' + (this.cacheEnabled ? chalk.green('enabled') : chalk.yellow('disabled')) + ')');
+    console.log(chalk.cyan('  ?') + '     - Show this list of special commands');
+    console.log(chalk.cyan('  index') + ' - Re-index the handbook schema');
+    console.log(chalk.cyan('  cache') + ' - Toggle cache mode (currently: ' + (this.cacheEnabled ? chalk.green('enabled') : chalk.yellow('disabled')) + ')');
     console.log(chalk.cyan('  replan') + ' - Regenerate plan for the last prompt (deletes cached plan)');
     console.log(chalk.cyan('  exit') + '   - Exit chat mode');
     console.log();
     console.log(chalk.bold('Example Prompts:'));
     console.log();
-    console.log(chalk.dim('  > Show me electronics sales in California last quarter.'));
+    console.log(chalk.dim('  > Show the total sales in California of Automotive in the first quarter.'));
     console.log(chalk.dim('  > List top customers by revenue.'));
     console.log(chalk.dim('  > Compare revenue trends by region.'));
     console.log();
@@ -926,8 +992,8 @@ export class ChatMode {
     console.log();
     console.log(chalk.cyan('  > Show total sales for 2024.'));
     console.log(chalk.cyan('  > Show me total revenue by category in 2024.'));
-    console.log(chalk.cyan('  > Show me electronics sales in California last quarter.'));
-    console.log(chalk.cyan('  > What are the top-selling products this month?'));
+    console.log(chalk.cyan('  > Show the total sales in California of Automotive in the first quarter.'));
+    console.log(chalk.cyan('  > What are the top 3 selling products this month?'));
     console.log(chalk.cyan('  > Show me sales data for New York vs Texas.'));
     console.log();
     console.log(chalk.dim('━'.repeat(60)));
@@ -953,7 +1019,7 @@ export class ChatMode {
   private showReportLocation(): void {
     if (this.lastReportPath) {
       console.log(chalk.dim('Report: ') + chalk.cyan(this.lastReportPath));
-      this.lastReportPath = null; // Clear after displaying
+      // Don't clear lastReportPath - it's used for replan command
     }
   }
 

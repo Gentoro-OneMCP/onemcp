@@ -9,6 +9,7 @@ import com.gentoro.onemcp.utility.JacksonUtility;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,16 +18,16 @@ import java.util.Map;
  * Planner service that converts Prompt Schema (PS) + conceptual schema + endpoint index → TypeScript execution plan.
  *
  * <p>Receives:
- * - PS.operation, PS.table (conceptual table)
- * - PS.fields, PS.where (expression tree), PS.group_by, PS.order_by, PS.limit, PS.offset
- * - PS.values (extracted literal values)
- * - get_endpoints(table) (endpoint index)
+ * - PS.action, PS.entity (conceptual entity)
+ * - PS.filter (array of filter conditions), PS.params (parameter values)
+ * - PS.shape (group_by, aggregates, order_by, limit, offset)
+ * - get_endpoints(entity) (endpoint index)
  * - Original prompt
  *
  * <p>Responsibilities:
- * - Walk WHERE expression tree recursively
- * - Identify relevant endpoints for the table
- * - Map WHERE → query params or client-side checks
+ * - Process filter conditions
+ * - Identify relevant endpoints for the entity
+ * - Map filter → query params or client-side checks
  * - Map aggregates → client-side post-processing if needed
  * - Generate a complete TypeScript async function
  */
@@ -42,8 +43,8 @@ public class Planner {
   public Planner(OneMcp oneMcp, Path cacheIndexDir) {
     this.oneMcp = oneMcp;
     this.cacheIndexDir = cacheIndexDir;
-    // Determine cache directory (parent of cacheIndexDir)
-    this.cacheDir = cacheIndexDir.getParent().getParent();
+    // Determine cache directory (parent of cacheIndexDir, which is endpoint_info)
+    this.cacheDir = cacheIndexDir.getParent();
     // Get handbook path for loading documentation
     this.handbookPath = oneMcp.handbook().location();
   }
@@ -75,22 +76,22 @@ public class Planner {
     if (ps == null) {
       throw new IllegalArgumentException("Prompt Schema cannot be null");
     }
-    if (ps.getOperation() == null || ps.getOperation().trim().isEmpty()) {
-      throw new IllegalArgumentException("Operation cannot be null or empty");
+    if (ps.getAction() == null || ps.getAction().trim().isEmpty()) {
+      throw new IllegalArgumentException("Action cannot be null or empty");
     }
-    if (ps.getTable() == null || ps.getTable().trim().isEmpty()) {
-      throw new IllegalArgumentException("Table cannot be null or empty");
+    if (ps.getEntity() == null || ps.getEntity().trim().isEmpty()) {
+      throw new IllegalArgumentException("Entity cannot be null or empty");
     }
 
     // Use original_prompt from PS if available, otherwise fall back to parameter
     String prompt = ps.getOriginalPrompt() != null ? ps.getOriginalPrompt() : originalPrompt;
 
-    log.debug("Planning PS: operation={}, table={}", ps.getOperation(), ps.getTable());
+    log.debug("Planning PS: action={}, entity={}", ps.getAction(), ps.getEntity());
 
-    // Load endpoint index for this table (get_endpoints(table))
-    TableEndpointIndex endpointIndex = loadEndpointIndex(ps.getTable());
+    // Load endpoint index for this entity (get_endpoints(entity))
+    TableEndpointIndex endpointIndex = loadEndpointIndex(ps.getEntity());
     if (endpointIndex == null || endpointIndex.getEndpoints().isEmpty()) {
-      throw new ExecutionException("No endpoints found for table: " + ps.getTable());
+      throw new ExecutionException("No endpoints found for entity: " + ps.getEntity());
     }
 
     // Load API preamble (API description + docs) from cache
@@ -125,21 +126,30 @@ public class Planner {
     // Build consolidated input JSON for the planner prompt
     Map<String, Object> inputData = new HashMap<>();
     inputData.put("prompt", prompt);
-    inputData.put("table", ps.getTable());
+    inputData.put("table", ps.getEntity()); // Use entity for table (for API compatibility)
     
     // Build PS object with ONLY filter structure (cache key components)
-    // EXCLUDED: fields, order_by, limit, offset - these are passed at runtime via options
+    // EXCLUDED: aggregates, order_by, limit, offset - these are passed at runtime via options
     // This ensures plans are generic and can handle any output configuration
     Map<String, Object> psData = new HashMap<>();
-    psData.put("operation", ps.getOperation());
-    psData.put("where", ps.getWhere());
-    psData.put("group_by", ps.getGroupBy() != null ? ps.getGroupBy() : java.util.Collections.emptyList());
-    // Note: values are still included as they're needed for filter logic (but excluded from cache key)
-    psData.put("values", ps.getValues() != null ? ps.getValues() : new HashMap<>());
+    psData.put("action", ps.getAction());
+    psData.put("entity", ps.getEntity());
+    psData.put("filter", ps.getFilter() != null ? ps.getFilter() : new ArrayList<>());
+    
+    // Get group_by from shape
+    Map<String, Object> shape = ps.getShape();
+    if (shape != null && shape.containsKey("group_by")) {
+      psData.put("group_by", shape.get("group_by"));
+    } else {
+      psData.put("group_by", java.util.Collections.emptyList());
+    }
+    
+    // Note: params are still included as they're needed for filter logic (but excluded from cache key)
+    psData.put("params", ps.getParams() != null ? ps.getParams() : new HashMap<>());
     if (ps.getCurrentTime() != null) {
       psData.put("current_time", ps.getCurrentTime());
     }
-    // fields, order_by, limit, offset are EXCLUDED - plan must handle these dynamically
+    // aggregates, order_by, limit, offset are EXCLUDED - plan must handle these dynamically
     inputData.put("ps", psData);
     
     // Add endpoint index
@@ -258,8 +268,8 @@ public class Planner {
       throw new ExecutionException("No TypeScript content found in LLM response");
     }
 
-      log.info("Successfully generated TypeScript plan for PS: operation={}, table={}", 
-          ps.getOperation(), ps.getTable());
+      log.info("Successfully generated TypeScript plan for PS: action={}, entity={}", 
+          ps.getAction(), ps.getEntity());
     return typescript.trim();
   }
 
@@ -290,22 +300,22 @@ public class Planner {
     if (ps == null) {
       throw new IllegalArgumentException("Prompt Schema cannot be null");
     }
-    if (ps.getOperation() == null || ps.getOperation().trim().isEmpty()) {
-      throw new IllegalArgumentException("Operation cannot be null or empty");
+    if (ps.getAction() == null || ps.getAction().trim().isEmpty()) {
+      throw new IllegalArgumentException("Action cannot be null or empty");
     }
-    if (ps.getTable() == null || ps.getTable().trim().isEmpty()) {
-      throw new IllegalArgumentException("Table cannot be null or empty");
+    if (ps.getEntity() == null || ps.getEntity().trim().isEmpty()) {
+      throw new IllegalArgumentException("Entity cannot be null or empty");
     }
 
     // Use original_prompt from PS if available, otherwise fall back to parameter
     String prompt = ps.getOriginalPrompt() != null ? ps.getOriginalPrompt() : originalPrompt;
 
-    log.debug("Planning DAG for PS: operation={}, table={}", ps.getOperation(), ps.getTable());
+    log.debug("Planning DAG for PS: action={}, entity={}", ps.getAction(), ps.getEntity());
 
-    // Load endpoint index for this table (get_endpoints(table))
-    TableEndpointIndex endpointIndex = loadEndpointIndex(ps.getTable());
+    // Load endpoint index for this entity (get_endpoints(entity))
+    TableEndpointIndex endpointIndex = loadEndpointIndex(ps.getEntity());
     if (endpointIndex == null || endpointIndex.getEndpoints().isEmpty()) {
-      throw new ExecutionException("No endpoints found for table: " + ps.getTable());
+      throw new ExecutionException("No endpoints found for entity: " + ps.getEntity());
     }
 
     // Load API preamble (API description + docs) from cache
@@ -340,21 +350,30 @@ public class Planner {
     // Build consolidated input JSON for the planner prompt
     Map<String, Object> inputData = new HashMap<>();
     inputData.put("prompt", prompt);
-    inputData.put("table", ps.getTable());
+    inputData.put("table", ps.getEntity()); // Use entity for table (for API compatibility)
     
     // Build PS object with ONLY filter structure (cache key components)
-    // EXCLUDED: fields, order_by, limit, offset - these are passed at runtime via options
+    // EXCLUDED: aggregates, order_by, limit, offset - these are passed at runtime via options
     // This ensures plans are generic and can handle any output configuration
     Map<String, Object> psData = new HashMap<>();
-    psData.put("operation", ps.getOperation());
-    psData.put("where", ps.getWhere());
-    psData.put("group_by", ps.getGroupBy() != null ? ps.getGroupBy() : java.util.Collections.emptyList());
-    // Note: values are still included as they're needed for filter logic (but excluded from cache key)
-    psData.put("values", ps.getValues() != null ? ps.getValues() : new HashMap<>());
+    psData.put("action", ps.getAction());
+    psData.put("entity", ps.getEntity());
+    psData.put("filter", ps.getFilter() != null ? ps.getFilter() : new ArrayList<>());
+    
+    // Get group_by from shape
+    Map<String, Object> shape = ps.getShape();
+    if (shape != null && shape.containsKey("group_by")) {
+      psData.put("group_by", shape.get("group_by"));
+    } else {
+      psData.put("group_by", java.util.Collections.emptyList());
+    }
+    
+    // Note: params are still included as they're needed for filter logic (but excluded from cache key)
+    psData.put("params", ps.getParams() != null ? ps.getParams() : new HashMap<>());
     if (ps.getCurrentTime() != null) {
       psData.put("current_time", ps.getCurrentTime());
     }
-    // fields, order_by, limit, offset are EXCLUDED - plan must handle these dynamically
+    // aggregates, order_by, limit, offset are EXCLUDED - plan must handle these dynamically
     inputData.put("ps", psData);
     
     // Add endpoint index
@@ -483,7 +502,7 @@ public class Planner {
     }
 
     log.info("Successfully generated DAG plan for PS: operation={}, table={}", 
-        ps.getOperation(), ps.getTable());
+        ps.getAction(), ps.getEntity());
     return dagJson.trim();
   }
 

@@ -245,7 +245,7 @@ public class TypeScriptExecutionEngine {
         if (execId != null) {
           final String finalExecId = execId;
           // Clear after a delay to allow async HTTP requests to complete
-          new Thread(() -> {
+          Thread cleanupThread = new Thread(() -> {
             try {
               Thread.sleep(5000); // Wait 5 seconds for async requests
               // Only clear if this execution ID is still in the map
@@ -257,7 +257,9 @@ public class TypeScriptExecutionEngine {
             } catch (InterruptedException e) {
               Thread.currentThread().interrupt();
             }
-          }).start();
+          });
+          cleanupThread.setDaemon(true); // Don't prevent JVM shutdown
+          cleanupThread.start();
         }
         // Clear thread-local immediately (but keep in map for async requests)
         TypeScriptBridgeServlet.clearThreadLocal();
@@ -567,6 +569,7 @@ public class TypeScriptExecutionEngine {
         log.debug("Error reading process output", e);
       }
     });
+    outputReader.setDaemon(true); // Don't prevent JVM shutdown
     outputReader.start();
     
     // Wait for execution (with timeout)

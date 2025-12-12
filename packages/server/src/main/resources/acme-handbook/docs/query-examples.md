@@ -55,14 +55,14 @@ This document provides practical examples of how to use the Sales Analytics API 
 }
 ```
 
-### Electronics Sales in Q4
+### Books Sales in Q4
 ```json
 {
   "filter": [
     {
       "field": "product.category",
       "operator": "equals",
-      "value": "Electronics"
+      "value": "Books"
     },
     {
       "field": "date.quarter",
@@ -182,7 +182,7 @@ This document provides practical examples of how to use the Sales Analytics API 
     {
       "field": "product.category",
       "operator": "in",
-      "value": ["Electronics", "Home & Garden", "Fashion"]
+      "value": ["Books", "Home & Garden", "Fashion"]
     },
     {
       "field": "customer.loyalty_tier",

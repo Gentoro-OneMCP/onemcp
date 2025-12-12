@@ -38,7 +38,7 @@ class PromptSchemaNormalizerCacheStabilityTest {
 
   private OneMcp oneMcp;
   private PromptSchemaNormalizer normalizer;
-  private PromptLexicon lexicon;
+  private ConceptualLexicon lexicon;
   private Path lexiconPath;
 
   /**
@@ -93,53 +93,41 @@ class PromptSchemaNormalizerCacheStabilityTest {
 
   /**
    * Get lexicon from cache or generate it from Acme handbook. Lexicon is saved to
-   * target/test-reports/cache-stability/lexicon.yaml
+   * target/test-reports/cache-stability/lexicon.json
    */
-  private PromptLexicon getOrGenerateLexicon() throws IOException, ExecutionException {
+  private ConceptualLexicon getOrGenerateLexicon() throws IOException, ExecutionException {
     // Lexicon location in target directory
     Path reportsDir = Paths.get("target", "test-reports", "cache-stability");
     Files.createDirectories(reportsDir);
-    lexiconPath = reportsDir.resolve("lexicon.yaml");
+    lexiconPath = reportsDir.resolve("lexicon.json");
 
-    LexiconExtractorService extractor = new LexiconExtractorService(oneMcp);
+    Lexifier lexifier = new Lexifier(oneMcp);
 
     // Try to load existing lexicon
-    PromptLexicon lex = extractor.loadLexicon(lexiconPath);
-    if (lex != null) {
-      System.out.println("✅ Loaded existing lexicon from: " + lexiconPath);
+    try {
+      ConceptualLexicon lex = lexifier.loadLexicon();
+      System.out.println("✅ Loaded existing lexicon");
       System.out.println("   Actions: " + lex.getActions().size());
       System.out.println("   Entities: " + lex.getEntities().size());
       System.out.println("   Fields: " + lex.getFields().size());
-      System.out.println(
-          "   Operators: " + (lex.getOperators() != null ? lex.getOperators().size() : 0));
-      System.out.println(
-          "   Aggregates: " + (lex.getAggregates() != null ? lex.getAggregates().size() : 0));
+      return lex;
+    } catch (Exception e) {
+      // Lexicon doesn't exist, generate it from Acme handbook
+      System.out.println("📝 Generating lexicon from Acme handbook...");
+      Path acmeHandbookPath = Paths.get("src", "main", "resources", "acme-handbook");
+
+      if (!Files.exists(acmeHandbookPath)) {
+        throw new IOException("Acme handbook not found at: " + acmeHandbookPath.toAbsolutePath());
+      }
+
+      // Extract lexicon from handbook
+      ConceptualLexicon lex = lexifier.extractLexicon();
+      System.out.println("✅ Generated lexicon");
+      System.out.println("   Actions: " + lex.getActions().size());
+      System.out.println("   Entities: " + lex.getEntities().size());
+      System.out.println("   Fields: " + lex.getFields().size());
       return lex;
     }
-
-    // Lexicon doesn't exist, generate it from Acme handbook
-    System.out.println("📝 Generating lexicon from Acme handbook...");
-    Path acmeHandbookPath = Paths.get("src", "main", "resources", "acme-handbook");
-
-    if (!Files.exists(acmeHandbookPath)) {
-      throw new IOException("Acme handbook not found at: " + acmeHandbookPath.toAbsolutePath());
-    }
-
-    // Extract lexicon from handbook
-    lex = extractor.extractLexicon(acmeHandbookPath);
-
-    // Save lexicon for future test runs
-    extractor.saveLexicon(lex, lexiconPath);
-    System.out.println("✅ Generated and saved lexicon to: " + lexiconPath);
-    System.out.println("   Actions: " + lex.getActions().size());
-    System.out.println("   Entities: " + lex.getEntities().size());
-    System.out.println("   Fields: " + lex.getFields().size());
-    System.out.println(
-        "   Operators: " + (lex.getOperators() != null ? lex.getOperators().size() : 0));
-    System.out.println(
-        "   Aggregates: " + (lex.getAggregates() != null ? lex.getAggregates().size() : 0));
-
-    return lex;
   }
 
   /**
@@ -147,8 +135,8 @@ class PromptSchemaNormalizerCacheStabilityTest {
    * no longer used - we now generate from the real handbook.
    */
   @SuppressWarnings("unused")
-  private PromptLexicon createAcmeLexicon() {
-    PromptLexicon lexicon = new PromptLexicon();
+  private ConceptualLexicon createAcmeLexicon() {
+    ConceptualLexicon lexicon = new ConceptualLexicon();
 
     // Actions from the API
     lexicon.setActions(
@@ -201,28 +189,11 @@ class PromptSchemaNormalizerCacheStabilityTest {
             "date.week",
             "date.day_of_week"));
 
-    // Operators
-    lexicon.setOperators(
-        Arrays.asList(
-            "equals",
-            "not_equals",
-            "greater_than",
-            "greater_than_or_equal",
-            "less_than",
-            "less_than_or_equal",
-            "contains",
-            "not_contains",
-            "starts_with",
-            "ends_with",
-            "in",
-            "not_in",
-            "between",
-            "is_null",
-            "is_not_null"));
+    // Operators - not supported in ConceptualLexicon
+    // lexicon.setOperators(Arrays.asList(...));
 
-    // Aggregates
-    lexicon.setAggregates(
-        Arrays.asList("sum", "avg", "count", "min", "max", "median", "stddev", "variance"));
+    // Aggregates - not supported in ConceptualLexicon
+    // lexicon.setAggregates(Arrays.asList(...));
 
     return lexicon;
   }
@@ -269,10 +240,10 @@ class PromptSchemaNormalizerCacheStabilityTest {
         new PromptCluster(
             "Search sales by category and state",
             Arrays.asList(
-                "Show me electronics sales in California",
-                "Find electronics sales in CA",
-                "Get sales data for electronics in California",
-                "List electronics transactions in California state",
+                "Show me books sales in California",
+                "Find books sales in CA",
+                "Get sales data for books in California",
+                "List books transactions in California state",
                 "Search for electronic product sales in California"),
             "search",
             Arrays.asList("sale", "product", "customer"),
@@ -464,18 +435,15 @@ class PromptSchemaNormalizerCacheStabilityTest {
         System.out.println("  Processing: \"" + prompt + "\"...");
 
         // Normalize the prompt with REAL LLM call
-        PromptSchemaWorkflow workflow = normalizer.normalize(prompt, lexicon);
+        PromptSchema ps = normalizer.normalize(prompt, lexicon);
 
         String cacheKey = null;
         PromptSchema schema = null;
-        if (workflow != null && workflow.getSteps() != null && !workflow.getSteps().isEmpty()) {
-          PromptSchema ps = workflow.getSteps().get(0).getPs();
-          if (ps != null && ps.getCacheKey() != null) {
-            cacheKey = ps.getCacheKey();
-            schema = ps;
-            uniqueCacheKeys.add(cacheKey);
-            successfulPrompts++;
-          }
+        if (ps != null && ps.getCacheKey() != null) {
+          cacheKey = ps.getCacheKey();
+          schema = ps;
+          uniqueCacheKeys.add(cacheKey);
+          successfulPrompts++;
         }
 
         promptToCacheKey.put(prompt, cacheKey);
@@ -664,21 +632,21 @@ class PromptSchemaNormalizerCacheStabilityTest {
 
         report.append("**Prompt:** \"").append(prompt).append("\"\n");
         if (schema != null) {
-          report.append("- Action: `").append(schema.getAction()).append("`\n");
+          report.append("- Operation: `").append(schema.getOperation() != null ? schema.getOperation() : "null").append("`\n");
           report
-              .append("- Entity: `")
-              .append(schema.getEntity() != null ? schema.getEntity() : "null")
+              .append("- Table: `")
+              .append(schema.getTable() != null ? schema.getTable() : "null")
               .append("`\n");
-          if (schema.getParams() != null && !schema.getParams().isEmpty()) {
+          if (schema.getValues() != null && !schema.getValues().isEmpty()) {
             report
-                .append("- Params: `")
-                .append(String.join(", ", schema.getParams().keySet()))
+                .append("- Values: `")
+                .append(String.join(", ", schema.getValues().keySet()))
                 .append("`\n");
           }
-          if (schema.getShape() != null && schema.getShape().getGroupBy() != null && !schema.getShape().getGroupBy().isEmpty()) {
+          if (schema.getGroupBy() != null && !schema.getGroupBy().isEmpty()) {
             report
                 .append("- Group By: `")
-                .append(String.join(", ", schema.getShape().getGroupBy()))
+                .append(String.join(", ", schema.getGroupBy()))
                 .append("`\n");
           }
           report

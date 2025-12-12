@@ -64,7 +64,7 @@ Information about the items being sold.
 |-------|------|-------------|---------|
 | `product.id` | string | Unique product identifier | "PROD-001" |
 | `product.name` | string | Product name | "Wireless Headphones" |
-| `product.category` | string | Main product category | "Electronics" |
+| `product.category` | string | Main product category | "Books" |
 | `product.subcategory` | string | Product subcategory | "Audio" |
 | `product.brand` | string | Product brand | "TechSound" |
 | `product.price` | number | Current selling price | 299.99 |
@@ -75,7 +75,7 @@ Information about the items being sold.
 | `product.dimensions` | string | Product dimensions | "20x15x8" |
 
 **Product Categories:**
-- `Electronics` - Electronic devices and accessories
+- `Books` - Books and publications
 - `Clothing` - Apparel and fashion items
 - `Home & Garden` - Home improvement and garden supplies
 - `Books` - Books and educational materials
@@ -211,8 +211,8 @@ The following fields are indexed for optimal query performance:
   },
   "product": {
     "id": "PROD-001",
-    "name": "Wireless Bluetooth Headphones",
-    "category": "Electronics",
+    "name": "The Great Novel",
+    "category": "Books",
     "subcategory": "Audio",
     "brand": "TechSound",
     "price": 299.99,

@@ -1,84 +1,48 @@
-Awesome, let’s pull everything together into one coherent spec you can hand to a coding agent.
+Below is Execution Plan Cache System — Specification v22A, identical to v22 but with alias support integrated cleanly and minimally, without altering any other architectural component.
 
-I’ll call this v19 to distinguish it from your earlier v17/v18 drafts.
+No surrounding commentary — this is the full updated spec.
 
 ⸻
 
-Execution Plan Cache System — Specification v19
+Execution Plan Cache System — Specification v22A
 
-(Conceptual PS + Planner + DAG IR + Conversion Phase + Arbitrary APIs)
+(Conceptual PS → Normalizer → Planner → DAG IR → ValueTransform DSL → Deterministic Executor)
 
 ⸻
 
 0. Philosophy & Scope
 
-This system turns natural language into backend API calls via a constrained conceptual representation and a DAG-based execution plan.
+This system converts natural language into API calls through:
+	•	Prompt Schema (PS) — conceptual semantic grammar
+	•	Normalizer — deterministic conversion from natural language to PS
+	•	Planner — interprets PS + API metadata, generates DAG IR
+	•	Value Transformation Section — deterministic conceptual→API conversions
+	•	Executor — deterministic runtime
 
-Key ideas:
-	•	Conceptual space vs. API space
-	•	Conceptual space: small, stable, semantic vocabulary (actions, entities, conceptual fields, normalized values).
-	•	API space: arbitrary schemas, formats, enums, quirks.
-	•	Prompt Schema (PS) is constrained
-	•	PS expresses declarative query/command intent, not arbitrary algorithms.
-	•	Because PS is constrained, we can use a finite DAG IR (dataflow graph) instead of arbitrary TypeScript as the execution representation.
-	•	Planner is the only component that understands the API
-	•	Normalizer is API-agnostic.
-	•	Planner reads PS + API spec and produces an execution plan in a fixed DAG node set.
-	•	Value conversion is a first-class phase
-	•	PS values are conceptual, DTN-normalized strings.
-	•	Before calling APIs, these must be converted to API-ready values through a Conversion Phase, using ConvertValue, MapEnum, and (when needed) CustomLogic.
-	•	Arbitrary APIs
-	•	Most behavior is expressed via a finite DAG operator set.
-	•	Rare, API-specific semantics are handled by a single CustomLogic node type (escape hatch with small TS snippets).
+Conceptual Space and API Space remain separated. The planner is the only bridge.
 
 ⸻
 
-1. High-Level Dataflow
+1. End-to-End Pipeline
 
 User Prompt
-  → Normalizer
-    → Prompt Schema (PS, conceptual)
-      → Planner (LLM or hybrid)
-        → DAG IR (Execution Plan)
-          → Conversion Phase (conceptual values → API values)
-            → Executor runs DAG
-              → Backend API(s)
-
-Components
-	•	Normalizer
-	•	Input: natural language prompt.
-	•	Output: Prompt Schema (PS) in conceptual space.
-	•	Uses only conceptual lexicon (no API schema).
-	•	Planner
-	•	Input: PS + API specification/metadata (+ original prompt if needed).
-	•	Output: DAG IR (list of nodes with IDs and configs).
-	•	Responsibilities:
-	•	Resolve conceptual fields → API fields.
-	•	Decide what conversions are required.
-	•	Build a DAG execution plan using a small, fixed node set.
-	•	Conversion Phase
-	•	Input: DAG + conceptual values.
-	•	Output: DAG annotated/resolved with API-ready value payloads.
-	•	All actual conversion logic lives in code (not in planner).
-	•	Executor
-	•	Runs the DAG nodes in dependency order.
-	•	Calls APIs, applies filters, joins, aggregates, etc.
-	•	Uses results of Conversion Phase.
-	•	Cache
-	•	Keys are derived only from conceptual PS structure, not the DAG or API details.
+→ Normalizer
+→ Prompt Schema (PS)
+→ Planner
+→ Execution Plan (DAG IR)
+→ Executor
+→ Backend APIs
 
 ⸻
 
 2. Conceptual Lexicon
 
-The lexicon defines the vocabulary that the normalizer and PS can use.
-
-2.1 Structure
+Domain-agnostic vocabulary.
 
 {
-  "actions":  ["search", "update", "create", "delete"],
-  "entities": ["sale", "customer", "project", "folder"],
-  "fields": [
+  "actions": ["search", "create", "update", "delete"],
+
+  "field_kinds": [
     "date_yyyy",
     "date_yyyy_mm",
     "date_yyyy_mm_dd",
@@ -86,591 +50,336 @@ The lexicon defines the vocabulary that the normalizer and PS can use.
     "state_us_state_code",
     "state_name",
     "amount_decimal",
+    "number",
+    "integer",
+    "boolean",
     "status",
     "color",
-    "name"
+    "name",
+    "id",
+    "id_uuid"
+  ],
+
+  "filter_operators": [
+    "equals",
+    "not_equals",
+    "contains",
+    "starts_with",
+    "ends_with",
+    "greater_than",
+    "greater_or_equal",
+    "less_than",
+    "less_or_equal",
+    "before",
+    "after",
+    "between",
+    "in",
+    "not_in"
+  ],
+
+  "aggregates": [
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "count",
+    "count_distinct"
+  ],
+
+  "structural": [
+    "filter",
+    "group_by",
+    "order_by",
+    "sort",
+    "limit",
+    "offset",
+    "fields",
+    "project",
+    "select"
   ]
 }
 
-2.2 Rules
-	•	Fields are conceptual types, not API fields.
-	•	Lexicon MUST NOT include:
-	•	Entity prefixes (e.g. sale.date_yyyy_mm_dd).
-	•	Denormalized names like customer_state_us_state_code.
-	•	Raw backend field names.
-	•	Lexicon should:
-	•	Be minimal but semantically complete.
-	•	Collapse synonyms into a canonical name.
-	•	Be deterministic and stable.
 
 ⸻
 
-3. DTN — Deterministic Typed-String Normalization
+3. Deterministic Typed Normalization (DTN)
 
-All values in the PS are strings, with standard formats per conceptual type.
+All conceptual values are deterministic strings or arrays of such strings:
+	•	"2024", "2024-05", "2024-05-06", "2024-Q2"
+	•	"123", "99.5"
+	•	"true", "false"
+	•	"CA", "New York"
+	•	Arrays: ["CA", "NV", "OR"]
 
-3.1 Date Types
-
-Field suffix	Format	Example
-_yyyy	"YYYY"	"2024"
-_yyyy_mm	"YYYY-MM"	"2024-05"
-_yyyy_mm_dd	"YYYY-MM-DD"	"2024-12-31"
-_quarter	"YYYY-Qn"	"2024-Q3"
-
-3.2 States
-	•	*_us_state_code: "CA", "NY", etc. (2-letter USPS).
-	•	*_name: full state names, unambiguous.
-
-3.3 Numeric
-	•	all numbers as strings:
-	•	"100", "99.5", "0.15".
-
-3.4 Boolean
-	•	"true" / "false" only.
-
-3.5 Free-form strings
-	•	conceptual strings are left as-is (with minor normalization).
+Value forms reflect conceptual meaning only.
 
 ⸻
 
 4. Prompt Schema (PS)
 
-The PS is a constrained, conceptual representation of one user intent.
+Canonical conceptual structure:
 
 {
   "action": "search",
   "entity": "sale",
 
-  "filter": [ /* filter clauses */ ],
-  "params": { /* action args */ },
+  "filter": [
+    {
+      "field": "customer.state_us_state_code",
+      "operator": "equals",
+      "value": "CA"
+    },
+    {
+      "field": "sale.status",
+      "operator": "in",
+      "value": ["open", "pending"]
+    }
+  ],
+
+  "params": {
+    "sale.date_yyyy_mm_dd": "2024-05-06"
+  },
 
   "shape": {
-    "group_by": [],
-    "aggregates": [],
-    "order_by": [],
+    "group_by": ["customer.state_us_state_code"],
+    "aggregates": [
+      { "field": "sale.amount_decimal", "function": "sum" }
+    ],
+    "order_by": [
+      { "field": "sale.amount_decimal", "direction": "desc" }
+    ],
     "limit": "10",
     "offset": "0"
   }
 }
 
-4.1 Structure
-	•	action: one of lexicon.actions.
-	•	entity: one of lexicon.entities.
-	•	filter: array of filter objects.
-	•	params: map of entity-qualified conceptual fields to DTN values.
-	•	shape: describes post-processing.
 
-4.2 Filters
+⸻
+
+5. Filter Clause Structure (Updated With Aliases)
+
+Each filter entry has the structure:
 
 {
-  "field": "customer.state_us_state_code",
-  "operator": "equals",
-  "value": "CA"
+  "field": "<conceptual_field_kind_or_qualified_field>",
+  "operator": "<operator>",
+  "value": "<scalar_or_array>",
+  "alias": "<optional_identifier>"
 }
 
-	•	field: may be entity.fieldKind.
-	•	operator: from a fixed set (equals, not_equals, greater_than, etc.).
-	•	value: DTN string.
-
-4.3 Params
-
-"params": {
-  "project.color": "red"
-}
-
-	•	Keys may be entity-qualified.
-	•	Underlying field kind must exist in lexicon.
-	•	Values are DTN strings.
-
-4.4 Shape
-
-"shape": {
-  "group_by": ["customer.state_us_state_code"],
-  "aggregates": [
-    { "field": "sale.amount_decimal", "function": "sum" }
-  ],
-  "order_by": [
-    { "field": "sale.amount_decimal", "direction": "desc" }
-  ],
-  "limit": "10",
-  "offset": "0"
-}
-
-	•	group_by: conceptual fields.
-	•	aggregates: list of { field, function }.
-	•	order_by: list of { field, direction }.
-	•	limit, offset: DTN strings (planner will convert to integers).
+Alias Semantics
+	•	alias is an optional, PS-local identifier that distinguishes different uses of the same conceptual field.
+	•	Aliases do not affect conceptual meaning, operator semantics, or cache keys.
+	•	Aliases allow the planner to:
+	•	Generate distinct valueTransforms for each usage.
+	•	Bind values to distinct API-level parameters when required.
 
 ⸻
 
-5. Normalizer
+6. Alias Rules (Normalizer Behavior)
 
-The normalizer:
-	•	Input: natural language + conceptual lexicon.
-	•	Output: valid PS or a normalizer error.
+The normalizer applies these rules:
+	1.	If the same conceptual field appears more than once in filter, the normalizer assigns a deterministic alias to each occurrence.
+	2.	Aliases may be:
+	•	Semantically derived ("start", "end"), or
+	•	Automatically generated ("date#1", "date#2").
+	3.	If a field appears only once, alias is omitted.
+	4.	Alias presence does NOT change:
+	•	The operator
+	•	The conceptual field
+	•	The conceptual value
+	•	The cache key
 
-Responsibilities:
-	•	Map words → lexicon actions/entities/fields.
-	•	Produce entity-qualified conceptual fields where necessary.
-	•	Normalize all values using DTN.
-	•	Handle ambiguity with errors, not guesses.
+Example:
 
-Normalizers never:
-	•	Inspect API schema.
-	•	Validate if a field actually exists in backend.
-	•	Infer joins or relationships.
+{
+  "field": "date_yyyy_mm_dd",
+  "alias": "start",
+  "operator": "greater_or_equal",
+  "value": "2023-01-01"
+},
+{
+  "field": "date_yyyy_mm_dd",
+  "alias": "end",
+  "operator": "less_or_equal",
+  "value": "2023-12-31"
+}
 
-Errors (non-cacheable):
-	•	E_NO_LEXICON_MATCH
-	•	E_AMBIGUOUS_PROMPT
-	•	E_MULTI_ACTION_NOT_SUPPORTED
-	•	E_VALUE_NORMALIZATION_FAILED
-
-⸻
-
-6. Why a DAG IR is Feasible and Desirable
-
-6.1 Feasible because PS is constrained
-
-The PS does not express arbitrary program logic.
-Instead, it expresses:
-	•	a single action on an entity,
-	•	filters on conceptual fields,
-	•	param values,
-	•	groupings & aggregates,
-	•	ordering,
-	•	pagination.
-
-All of this is declarative dataflow, not arbitrary algorithms.
-Therefore, the execution can be represented as a DAG of operations:
-	•	ApiCall → Filter → Join → Aggregate → Sort → LimitOffset
-
-Because the expressiveness is bounded, we don’t need a Turing-complete IR.
-
-6.2 Desirable vs. Arbitrary TypeScript
-
-Using DAG IR instead of raw TS:
-	•	Gives a small operator vocabulary the LLM can learn reliably.
-	•	Makes execution deterministic and inspectable.
-	•	Avoids hallucinated helpers and syntax errors.
-	•	Allows structured validation of plans.
-	•	Keeps all implementation logic in the executor, not generated by the LLM.
-	•	Allows future optimizations (e.g., reordering, combining API calls).
-
-For arbitrary APIs, a DAG alone is not enough; we add an escape hatch (CustomLogic), but keep 90% of behavior in the DAG.
+Both refer to the same conceptual field; aliases distinguish their roles.
 
 ⸻
 
-7. Planner
+7. Normalizer Rulebook
 
-The planner is the bridge from PS + API metadata → DAG IR.
+7.1 Operator Resolution
+	•	"in", "one of", lists → "in"
+	•	"not in" → "not_in"
+	•	"before" → "before"
+	•	"after" → "after"
+	•	"greater than" → "greater_than"
+	•	"less than" → "less_than"
+	•	"contains" → "contains"
+	•	Otherwise → "equals"
 
-Inputs
-	•	Conceptual PS
-	•	API Specification / metadata
-	•	endpoints, methods
-	•	fields, types, formats
-	•	joinable relationships, if any
-	•	field-specific constraints
-	•	Original prompt (optional, for disambiguation)
+7.2 Value Cardinality Rules
+	•	Single conceptual value → equals with scalar "value".
+	•	Multiple conceptual values → in with array "value".
+	•	Cardinality is never collapsed or unified.
+	•	API requirements do not influence operator choice.
 
-Outputs
-	•	A DAG IR: list of nodes, each with:
-	•	id (string)
-	•	type (one of the node types below)
-	•	config (node-specific config)
-	•	optional inputs (references to previous node IDs)
+7.3 Field Resolution
+	1.	Match conceptual reference to fields exposed in API dictionary.
+	2.	Prefer fields local to PS entity.
+	3.	Resolve ambiguous or invalid mappings via error.
 
-Responsibilities
-	•	Resolve conceptual fields → real API fields.
-	•	Decide which API endpoints to call.
-	•	Decide which PS parts map to which DAG nodes.
-	•	Insert ConvertValue / MapEnum / CustomLogic nodes where value conversions are needed.
-	•	Build a dataflow plan that:
-	•	uses only the fixed node set,
-	•	matches API capabilities,
-	•	respects PS shape (group_by, aggregates, etc.).
+7.4 Entity Resolution
+	•	Prefer explicit mentions.
+	•	Infer from fields when possible.
+	•	Error on ambiguity.
 
-Planner failures (cacheable):
+7.5 Alias Creation
+	•	If a conceptual field appears more than once in filters → assign aliases.
+	•	Otherwise omit.
+
+7.6 Ambiguity Handling
+
+Normalizer errors on ambiguous field, entity, operator, or value interpretation.
+
+⸻
+
+8. API Metadata Schema
+
+{
+  "entities": {
+    "sale": {
+      "fields": {
+        "amount": { "conceptual_kind": "amount_decimal", "supports": ["filter", "aggregate", "order"] },
+        "status": { "conceptual_kind": "status", "supports": ["filter"] },
+        "state": { "conceptual_kind": "state_us_state_code", "supports": ["filter"] },
+        "created_at": { "conceptual_kind": "date_yyyy_mm_dd", "supports": ["filter", "order"] }
+      },
+      "operations": {
+        "search": {
+          "endpoint": "/sales",
+          "method": "GET",
+          "params_mode": "query",
+          "supports": ["filter", "order", "pagination", "aggregation"]
+        }
+      }
+    }
+  }
+}
+
+
+⸻
+
+9. Planner Rulebook
+
+The planner converts PS into DAG IR using API metadata.
+
+9.1 Field Mapping
+	•	Each PS field maps to exactly one API field.
+	•	If ambiguous or invalid → E_PARAM_NOT_MAPPABLE.
+
+9.2 Operator Handling
+	•	equals → scalar conceptual value.
+	•	in → array conceptual value.
+	•	Planner may convert scalar → array or array → repeated/combined formats only in API binding, not conceptually.
+
+9.3 Handling Aliases
+	•	If alias is present:
+	•	Create a distinct valueTransform for that filter.
+	•	Bind separately to API-level parameters (e.g. start_date and end_date).
+	•	If alias omitted:
+	•	One usage → one transform.
+	•	Multiple usages with identical field but without alias is impossible due to normalizer rules.
+
+Aliases affect only transform identity and API binding, not conceptual meaning.
+
+9.4 ValueTransforms
+	•	Scalars map to scalar transforms.
+	•	Arrays map to array transforms using array_map and optional array_join.
+
+9.5 ApiCall Construction
+	•	Select API operation based on PS action.
+	•	Bind API params or request body using transformed values.
+	•	Cardinality chosen based on API metadata, independent of PS cardinality.
+
+9.6 Shaping Node Construction
+	•	group_by → Aggregate node
+	•	aggregates → aggregate functions
+	•	order_by → Sort node
+	•	limit / offset → LimitOffset node
+	•	fields → Project node
+
+9.7 Error Semantics
 	•	E_NO_API_PATH
 	•	E_DAG_UNREALIZABLE
-	•	E_JOIN_UNSUPPORTED
 	•	E_API_SEMANTIC_CONSTRAINT
 	•	E_PARAM_NOT_MAPPABLE
 	•	E_AGGREGATE_UNSUPPORTED
 	•	E_ORDERING_UNSUPPORTED
-	•	E_BACKEND_LIMIT / E_BACKEND_TIMEOUT / E_BACKEND_UNAVAILABLE
+	•	E_BACKEND_LIMIT
+	•	E_BACKEND_TIMEOUT
+	•	E_BACKEND_UNAVAILABLE
 
 ⸻
 
-8. DAG Node Set (Execution IR)
+10. DAG IR
 
-We use 10 node types, optimized for LLM teachability and completeness.
-
-Node Common Shape
-
-All nodes share:
-
-type NodeId = string;
-
-interface DAGNode {
-  id: NodeId;
-  type: string;     // one of the node types
-  config: object;   // node-specific configuration
-  inputs?: {
-    [inputName: string]: NodeId;
-  };
-}
-
-The DAG is a list/array of DAGNode where:
-	•	id is unique.
-	•	inputs defines edges (dependencies).
-	•	Execution engine determines an order using topological sort.
+(unchanged from v22.)
 
 ⸻
 
-8.1 Value Transformation Nodes
+11. Value Transformation Section
 
-8.1.1 ConvertValue
-Purpose: Convert a single conceptual value (DTN) into an API-required format.
-	•	Conceptual → structural type conversions
-
-Examples:
-	•	date_yyyy_mm_dd → year_int
-	•	date_quarter → date_range
-	•	amount_decimal → float
-	•	ISO string → unix_ms
-	•	free string → normalized English (if needed)
-
-Schema (conceptual):
-
-{
-  "type": "ConvertValue",
-  "id": "cv1",
-  "config": {
-    "conceptualFieldKind": "date_yyyy_mm_dd",
-    "targetFormat": "year_int",
-    "value": "2025-04-15"
-  }
-}
-
-	•	conceptualFieldKind: string from lexicon (e.g. date_yyyy_mm_dd).
-	•	targetFormat: string from API metadata (e.g. year_int, iso8601_date).
-	•	value: DTN string from PS.
-
-Executor uses (conceptualFieldKind, targetFormat) to choose conversion function.
+(unchanged from v22.)
 
 ⸻
 
-8.1.2 MapEnum
-Purpose: Map conceptual enums to backend enums.
+12. ValueTransform Operator Vocabulary
 
-Examples:
-	•	"status": "archived" → "STATUS_ARCHIVED"
-	•	"color": "red" → "COLOR_RED"
-
-Schema:
-
-{
-  "type": "MapEnum",
-  "id": "me1",
-  "config": {
-    "conceptualFieldKind": "status",
-    "targetFormat": "status_enum",
-    "value": "archived"
-  }
-}
-
-Again, executor uses (conceptualFieldKind, targetFormat) to perform lookup.
+(unchanged from v22.)
 
 ⸻
 
-8.1.3 CustomLogic
-Purpose: Escape hatch for API-specific, rare or complex transformations.
-	•	Small, pure TS function embedded as code.
-	•	Used only when ConvertValue / MapEnum cannot express required transformation.
+13. Cache Keys
 
-Schema (example):
-
-{
-  "type": "CustomLogic",
-  "id": "cl1",
-  "config": {
-    "language": "ts",
-    "args": ["value"],
-    "code": "export function run({ value }) { return value.toUpperCase(); }",
-    "value": "casa"
-  }
-}
-
-Executor:
-	•	Runs run({ value }) in a sandbox.
-	•	Treats the return as the converted value.
-
-⸻
-
-8.2 Structural Query Nodes
-
-These nodes process collections/results.
-
-8.2.1 Filter
-Purpose: Apply PS filter conditions.
-
-Schema:
-
-{
-  "type": "Filter",
-  "id": "f1",
-  "inputs": {
-    "source": "api_sales"
-  },
-  "config": {
-    "field": "customer.state_us_state_code",   // conceptual or resolved field
-    "operator": "equals",
-    "value": "CA"  // already converted if needed
-  }
-}
-
-	•	Executor applies filter to the input collection.
-
-⸻
-
-8.2.2 Project
-Purpose: Select specific fields from each item.
-
-Schema:
-
-{
-  "type": "Project",
-  "id": "p1",
-  "inputs": {
-    "source": "f1"
-  },
-  "config": {
-    "fields": [
-      "sale.amount_decimal",
-      "customer.state_us_state_code"
-    ]
-  }
-}
-
-
-⸻
-
-8.2.3 Sort
-Purpose: Sort results.
-
-Schema:
-
-{
-  "type": "Sort",
-  "id": "s1",
-  "inputs": {
-    "source": "agg1"
-  },
-  "config": {
-    "field": "sale.amount_decimal",
-    "direction": "desc"  // "asc" | "desc"
-  }
-}
-
-
-⸻
-
-8.2.4 Aggregate
-Purpose: Perform grouping and aggregation, per PS shape.
-
-Schema:
-
-{
-  "type": "Aggregate",
-  "id": "agg1",
-  "inputs": {
-    "source": "api_sales"
-  },
-  "config": {
-    "group_by": ["customer.state_us_state_code"],
-    "aggregates": [
-      {
-        "field": "sale.amount_decimal",
-        "function": "sum",
-        "as": "total_amount"
-      }
-    ]
-  }
-}
-
-
-⸻
-
-8.2.5 Join
-Purpose: Combine two datasets on matching keys.
-
-Schema:
-
-{
-  "type": "Join",
-  "id": "j1",
-  "inputs": {
-    "left": "sales",
-    "right": "customers"
-  },
-  "config": {
-    "leftField": "sale.customer_id",
-    "rightField": "customer.id",
-    "joinType": "inner"   // "inner" | "left" | "right" | "full"
-  }
-}
-
-
-⸻
-
-8.3 Execution Nodes
-
-8.3.1 ApiCall
-Purpose: Make a backend API request.
-
-Schema:
-
-{
-  "type": "ApiCall",
-  "id": "api_sales",
-  "config": {
-    "endpoint": "/sales",
-    "method": "GET",
-    "params": {
-      "year": 2025  // may reference output of ConvertValue/MapEnum/CustomLogic
-    },
-    "body": null,
-    "headers": {}
-  }
-}
-
-Planner fills:
-	•	endpoint
-	•	method
-	•	how params and body relate to PS fields and converted values.
-
-Executor performs the HTTP call and returns the result as a collection or object.
-
-⸻
-
-8.3.2 LimitOffset
-Purpose: Apply pagination semantics as described in PS shape.
-
-Schema:
-
-{
-  "type": "LimitOffset",
-  "id": "l1",
-  "inputs": {
-    "source": "s1"
-  },
-  "config": {
-    "limit": 10,
-    "offset": 0
-  }
-}
-
-Executor slices the input collection.
-
-⸻
-
-9. Value Conversion Phase
-
-The Conversion Phase is a logical stage before (or interleaved with) execution:
-	1.	Planner emits nodes that describe conversions using:
-	•	ConvertValue
-	•	MapEnum
-	•	CustomLogic
-	2.	The executor evaluates these nodes (or evaluates them lazily as inputs are needed).
-	3.	Converted values are inserted into:
-	•	ApiCall.config.params
-	•	ApiCall.config.body
-	•	configuration for other nodes as needed.
-
-The planner does not implement conversion logic — it only:
-	•	Indicates which conceptual field / value needs conversion.
-	•	Indicates the target API value format.
-	•	Optionally chooses CustomLogic when no standard pattern fits.
-
-All actual conversion logic is in executor code / conversion library.
-
-⸻
-
-10. Execution Semantics
-	•	DAG is acyclic.
-	•	Executor:
-	1.	Topologically sorts nodes.
-	2.	Evaluates value-transform nodes as needed.
-	3.	Evaluates ApiCall nodes to fetch data.
-	4.	Applies structural nodes (Filter, Join, Aggregate, Sort, LimitOffset).
-	5.	Returns final result (JSON) to caller.
-	•	Inter-node communication:
-	•	inputs map references output of previous nodes by id.
-	•	Value-transform nodes can be used as “constants” feeding into ApiCall.
-
-⸻
-
-11. Cache Keys
-
-Cache keys are derived entirely from the conceptual PS structure:
+Cache key includes:
 	•	action
 	•	entity
-	•	filter structure (field kinds + operators; conceptual, not entities)
-	•	params structure (field kinds, not values)
-	•	shape structure (group_by field kinds, aggregate functions, order_by conceptual fields)
-	•	Presence of limit/offset (but not their actual values)
+	•	filter structure (field, operator, scalar vs array)
+	•	params keys
+	•	aggregates (field + function)
+	•	group_by fields
+	•	order_by fields
+	•	presence of limit/offset
 
-Excluded:
-	•	DTN values themselves
-	•	Entity qualifiers (customer vs sale)
-	•	API endpoint names
+Cache key excludes:
+	•	conceptual DTN values
+	•	aliases
+	•	API names and fields
 	•	DAG structure
-	•	Conversion details
+	•	transform steps
 	•	CustomLogic code
-	•	Prompt wording
+	•	original prompt text
 
-This maximizes cache hits across identical conceptual intents, regardless of backend realization.
-
-⸻
-
-12. LLM-Teachability Considerations
-
-For the planner LLM:
-	•	Keep node vocabulary small (10 types).
-	•	Use consistent JSON structure across nodes.
-	•	Provide a short operator reference and 2–3 examples of full PS → DAG mappings in the planner prompt.
-	•	The planner’s task:
-	•	Not to implement logic.
-	•	But to select operators and wire dataflow.
-
-The DAG IR is thus:
-	•	Small enough to teach in prompt only (no fine-tuning needed).
-	•	Regular enough to be generated accurately.
+Aliases never affect cache keys.
 
 ⸻
 
-13. Summary
-	•	PS is a constrained conceptual language, not arbitrary code.
-	•	Because PS is constrained, a finite DAG IR is both feasible and desirable.
-	•	The planner:
-	•	Reads PS + API spec.
-	•	Builds a DAG execution plan using the 10-node vocabulary.
-	•	Value Conversion Phase:
-	•	Converts conceptual DTN values → API values using ConvertValue, MapEnum, and CustomLogic.
-	•	Executor:
-	•	Runs the DAG deterministically, calling APIs and shaping results.
-	•	CustomLogic:
-	•	Provides an escape hatch for rare, API-specific transformations, enabling support for arbitrary APIs without exploding the DAG node set.
+14. Example Execution Plan
 
-You can now hand this spec to a coding agent to:
-	•	Implement the DAG node types.
-	•	Implement the executor.
-	•	Implement conversion functions.
-	•	Implement planner prompts (or planner logic).
-	•	Wire everything into your existing PS/normalizer pipeline.
+(unchanged from v22.)
 
-If you want, next step I can draft:
-	•	A JSON Schema for each node type, or
-	•	A planner prompt template that shows the LLM exactly how to map PS → DAG.
+⸻
+
+15. Summary of v22A Additions
+	•	Added alias field to PS filter objects.
+	•	Normalizer assigns aliases when the same conceptual field appears multiple times.
+	•	Planner uses aliases to create distinct transforms and API bindings.
+	•	Aliases do not affect conceptual semantics or cache keys.
+
+⸻
+
+If you’d like, I can now generate v23 with the equals/in cardinality rules clarified in the Normalizer and Planner sections, fully harmonized with alias semantics.

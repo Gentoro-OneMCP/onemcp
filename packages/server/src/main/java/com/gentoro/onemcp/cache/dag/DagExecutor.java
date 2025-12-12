@@ -11,10 +11,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -239,12 +241,37 @@ public class DagExecutor {
 
     // Try to invoke via operation registry using operationId
     try {
-      return operationRegistry.invoke(operationId, callData);
+      JsonNode result = operationRegistry.invoke(operationId, callData);
+      // Extract data field from standard API response format {success: true, data: [...], metadata: {...}}
+      if (result != null && result.isObject() && result.has("success") && result.has("data")) {
+        JsonNode successNode = result.get("success");
+        JsonNode dataNode = result.get("data");
+        // If success is true and data is an array, return the data array
+        if ((successNode.isBoolean() && successNode.asBoolean()) || 
+            (successNode.isTextual() && "true".equalsIgnoreCase(successNode.asText()))) {
+          if (dataNode.isArray()) {
+            return dataNode;
+          }
+        }
+      }
+      return result;
     } catch (Exception e) {
       // If operationId doesn't work, try endpoint as fallback
       if (!operationId.equals(endpoint)) {
         try {
-          return operationRegistry.invoke(endpoint, callData);
+          JsonNode result = operationRegistry.invoke(endpoint, callData);
+          // Extract data field from standard API response format
+          if (result != null && result.isObject() && result.has("success") && result.has("data")) {
+            JsonNode successNode = result.get("success");
+            JsonNode dataNode = result.get("data");
+            if ((successNode.isBoolean() && successNode.asBoolean()) || 
+                (successNode.isTextual() && "true".equalsIgnoreCase(successNode.asText()))) {
+              if (dataNode.isArray()) {
+                return dataNode;
+              }
+            }
+          }
+          return result;
         } catch (Exception e2) {
           throw new DagExecutionException(
               "Failed to invoke API call for operationId: " + operationId + ", endpoint: " + endpoint, e);
@@ -456,11 +483,25 @@ public class DagExecutor {
       edges.put(node.getId(), new ArrayList<>());
     }
 
-    // Build graph
+    // Build graph from explicit inputs
     for (DagNode node : nodes) {
       for (String inputNodeId : node.getInputs().values()) {
         inDegree.put(node.getId(), inDegree.get(node.getId()) + 1);
         edges.computeIfAbsent(inputNodeId, k -> new ArrayList<>()).add(node.getId());
+      }
+    }
+
+    // Also extract implicit dependencies from JSONPath references in configs
+    // This ensures nodes referenced via JSONPath (e.g., "$.cv1.value") are executed first
+    for (DagNode node : nodes) {
+      Set<String> referencedNodeIds = extractJsonPathReferences(node.getConfig(), nodeMap.keySet());
+      for (String referencedNodeId : referencedNodeIds) {
+        // Only add edge if referenced node exists and isn't already an explicit input
+        if (nodeMap.containsKey(referencedNodeId) && 
+            !node.getInputs().containsValue(referencedNodeId)) {
+          inDegree.put(node.getId(), inDegree.get(node.getId()) + 1);
+          edges.computeIfAbsent(referencedNodeId, k -> new ArrayList<>()).add(node.getId());
+        }
       }
     }
 
@@ -490,6 +531,47 @@ public class DagExecutor {
     }
 
     return result;
+  }
+
+  /**
+   * Extract node IDs referenced via JSONPath from a config node.
+   * This finds all strings like "$.nodeId.field" and returns the node IDs.
+   * 
+   * @param config the config JsonNode to search
+   * @param validNodeIds set of valid node IDs (to filter out _initial and other special references)
+   * @return set of node IDs referenced in the config
+   */
+  private Set<String> extractJsonPathReferences(JsonNode config, Set<String> validNodeIds) {
+    Set<String> referencedNodeIds = new HashSet<>();
+    
+    if (config == null || config.isNull()) {
+      return referencedNodeIds;
+    }
+    
+    if (config.isTextual()) {
+      String value = config.asText();
+      if (value.startsWith("$.")) {
+        // Extract node ID from JSONPath like "$.cv1.value" or "$.nodeId.field"
+        String[] parts = value.substring(2).split("\\.");
+        if (parts.length >= 1) {
+          String nodeId = parts[0];
+          // Only include if it's a valid node ID (not _initial or other special references)
+          if (validNodeIds.contains(nodeId)) {
+            referencedNodeIds.add(nodeId);
+          }
+        }
+      }
+    } else if (config.isObject()) {
+      config.fields().forEachRemaining(entry -> {
+        referencedNodeIds.addAll(extractJsonPathReferences(entry.getValue(), validNodeIds));
+      });
+    } else if (config.isArray()) {
+      for (JsonNode item : config) {
+        referencedNodeIds.addAll(extractJsonPathReferences(item, validNodeIds));
+      }
+    }
+    
+    return referencedNodeIds;
   }
 
   private JsonNode getInputNodeResult(DagNode node, String inputName, 

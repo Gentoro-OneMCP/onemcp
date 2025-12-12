@@ -1,7 +1,0 @@
-{
-  "psk" : "query-sale-filter_customer_state_us_state_code_date_quarter_date_year_int_product_category_ops_equals_equals_equals_equals",
-  "created_at" : "2025-12-01T18:19:56.361391Z",
-  "plan" : "{\n  \"start_node\" : {\n    \"vars\" : { },\n    \"route\" : \"api_call\"\n  },\n  \"api_call\" : {\n    \"operation\" : \"querySalesData\",\n    \"http\" : {\n      \"path_params\" : { },\n      \"query\" : { },\n      \"headers\" : { },\n      \"body\" : {\n        \"filter\" : [ {\n          \"field\" : \"product.category\",\n          \"operator\" : \"equals\",\n          \"value\" : \"{{filter.product_category.value}}\"\n        }, {\n          \"field\" : \"customer.state\",\n          \"operator\" : \"equals\",\n          \"value\" : \"{{filter.customer_state_us_state_code.value}}\"\n        }, {\n          \"field\" : \"date.year\",\n          \"operator\" : \"equals\",\n          \"value\" : \"{{filter.date_year_int.value}}\"\n        }, {\n          \"field\" : \"date.quarter\",\n          \"operator\" : \"equals\",\n          \"value\" : \"{{filter.date_quarter.value}}\"\n        } ],\n        \"fields\" : [ \"sale.id\", \"sale.amount\", \"product.name\", \"product.category\", \"customer.state\", \"date.year\", \"date.quarter\" ]\n      }\n    },\n    \"route\" : \"terminal\"\n  },\n  \"terminal\" : {\n    \"completed\" : true,\n    \"vars\" : {\n      \"answer\" : \"$.['api_call'].['data']\"\n    }\n  }\n}",
-  "execution_status" : "SUCCESS",
-  "failed_attempts" : 0
-}

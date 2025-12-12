@@ -19,6 +19,9 @@ import java.util.regex.Pattern;
 
 public class EndpointInvoker {
 
+  private static final org.slf4j.Logger log =
+      com.gentoro.onemcp.logging.LoggingService.getLogger(EndpointInvoker.class);
+
   private final String baseUrl;
   private final String pathTemplate;
   private final String method;
@@ -60,6 +63,9 @@ public class EndpointInvoker {
     // 2️⃣ Build query string from query object
     String query = buildQueryFromStructured(httpRequest);
     String fullUrl = baseUrl + finalPath + (query.isEmpty() ? "" : "?" + query);
+
+    log.debug("EndpointInvoker: {} {} (baseUrl={}, pathTemplate={}, finalPath={})",
+        method, fullUrl, baseUrl, pathTemplate, finalPath);
 
     // 3️⃣ Prepare HTTP request builder
     HttpRequest.Builder builder =
@@ -175,6 +181,9 @@ public class EndpointInvoker {
     String query = buildQuery(operation.getParameters(), input);
     String fullUrl = baseUrl + finalPath + (query.isEmpty() ? "" : "?" + query);
 
+    log.debug("EndpointInvoker: {} {} (baseUrl={}, pathTemplate={}, finalPath={})",
+        method, fullUrl, baseUrl, pathTemplate, finalPath);
+
     // 3️⃣ Prepare HTTP request builder
     HttpRequest.Builder builder =
         HttpRequest.newBuilder().uri(URI.create(fullUrl)).header("Accept", "application/json");
@@ -226,7 +235,12 @@ public class EndpointInvoker {
     if (statusCode >= 400) {
       String errorMessage = "HTTP " + statusCode;
       String responseBody = response.body();
+      
+      // Log detailed error information for debugging
+      log.warn("HTTP request failed: {} {} -> {} (baseUrl={}, pathTemplate={})",
+          method, fullUrl, statusCode, baseUrl, pathTemplate);
       if (responseBody != null && !responseBody.trim().isEmpty()) {
+        log.debug("Error response body: {}", responseBody);
         try {
           JsonNode errorJson = HttpUtils.toJsonNode(responseBody);
           if (errorJson.has("error") && errorJson.get("error").isTextual()) {
@@ -241,6 +255,16 @@ public class EndpointInvoker {
           errorMessage = "HTTP " + statusCode + ": " + responseBody;
         }
       }
+      
+      // For 405 errors, provide additional diagnostic information
+      if (statusCode == 405) {
+        log.error("HTTP 405 Method Not Allowed - URL construction details: " +
+            "method={}, fullUrl={}, baseUrl={}, pathTemplate={}, " +
+            "operationId={}",
+            method, fullUrl, baseUrl, pathTemplate,
+            operation != null ? operation.getOperationId() : "null");
+      }
+      
       throw new RuntimeException("API error: " + errorMessage);
     }
 

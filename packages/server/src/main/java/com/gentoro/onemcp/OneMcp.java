@@ -183,6 +183,21 @@ public class OneMcp {
       Thread.currentThread().interrupt();
     }
   }
+  
+  /**
+   * Remove the shutdown hook if it was registered.
+   * This should be called in tests to prevent the hook from interfering with test cleanup.
+   */
+  public void removeShutdownHook() {
+    if (shutdownHook != null) {
+      try {
+        Runtime.getRuntime().removeShutdownHook(shutdownHook);
+      } catch (IllegalStateException e) {
+        // Shutdown already in progress, ignore
+      }
+      shutdownHook = null;
+    }
+  }
 
   /** Release resources. Safe to call multiple times; executed only once. */
   public void shutdown() {
@@ -201,7 +216,35 @@ public class OneMcp {
   private void triggerShutdown(String reason) {
     if (shuttingDown.compareAndSet(false, true)) {
       try {
-        closeQuietly(httpServer);
+        log.debug("Shutting down OneMcp (reason: {})", reason);
+        // Close graph service first (OrientDB needs to close connections)
+        // Use a timeout to prevent hanging
+        Thread graphShutdown = new Thread(() -> closeQuietly(graphService));
+        graphShutdown.setDaemon(true);
+        graphShutdown.start();
+        try {
+          graphShutdown.join(1000); // 1 second max
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        
+        // Then close HTTP server
+        Thread httpShutdown = new Thread(() -> {
+          try {
+            closeQuietly(httpServer);
+          } catch (Exception e) {
+            log.debug("Error closing HTTP server", e);
+          }
+        });
+        httpShutdown.setDaemon(true);
+        httpShutdown.start();
+        try {
+          httpShutdown.join(1000); // 1 second max
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        
+        log.debug("OneMcp shutdown complete");
       } finally {
         shutdownLatch.countDown();
       }

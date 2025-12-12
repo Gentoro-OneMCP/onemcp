@@ -43,25 +43,6 @@ public class Lexifier {
       "delete", "delete"
   );
   
-  // Field suffix patterns for type disambiguation
-  private static final Map<String, String> TYPE_SUFFIXES = Map.ofEntries(
-      Map.entry("date", "_yyyy_mm_dd"),
-      Map.entry("date-time", "_yyyy_mm_dd"),
-      Map.entry("year", "_yyyy"),
-      Map.entry("month", "_yyyy_mm"),
-      Map.entry("quarter", "_quarter"),
-      Map.entry("integer", "_int"),
-      Map.entry("number", "_decimal"),
-      Map.entry("boolean", "_bool"),
-      Map.entry("email", "_email"),
-      Map.entry("uri", "_url"),
-      Map.entry("url", "_url")
-  );
-  
-  // State code detection patterns
-  private static final Set<String> STATE_FIELD_HINTS = Set.of(
-      "state", "state_code", "province", "region_code"
-  );
   
   public Lexifier(OneMcp oneMcp) {
     this.oneMcp = oneMcp;
@@ -560,10 +541,15 @@ public class Lexifier {
       ObjectMapper mapper = JacksonUtility.getJsonMapper();
       JsonNode result = mapper.readTree(jsonContent);
       
-      // Extract fields
+      // Extract fields and clean them up
       if (result.has("fields") && result.get("fields").isArray()) {
         for (JsonNode field : result.get("fields")) {
-          lexicon.addField(field.asText());
+          String fieldName = field.asText();
+          // Clean up field names: remove type suffixes, fix date fields
+          fieldName = cleanFieldName(fieldName);
+          if (fieldName != null && !fieldName.isEmpty()) {
+            lexicon.addField(fieldName);
+          }
         }
       }
       
@@ -695,10 +681,15 @@ public class Lexifier {
         }
       }
       
-      // Extract disambiguated fields
+      // Extract disambiguated fields and clean them
       if (result.has("fields") && result.get("fields").isArray()) {
         for (JsonNode field : result.get("fields")) {
-          lexicon.addField(field.asText());
+          String fieldName = field.asText();
+          // Clean up field names: remove type suffixes, fix date fields
+          fieldName = cleanFieldName(fieldName);
+          if (fieldName != null && !fieldName.isEmpty()) {
+            lexicon.addField(fieldName);
+          }
         }
       }
       
@@ -1083,223 +1074,53 @@ public class Lexifier {
   }
   
   /**
-   * Extract conceptual fields from schemas.
+   * Clean field name to comply with DTN rules: remove type suffixes, fix date fields.
+   * 
+   * Rules:
+   * - Remove `_int` and `_decimal` type suffixes (DTN fields are all strings)
+   * - Convert `date_year_int` → `date_yyyy`
+   * - Convert `date_month_int` → `date_mm` or `date_yyyy_mm`
+   * - Convert `date_week_int` → `date_week`
+   * - Remove entity prefixes (e.g., `sale_date` → `date`)
    */
-  private void extractFields(JsonNode spec, ConceptualLexicon lexicon) {
-    Set<String> fields = new HashSet<>();
-    
-    // Extract from response schemas
-    JsonNode paths = spec.get("paths");
-    if (paths != null) {
-      paths.fields().forEachRemaining(pathEntry -> {
-        pathEntry.getValue().fields().forEachRemaining(methodEntry -> {
-          JsonNode operation = methodEntry.getValue();
-          
-          // Extract from responses
-          JsonNode responses = operation.get("responses");
-          if (responses != null) {
-            responses.fields().forEachRemaining(responseEntry -> {
-              extractFieldsFromSchema(responseEntry.getValue(), fields);
-            });
-          }
-          
-          // Extract from request body
-          JsonNode requestBody = operation.get("requestBody");
-          if (requestBody != null) {
-            extractFieldsFromSchema(requestBody, fields);
-          }
-        });
-      });
+  private String cleanFieldName(String fieldName) {
+    if (fieldName == null || fieldName.isEmpty()) {
+      return fieldName;
     }
     
-    // Extract from component schemas
-    JsonNode components = spec.get("components");
-    if (components != null) {
-      JsonNode schemas = components.get("schemas");
-      if (schemas != null) {
-        schemas.fields().forEachRemaining(schemaEntry -> {
-          extractFieldsFromSchemaObject(schemaEntry.getValue(), fields, new HashSet<>());
-        });
-      }
+    String cleaned = fieldName;
+    
+    // Fix date fields with type suffixes
+    if (cleaned.equals("date_year_int") || cleaned.equals("dateYearInt")) {
+      return "date_yyyy";
+    }
+    if (cleaned.equals("date_month_int") || cleaned.equals("dateMonthInt")) {
+      return "date_mm"; // or date_yyyy_mm depending on context
+    }
+    if (cleaned.equals("date_week_int") || cleaned.equals("dateWeekInt")) {
+      return "date_week";
+    }
+    if (cleaned.equals("date_day_int") || cleaned.equals("dateDayInt")) {
+      return "date_dd";
     }
     
-    fields.forEach(lexicon::addField);
-  }
-  
-  /**
-   * Recursively extract fields from a schema node.
-   */
-  private void extractFieldsFromSchema(JsonNode node, Set<String> fields) {
-    if (node == null) return;
+    // Remove type suffixes (_int, _decimal) - DTN fields are all strings
+    cleaned = cleaned.replaceAll("_int$", "");
+    cleaned = cleaned.replaceAll("_decimal$", "");
+    cleaned = cleaned.replaceAll("Int$", "");
+    cleaned = cleaned.replaceAll("Decimal$", "");
     
-    // Handle content → application/json → schema
-    JsonNode content = node.get("content");
-    if (content != null) {
-      JsonNode jsonContent = content.get("application/json");
-      if (jsonContent != null) {
-        JsonNode schema = jsonContent.get("schema");
-        if (schema != null) {
-          extractFieldsFromSchemaObject(schema, fields, new HashSet<>());
-        }
-      }
+    // Remove entity prefixes for date fields (sale_date_yyyy_mm_dd → date_yyyy_mm_dd)
+    if (cleaned.startsWith("sale_date_") || cleaned.startsWith("customer_date_") || 
+        cleaned.startsWith("product_date_")) {
+      cleaned = cleaned.replaceFirst("^(sale|customer|product)_date_", "date_");
     }
     
-    // Direct schema
-    JsonNode schema = node.get("schema");
-    if (schema != null) {
-      extractFieldsFromSchemaObject(schema, fields, new HashSet<>());
-    }
-  }
-  
-  /**
-   * Extract fields from a schema object (handles nested objects and arrays).
-   */
-  private void extractFieldsFromSchemaObject(JsonNode schema, Set<String> fields, Set<String> visited) {
-    if (schema == null) return;
+    // Remove entity prefixes for other common fields
+    // But keep them for disambiguation (customer_id vs product_id)
+    // This is a heuristic - be conservative
     
-    // Handle $ref
-    JsonNode ref = schema.get("$ref");
-    if (ref != null) {
-      String refPath = ref.asText();
-      if (visited.contains(refPath)) return; // Avoid infinite loops
-      visited.add(refPath);
-      // We don't resolve refs here - they're handled by component schemas
-      return;
-    }
-    
-    // Handle properties
-    JsonNode properties = schema.get("properties");
-    if (properties != null) {
-      properties.fields().forEachRemaining(propEntry -> {
-        String propName = propEntry.getKey();
-        JsonNode propSchema = propEntry.getValue();
-        
-        // Skip wrapper/metadata fields
-        if (isWrapperField(propName)) return;
-        
-        // Convert to conceptual field name
-        String conceptualField = toConceptualField(propName, propSchema);
-        if (conceptualField != null && !conceptualField.isEmpty()) {
-          fields.add(conceptualField);
-        }
-        
-        // Recurse into nested objects
-        extractFieldsFromSchemaObject(propSchema, fields, visited);
-      });
-    }
-    
-    // Handle items (array)
-    JsonNode items = schema.get("items");
-    if (items != null) {
-      extractFieldsFromSchemaObject(items, fields, visited);
-    }
-    
-    // Handle allOf, oneOf, anyOf
-    for (String combiner : List.of("allOf", "oneOf", "anyOf")) {
-      JsonNode combined = schema.get(combiner);
-      if (combined != null && combined.isArray()) {
-        for (JsonNode subSchema : combined) {
-          extractFieldsFromSchemaObject(subSchema, fields, visited);
-        }
-      }
-    }
-  }
-  
-  /**
-   * Convert an API field name to a conceptual field with appropriate suffix.
-   */
-  private String toConceptualField(String fieldName, JsonNode schema) {
-    // Normalize field name: remove entity prefixes, convert to snake_case
-    String normalized = normalizeFieldName(fieldName);
-    if (normalized == null || normalized.isEmpty()) return null;
-    
-    // Determine suffix based on type and format
-    String type = schema.has("type") ? schema.get("type").asText() : "";
-    String format = schema.has("format") ? schema.get("format").asText() : "";
-    
-    // Check for state codes
-    if (isStateField(normalized)) {
-      return normalized + "_us_state_code";
-    }
-    
-    // Check for date fields
-    if (format.contains("date") || type.equals("date") || normalized.contains("date")) {
-      if (normalized.contains("year") || format.contains("year")) {
-        return normalized + "_yyyy";
-      }
-      return normalized + "_yyyy_mm_dd";
-    }
-    
-    // Check for numeric fields
-    if (type.equals("integer") || type.equals("number")) {
-      if (normalized.contains("amount") || normalized.contains("price") || normalized.contains("cost")) {
-        return normalized + "_decimal";
-      }
-      if (normalized.contains("count") || normalized.contains("quantity") || normalized.contains("id")) {
-        return normalized + "_int";
-      }
-      return normalized + "_decimal";
-    }
-    
-    // Check for boolean
-    if (type.equals("boolean")) {
-      return normalized + "_bool";
-    }
-    
-    // Default: no suffix for strings unless ambiguous
-    return normalized;
-  }
-  
-  /**
-   * Normalize a field name to conceptual form.
-   */
-  private String normalizeFieldName(String fieldName) {
-    if (fieldName == null) return null;
-    
-    // Remove common prefixes like "customer.", "sale."
-    String name = fieldName;
-    if (name.contains(".")) {
-      name = name.substring(name.lastIndexOf(".") + 1);
-    }
-    
-    // Convert camelCase to snake_case
-    name = camelToSnake(name);
-    
-    // Remove entity prefixes (customer_name → name)
-    // But keep them if they're meaningful (customer_id is different from id)
-    // This is a heuristic - keep prefixes for id, name, date
-    
-    return name.toLowerCase();
-  }
-  
-  /**
-   * Convert camelCase to snake_case.
-   */
-  private String camelToSnake(String str) {
-    if (str == null) return null;
-    return str.replaceAll("([a-z])([A-Z])", "$1_$2").toLowerCase();
-  }
-  
-  /**
-   * Check if a field is a state code field.
-   */
-  private boolean isStateField(String fieldName) {
-    for (String hint : STATE_FIELD_HINTS) {
-      if (fieldName.contains(hint)) return true;
-    }
-    return false;
-  }
-  
-  /**
-   * Check if a field is a wrapper/metadata field to skip.
-   */
-  private boolean isWrapperField(String fieldName) {
-    Set<String> wrapperFields = Set.of(
-        "data", "results", "items", "records", "content",
-        "success", "error", "message", "status", "code",
-        "metadata", "meta", "pagination", "page", "total"
-    );
-    return wrapperFields.contains(fieldName.toLowerCase());
+    return cleaned;
   }
   
   /**
@@ -1334,6 +1155,14 @@ public class Lexifier {
     Files.writeString(lexiconPath, json);
     
     log.info("Saved lexicon to: {}", lexiconPath);
+  }
+  
+  /**
+   * Get the cache directory path.
+   * @return the cache directory
+   */
+  public Path getCacheDirectory() {
+    return cacheDir;
   }
   
   /**

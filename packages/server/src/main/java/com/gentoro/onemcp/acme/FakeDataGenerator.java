@@ -18,12 +18,12 @@ public class FakeDataGenerator {
 
   // Data arrays for generating realistic fake data
   private static final String[] PRODUCT_CATEGORIES = {
-    "Electronics", "Clothing", "Home & Garden", "Books", "Sports & Outdoors",
+    "Books", "Clothing", "Home & Garden", "Electronics", "Sports & Outdoors",
     "Health & Beauty", "Toys & Games", "Automotive", "Food & Beverages", "Office Supplies"
   };
 
-  private static final String[] ELECTRONICS_SUBCATEGORIES = {
-    "Audio", "Computers", "Mobile", "Gaming", "Cameras", "Accessories"
+  private static final String[] BOOKS_SUBCATEGORIES = {
+    "Fiction", "Non-Fiction", "Science Fiction", "Mystery", "Biography", "History"
   };
 
   private static final String[] CLOTHING_SUBCATEGORIES = {
@@ -233,7 +233,7 @@ public class FakeDataGenerator {
       sale.put("customer_id", customer.get("id"));
       sale.put("product_id", product.get("id"));
       sale.put("amount", Math.round(amount * 100.0) / 100.0);
-      sale.put("date", generateRandomDate(2015, 2024));
+      sale.put("date", generateRandomDate(2015, 2025));
       sale.put("quantity", quantity);
       sale.put("discount", Math.round(discount * 100.0) / 100.0);
       sale.put("tax", Math.round(tax * 100.0) / 100.0);
@@ -250,8 +250,8 @@ public class FakeDataGenerator {
   /** Get subcategory for a given category */
   private String getSubcategoryForCategory(String category) {
     switch (category) {
-      case "Electronics":
-        return ELECTRONICS_SUBCATEGORIES[random.nextInt(ELECTRONICS_SUBCATEGORIES.length)];
+      case "Books":
+        return BOOKS_SUBCATEGORIES[random.nextInt(BOOKS_SUBCATEGORIES.length)];
       case "Clothing":
         return CLOTHING_SUBCATEGORIES[random.nextInt(CLOTHING_SUBCATEGORIES.length)];
       default:

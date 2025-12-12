@@ -9,6 +9,8 @@ import com.gentoro.onemcp.utility.JacksonUtility;
 import com.gentoro.onemcp.utility.StringUtility;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -113,6 +115,8 @@ public class ExecutionPlanEngine {
    * Deeply resolve a JSON specification by evaluating any textual values that start with '$' as
    * JsonPath against the composed context (root exposes each node by its id). This method recurses
    * into objects and arrays and returns a new tree with all eligible values resolved.
+   * 
+   * <p>Also supports @value.<name> references to transformed values from the valueTransforms section.
    */
   private JsonNode deepResolve(JsonNode spec, ObjectNode gstt, JsonNode lstt) {
     if (spec == null || spec.isNull()) {
@@ -121,8 +125,32 @@ public class ExecutionPlanEngine {
     ObjectNode ctx = makeCtx(gstt, lstt);
     if (spec.isTextual()) {
       String s = spec.asText();
+      // Handle @value.<name> references
+      if (s.startsWith("@value.")) {
+        String valueName = s.substring("@value.".length());
+        JsonNode valueNode = gstt.get("value");
+        if (valueNode != null && valueNode.isObject() && valueNode.has(valueName)) {
+          return valueNode.get(valueName);
+        }
+        throw new ExecutionPlanException("Value transform '" + valueName + "' not found");
+      }
       if (s.startsWith("$")) {
-        return jsonPath.read(ctx, s);
+        try {
+          JsonNode resolved = jsonPath.read(ctx, s);
+          if (resolved == null || resolved.isNull()) {
+            // JSONPath resolution returned null - log warning with available context keys
+            java.util.List<String> keys = new java.util.ArrayList<>();
+            for (Iterator<String> it = ctx.fieldNames(); it.hasNext(); ) {
+              keys.add(it.next());
+            }
+            log.warn("JSONPath '{}' resolved to null. Context keys: {}", s, keys);
+            return JsonNodeFactory.instance.nullNode();
+          }
+          return resolved;
+        } catch (Exception e) {
+          log.warn("Failed to resolve JSONPath '{}': {}", s, e.getMessage());
+          return JsonNodeFactory.instance.nullNode();
+        }
       }
       // literal string, keep as-is
       return spec;
@@ -172,6 +200,148 @@ public class ExecutionPlanEngine {
   // ---------------- New-spec execution ----------------
   private JsonNode executeNewSpec(JsonNode plan, JsonNode initialState) {
     ObjectNode gstt = JsonNodeFactory.instance.objectNode();
+    
+    // Store initial state in gstt so it's available for JSONPath resolution
+    if (initialState != null && initialState.isObject()) {
+      gstt.set("_initial", initialState);
+    }
+
+    // Execute valueTransforms first (if present)
+    Map<String, Object> transformedValues = new java.util.HashMap<>();
+    if (plan.has("valueTransforms") && plan.get("valueTransforms").isArray()) {
+      // Simple inline value transform execution
+      for (JsonNode transform : plan.get("valueTransforms")) {
+        if (transform.isObject() && transform.has("name") && transform.has("conceptualValue")) {
+          String name = transform.get("name").asText();
+          JsonNode conceptualValueNode = transform.get("conceptualValue");
+          
+          // Support both single value (string JSONPath) and array (array of JSONPaths)
+          Object transformedValue = null;
+          
+          if (conceptualValueNode.isArray()) {
+            // Array case: resolve each JSONPath and collect into array
+            // This will be processed by the to_array operator in steps
+            // Store the array of JSONPath references as-is for now
+            transformedValue = conceptualValueNode;
+          } else if (conceptualValueNode.isTextual()) {
+            // Single value case: original logic
+            String conceptualValue = conceptualValueNode.asText();
+            
+            // CRITICAL: Resolve JSONPath expressions in conceptualValue
+            // If conceptualValue is a JSONPath (starts with $), resolve it against initialState
+            Object resolvedValue = resolveJsonPathValue(conceptualValue, initialState);
+            
+            // If JSONPath resolution failed, fall back to old substitution logic
+            if (resolvedValue == null && initialState != null && initialState.isObject()) {
+              // FALLBACK: Old substitution logic for hardcoded values (backward compatibility)
+              String conceptualKind = transform.has("conceptualKind") 
+                  ? transform.get("conceptualKind").asText() : null;
+              
+              // Check if this is a date/year-related transform
+              boolean isDateRelated = conceptualKind != null && 
+                  (conceptualKind.contains("date") || conceptualKind.contains("year") || 
+                   conceptualKind.contains("month") || conceptualKind.contains("day") || 
+                   conceptualKind.contains("quarter"));
+              
+              // Find matching value in initialState
+              String substitutedValue = null;
+              if (isDateRelated || isYearLike(conceptualValue)) {
+                // For date/year fields: if conceptualValue is year-like, find year-like value in initialState
+                for (java.util.Iterator<java.util.Map.Entry<String, JsonNode>> it = initialState.fields(); 
+                     it.hasNext() && substitutedValue == null; ) {
+                  java.util.Map.Entry<String, JsonNode> entry = it.next();
+                  String initialValue = entry.getValue().asText();
+                  // If both are year-like, use the initial value (substitute cached year with current year)
+                  if (isYearLike(conceptualValue) && isYearLike(initialValue)) {
+                    substitutedValue = initialValue;
+                  } else if (conceptualValue.equals(initialValue)) {
+                    // Exact match also works
+                    substitutedValue = initialValue;
+                  }
+                }
+              } else {
+                // For non-date fields, try exact match
+                for (java.util.Iterator<java.util.Map.Entry<String, JsonNode>> it = initialState.fields(); 
+                     it.hasNext() && substitutedValue == null; ) {
+                  java.util.Map.Entry<String, JsonNode> entry = it.next();
+                  String initialValue = entry.getValue().asText();
+                  if (conceptualValue.equals(initialValue)) {
+                    substitutedValue = initialValue;
+                  }
+                }
+              }
+              
+              // Use substituted value if found, otherwise keep original
+              if (substitutedValue != null) {
+                resolvedValue = substitutedValue;
+              } else {
+                resolvedValue = conceptualValue;
+              }
+            } else if (resolvedValue == null) {
+              resolvedValue = conceptualValue;
+            }
+            
+            transformedValue = resolvedValue;
+          } else {
+            // Not a string or array, skip
+            continue;
+          }
+          
+          // Apply transformation steps if present
+          if (transform.has("steps") && transform.get("steps").isArray()) {
+            for (JsonNode stepArray : transform.get("steps")) {
+              if (stepArray.isArray() && stepArray.size() > 0) {
+                String stepName = stepArray.get(0).asText();
+                // Special handling for array operators (per spec v22)
+                if ("resolve_params".equals(stepName) && transformedValue instanceof ArrayNode) {
+                  // Resolve parameter keys to DTN values from initial state
+                  transformedValue = resolveParamsArray((ArrayNode) transformedValue, initialState);
+                } else if ("array_map".equals(stepName) && transformedValue instanceof ArrayNode) {
+                  // Get the operation list from the step array (array_map takes oplist as second arg)
+                  // Format: ["array_map", [["uppercase"], ["trim"]]]
+                  if (stepArray.size() > 1 && stepArray.get(1).isArray()) {
+                    ArrayNode oplist = (ArrayNode) stepArray.get(1);
+                    transformedValue = applyArrayMap((ArrayNode) transformedValue, oplist);
+                  }
+                } else if ("regex_extract".equals(stepName)) {
+                  // regex_extract step: ["regex_extract", "pattern", groupIndex]
+                  if (stepArray.size() >= 3) {
+                    String pattern = stepArray.get(1).asText();
+                    int groupIndex = stepArray.get(2).asInt();
+                    transformedValue = applyRegexExtract(transformedValue, pattern, groupIndex);
+                  } else {
+                    log.warn("regex_extract step requires pattern and group index");
+                  }
+                } else {
+                  // Single operation step: ["uppercase"] or ["str_to_int"]
+                  transformedValue = applyTransformStep(stepName, transformedValue);
+                }
+              }
+            }
+          }
+          transformedValues.put(name, transformedValue);
+        }
+      }
+      
+      // Store transformed values in context for @value.<name> resolution
+      ObjectNode valueNode = JsonNodeFactory.instance.objectNode();
+      for (Map.Entry<String, Object> entry : transformedValues.entrySet()) {
+        Object value = entry.getValue();
+        if (value instanceof String) {
+          valueNode.put(entry.getKey(), (String) value);
+        } else if (value instanceof Number) {
+          valueNode.set(entry.getKey(), JacksonUtility.getJsonMapper().valueToTree(value));
+        } else if (value instanceof Boolean) {
+          valueNode.put(entry.getKey(), (Boolean) value);
+        } else if (value instanceof JsonNode) {
+          // Handle arrays and other JsonNode types directly
+          valueNode.set(entry.getKey(), (JsonNode) value);
+        } else {
+          valueNode.put(entry.getKey(), String.valueOf(value));
+        }
+      }
+      gstt.set("value", valueNode);
+    }
 
     // Initialize start_node vars
     JsonNode start = plan.get("start_node");
@@ -213,6 +383,48 @@ public class ExecutionPlanEngine {
           return JsonNodeFactory.instance.objectNode();
         }
         return resolveVars(outVars, gstt, null);
+      }
+
+      // ConvertValue node - DEPRECATED: Use valueTransforms section instead
+      // Kept for backward compatibility with cached plans
+      if (nodeDef.has("type") && "ConvertValue".equals(nodeDef.get("type").asText())) {
+        String conceptualFieldKind = nodeDef.has("conceptualFieldKind") 
+            ? nodeDef.get("conceptualFieldKind").asText() : null;
+        String targetFormat = nodeDef.has("targetFormat") 
+            ? nodeDef.get("targetFormat").asText() : null;
+        JsonNode valueSpec = nodeDef.get("value");
+        
+        // Resolve the value (may be JSONPath reference)
+        String value = null;
+        if (valueSpec != null && valueSpec.isTextual()) {
+          String valueStr = valueSpec.asText();
+          if (valueStr.startsWith("$")) {
+            JsonNode resolved = jsonPath.read(makeCtx(gstt, null), valueStr);
+            value = resolved != null && !resolved.isNull() ? resolved.asText() : null;
+          } else {
+            value = valueStr;
+          }
+        }
+        
+        // Convert the value
+        com.gentoro.onemcp.cache.dag.conversion.ValueConverter converter = 
+            new com.gentoro.onemcp.cache.dag.conversion.ValueConverter();
+        Object converted = converter.convert(conceptualFieldKind, targetFormat, value);
+        
+        // Store result
+        ObjectNode result = JsonNodeFactory.instance.objectNode();
+        if (converted instanceof String) {
+          result.put("value", (String) converted);
+        } else if (converted instanceof Number) {
+          result.set("value", JacksonUtility.getJsonMapper().valueToTree(converted));
+        } else if (converted instanceof Boolean) {
+          result.put("value", (Boolean) converted);
+        } else {
+          result.put("value", String.valueOf(converted));
+        }
+        gstt.set(currentId, result);
+        currentId = resolveRouteNew(plan, nodeDef.get("route"), gstt, result);
+        continue;
       }
 
       // HTTP call node (new structured format)
@@ -1032,5 +1244,274 @@ public class ExecutionPlanEngine {
       return fallback;
     }
     throw new ExecutionPlanException("Invalid 'next' specification for node '" + nodeId + "'");
+  }
+
+  /**
+   * Resolve a JSONPath expression against initialState.
+   * Returns the resolved value or null if resolution fails.
+   */
+  private Object resolveJsonPathValue(String pathExpr, JsonNode initialState) {
+    if (pathExpr == null || !pathExpr.startsWith("$") || initialState == null || !initialState.isObject()) {
+      return null;
+    }
+    
+    try {
+      // Create context with _initial node for JSONPath resolution
+      ObjectNode pathContext = JsonNodeFactory.instance.objectNode();
+      pathContext.set("_initial", initialState);
+      
+      // Resolve the JSONPath expression
+      JsonNode pathResult = this.jsonPath.read(pathContext, pathExpr);
+      
+      // Extract the actual value from the resolved JSONPath
+      if (pathResult != null && !pathResult.isNull()) {
+        if (pathResult.isTextual()) {
+          return pathResult.asText();
+        } else if (pathResult.isNumber()) {
+          return pathResult.numberValue();
+        } else if (pathResult.isBoolean()) {
+          return pathResult.booleanValue();
+        } else if (pathResult.isArray()) {
+          // Return array as-is for array results
+          return pathResult;
+        } else {
+          // For objects, convert to string representation
+          return pathResult.toString();
+        }
+      }
+    } catch (Exception e) {
+      log.warn("Failed to resolve JSONPath '{}': {}", pathExpr, e.getMessage());
+    }
+    return null;
+  }
+
+  /**
+   * Resolve parameter keys array to DTN values (per spec v22).
+   * Takes an array of parameter keys like ["v1", "v2"] and resolves each from initial state.
+   */
+  private Object resolveParamsArray(ArrayNode paramKeysArray, JsonNode initialState) {
+    ArrayNode resultArray = JsonNodeFactory.instance.arrayNode();
+    for (JsonNode keyNode : paramKeysArray) {
+      if (keyNode.isTextual()) {
+        String paramKey = keyNode.asText();
+        // Resolve the parameter key from initial state
+        if (initialState != null && initialState.isObject() && initialState.has(paramKey)) {
+          JsonNode value = initialState.get(paramKey);
+          resultArray.add(value);
+        }
+      }
+    }
+    return resultArray;
+  }
+  
+  /**
+   * Apply array_map operator (per spec v22 section 10.7).
+   * Applies a list of operations to each element of the array.
+   * Format: ["array_map", [["op1"], ["op2"], ...]]
+   */
+  private Object applyArrayMap(ArrayNode array, ArrayNode oplist) {
+    ArrayNode resultArray = JsonNodeFactory.instance.arrayNode();
+    for (JsonNode element : array) {
+      Object elementValue = null;
+      if (element.isTextual()) {
+        elementValue = element.asText();
+      } else if (element.isNumber()) {
+        elementValue = element.numberValue();
+      } else if (element.isBoolean()) {
+        elementValue = element.asBoolean();
+      } else {
+        elementValue = element;
+      }
+      
+      // Apply each operation in the oplist to the element
+      Object transformed = elementValue;
+      for (JsonNode opNode : oplist) {
+        if (opNode.isArray() && opNode.size() > 0) {
+          String opName = opNode.get(0).asText();
+          transformed = applyTransformStepToSingleValue(opName, transformed);
+        }
+      }
+      
+      // Add transformed element to result
+      if (transformed instanceof JsonNode) {
+        resultArray.add((JsonNode) transformed);
+      } else {
+        resultArray.add(JacksonUtility.getJsonMapper().valueToTree(transformed));
+      }
+    }
+    return resultArray;
+  }
+
+  /**
+   * Apply a single transformation step to a value.
+   * Supports both single values and arrays (applies to each element).
+   */
+  private Object applyTransformStep(String stepName, Object value) {
+    if (value == null) {
+      return value;
+    }
+    
+    // Handle array case: apply transformation to each element
+    if (value instanceof ArrayNode) {
+      ArrayNode array = (ArrayNode) value;
+      ArrayNode result = JsonNodeFactory.instance.arrayNode();
+      for (JsonNode element : array) {
+        Object elementValue = null;
+        if (element.isTextual()) {
+          elementValue = element.asText();
+        } else if (element.isNumber()) {
+          elementValue = element.numberValue();
+        } else if (element.isBoolean()) {
+          elementValue = element.asBoolean();
+        }
+        
+        Object transformed = applyTransformStepToSingleValue(stepName, elementValue);
+        if (transformed != null) {
+          result.add(JacksonUtility.getJsonMapper().valueToTree(transformed));
+        } else {
+          result.add(element);
+        }
+      }
+      return result;
+    }
+    
+    // Handle single value case
+    return applyTransformStepToSingleValue(stepName, value);
+  }
+
+  /**
+   * Apply a transformation step to a single value.
+   */
+  private Object applyTransformStepToSingleValue(String stepName, Object value) {
+    if (value == null) {
+      return value;
+    }
+    
+    // Simple transformation: str_to_int converts string to integer
+    if ("str_to_int".equals(stepName) && value instanceof String) {
+      try {
+        return Integer.parseInt((String) value);
+      } catch (NumberFormatException e) {
+        // Keep as string if conversion fails
+        return value;
+      }
+    }
+    
+    // uppercase: convert string to uppercase
+    if ("uppercase".equals(stepName) && value instanceof String) {
+      return ((String) value).toUpperCase();
+    }
+    
+    // lowercase: convert string to lowercase
+    if ("lowercase".equals(stepName) && value instanceof String) {
+      return ((String) value).toLowerCase();
+    }
+    
+    // trim: remove leading/trailing whitespace
+    if ("trim".equals(stepName) && value instanceof String) {
+      return ((String) value).trim();
+    }
+    
+    // capitalize: capitalize first letter
+    if ("capitalize".equals(stepName) && value instanceof String) {
+      String str = (String) value;
+      if (str.isEmpty()) {
+        return str;
+      }
+      return str.substring(0, 1).toUpperCase() + str.substring(1).toLowerCase();
+    }
+    
+    // Add more transformations as needed
+    // For now, return value unchanged if transformation not recognized
+    return value;
+  }
+
+  /**
+   * Apply regex_extract transformation.
+   * Extracts a capture group from a string value using a regex pattern.
+   * 
+   * @param value the value to extract from (String or ArrayNode)
+   * @param pattern the regex pattern
+   * @param groupIndex the capture group index (0 = full match, 1 = first group, etc.)
+   * @return extracted value(s)
+   */
+  private Object applyRegexExtract(Object value, String pattern, int groupIndex) {
+    if (value == null) {
+      return value;
+    }
+    
+    // Handle array case: apply to each element
+    if (value instanceof ArrayNode) {
+      ArrayNode array = (ArrayNode) value;
+      ArrayNode result = JsonNodeFactory.instance.arrayNode();
+      for (JsonNode element : array) {
+        if (element.isTextual()) {
+          String extracted = extractRegexGroup(element.asText(), pattern, groupIndex);
+          if (extracted != null) {
+            result.add(extracted);
+          } else {
+            result.add(element);
+          }
+        } else {
+          result.add(element);
+        }
+      }
+      return result;
+    }
+    
+    // Handle single value case
+    if (value instanceof String) {
+      String extracted = extractRegexGroup((String) value, pattern, groupIndex);
+      return extracted != null ? extracted : value;
+    }
+    
+    return value;
+  }
+
+  /**
+   * Extract a capture group from a string using a regex pattern.
+   * 
+   * @param input the input string
+   * @param pattern the regex pattern
+   * @param groupIndex the capture group index (0 = full match, 1 = first group, etc.)
+   * @return extracted string, or null if no match
+   */
+  private String extractRegexGroup(String input, String pattern, int groupIndex) {
+    if (input == null || pattern == null) {
+      return null;
+    }
+    
+    try {
+      Pattern regex = Pattern.compile(pattern);
+      Matcher matcher = regex.matcher(input);
+      if (matcher.find()) {
+        if (groupIndex == 0) {
+          // Group 0 is the full match
+          return matcher.group(0);
+        } else if (groupIndex <= matcher.groupCount()) {
+          // Extract the specified capture group
+          return matcher.group(groupIndex);
+        }
+      }
+    } catch (Exception e) {
+      log.warn("Regex extract failed for pattern '{}' on value '{}': {}", pattern, input, e.getMessage());
+    }
+    
+    return null;
+  }
+
+  /**
+   * Check if a string value looks like a year (4 digits, reasonable range).
+   */
+  private boolean isYearLike(String value) {
+    if (value == null || value.length() != 4) {
+      return false;
+    }
+    try {
+      int year = Integer.parseInt(value);
+      return year >= 1900 && year <= 2100;
+    } catch (NumberFormatException e) {
+      return false;
+    }
   }
 }

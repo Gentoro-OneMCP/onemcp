@@ -52,30 +52,62 @@ public class PromptSchemaCanonicalizer {
     
     PromptSchema canonical = new PromptSchema();
     
-    // Lowercase operation
-    canonical.setOperation(ps.getOperation() != null ? ps.getOperation().toLowerCase() : null);
-    canonical.setTable(ps.getTable() != null ? ps.getTable().toLowerCase() : null);
+    // Copy spec v21 fields (action, entity, filter, params, shape)
+    if (ps.getAction() != null) {
+      canonical.setAction(ps.getAction().toLowerCase());
+    }
     
-    // Canonicalize fields (sort, lowercase)
-    canonical.setFields(canonicalizeFields(ps.getFields()));
+    if (ps.getEntity() != null) {
+      canonical.setEntity(ps.getEntity().toLowerCase());
+    }
     
-    // Canonicalize WHERE expression tree (apply VSG first, then normalize)
-    canonical.setWhere(canonicalizeExpressionTree(ps.getWhere(), ps.getValues() != null ? ps.getValues() : new HashMap<>()));
+    // Copy filter (spec v21/v22A) - exclude aliases from canonical form
+    if (ps.getFilter() != null && !ps.getFilter().isEmpty()) {
+      List<Map<String, Object>> canonicalFilter = new ArrayList<>();
+      for (Map<String, Object> filterItem : ps.getFilter()) {
+        Map<String, Object> canonicalItem = new HashMap<>(filterItem);
+        // Remove alias - aliases don't affect cache keys (spec v22A section 13)
+        canonicalItem.remove("alias");
+        canonicalFilter.add(canonicalItem);
+      }
+      canonical.setFilter(canonicalFilter);
+    }
     
-    // Sort and lowercase group_by
-    canonical.setGroupBy(canonicalizeStringList(ps.getGroupBy()));
+    // Copy params (spec v21)
+    if (ps.getParams() != null && !ps.getParams().isEmpty()) {
+      canonical.setParams(new HashMap<>(ps.getParams()));
+    }
     
-    // Sort and lowercase order_by
-    canonical.setOrderBy(canonicalizeStringList(ps.getOrderBy()));
-    
-    // Copy limit and offset as-is
-    canonical.setLimit(ps.getLimit());
-    canonical.setOffset(ps.getOffset());
-    
-    // Values are NOT included in canonical form (excluded from cache key)
-    // But we keep them in the PS for the planner
-    // Values are already a Map, just copy it
-    canonical.setValues(ps.getValues() != null ? new HashMap<>(ps.getValues()) : new HashMap<>());
+    // Canonicalize shape (group_by, order_by, limit, offset are in shape)
+    Map<String, Object> shape = ps.getShape();
+    if (shape != null) {
+      Map<String, Object> canonicalShape = new HashMap<>();
+      
+      // Canonicalize group_by
+      @SuppressWarnings("unchecked")
+      List<?> groupByRaw = shape.containsKey("group_by") && shape.get("group_by") instanceof List
+          ? (List<?>) shape.get("group_by") : new ArrayList<>();
+      canonicalShape.put("group_by", canonicalizeStringList(groupByRaw));
+      
+      // Copy aggregates as-is
+      if (shape.containsKey("aggregates")) {
+        canonicalShape.put("aggregates", shape.get("aggregates"));
+      } else {
+        canonicalShape.put("aggregates", new ArrayList<>());
+      }
+      
+      // Canonicalize order_by
+      @SuppressWarnings("unchecked")
+      List<?> orderByRaw = shape.containsKey("order_by") && shape.get("order_by") instanceof List
+          ? (List<?>) shape.get("order_by") : new ArrayList<>();
+      canonicalShape.put("order_by", canonicalizeStringList(orderByRaw));
+      
+      // Copy limit and offset as-is
+      canonicalShape.put("limit", shape.get("limit"));
+      canonicalShape.put("offset", shape.get("offset"));
+      
+      canonical.setShape(canonicalShape);
+    }
     
     // Extract and sort columns from all references
     canonical.setColumns(extractAndSortColumns(ps));
@@ -88,59 +120,6 @@ public class PromptSchemaCanonicalizer {
     return canonical;
   }
   
-  /**
-   * Canonicalize fields list.
-   * Fields can be strings or aggregate objects like { "agg": "sum", "column": "amount" }
-   */
-  private List<Object> canonicalizeFields(List<Object> fields) {
-    if (fields == null || fields.isEmpty()) {
-      return new ArrayList<>();
-    }
-    
-    List<Object> canonical = new ArrayList<>();
-    for (Object field : fields) {
-      if (field instanceof String) {
-        canonical.add(((String) field).toLowerCase());
-      } else if (field instanceof Map) {
-        @SuppressWarnings("unchecked")
-        Map<String, Object> agg = (Map<String, Object>) field;
-        Map<String, Object> canonicalAgg = new HashMap<>();
-        if (agg.containsKey("agg")) {
-          canonicalAgg.put("agg", agg.get("agg").toString().toLowerCase());
-        }
-        if (agg.containsKey("column")) {
-          canonicalAgg.put("column", agg.get("column").toString().toLowerCase());
-        }
-        canonical.add(canonicalAgg);
-      } else {
-        canonical.add(field);
-      }
-    }
-    
-    // Sort fields: simple strings first, then aggregates
-    canonical.sort((a, b) -> {
-      boolean aIsString = a instanceof String;
-      boolean bIsString = b instanceof String;
-      if (aIsString && bIsString) {
-        return ((String) a).compareTo((String) b);
-      } else if (aIsString) {
-        return -1;
-      } else if (bIsString) {
-        return 1;
-      } else {
-        // Both are aggregates - sort by JSON representation
-        try {
-          String aJson = JacksonUtility.getJsonMapper().writeValueAsString(a);
-          String bJson = JacksonUtility.getJsonMapper().writeValueAsString(b);
-          return aJson.compareTo(bJson);
-        } catch (Exception e) {
-          return 0;
-        }
-      }
-    });
-    
-    return canonical;
-  }
   
   /**
    * Canonicalize expression tree with Value-Set Generalization (VSG).
@@ -386,15 +365,38 @@ public class PromptSchemaCanonicalizer {
   
   /**
    * Canonicalize string list (sort and lowercase).
+   * Handles cases where list may contain non-String items (e.g., Maps).
+   * For Maps, extracts the "field" property if present, otherwise uses toString().
    */
-  private List<String> canonicalizeStringList(List<String> list) {
+  private List<String> canonicalizeStringList(List<?> list) {
     if (list == null || list.isEmpty()) {
       return new ArrayList<>();
     }
-    
+
     List<String> canonical = new ArrayList<>();
-    for (String item : list) {
-      canonical.add(item.toLowerCase());
+    for (Object item : list) {
+      if (item instanceof String) {
+        canonical.add(((String) item).toLowerCase());
+      } else if (item instanceof Map) {
+        // Handle order_by/group_by objects like {field=quantity, function=sum, direction=desc}
+        @SuppressWarnings("unchecked")
+        Map<String, Object> itemMap = (Map<String, Object>) item;
+        if (itemMap.containsKey("field")) {
+          Object fieldObj = itemMap.get("field");
+          if (fieldObj != null) {
+            canonical.add(fieldObj.toString().toLowerCase());
+          }
+        } else {
+          // If no "field" property, use toString() as fallback
+          log.warn("Map item in list has no 'field' property during canonicalization: {}", item);
+          canonical.add(item.toString().toLowerCase());
+        }
+      } else if (item != null) {
+        // Convert other non-String items to string representation
+        log.warn("Non-String item in list during canonicalization: {} (type: {})", 
+            item, item.getClass().getName());
+        canonical.add(item.toString().toLowerCase());
+      }
     }
     Collections.sort(canonical);
     return canonical;
@@ -406,35 +408,73 @@ public class PromptSchemaCanonicalizer {
   private List<String> extractAndSortColumns(PromptSchema ps) {
     List<String> columns = new ArrayList<>();
     
-    // From fields
-    if (ps.getFields() != null) {
-      for (Object field : ps.getFields()) {
-        if (field instanceof String) {
-          columns.add(((String) field).toLowerCase());
-        } else if (field instanceof Map) {
-          @SuppressWarnings("unchecked")
-          Map<String, Object> agg = (Map<String, Object>) field;
-          if (agg.containsKey("column")) {
-            columns.add(agg.get("column").toString().toLowerCase());
+    // From shape.aggregates
+    Map<String, Object> shape = ps.getShape();
+    if (shape != null) {
+      @SuppressWarnings("unchecked")
+      List<Map<String, Object>> aggregates = shape.containsKey("aggregates") && shape.get("aggregates") instanceof List
+          ? (List<Map<String, Object>>) shape.get("aggregates") : null;
+      if (aggregates != null) {
+        for (Map<String, Object> agg : aggregates) {
+          if (agg.containsKey("field")) {
+            columns.add(agg.get("field").toString().toLowerCase());
+          }
+        }
+      }
+      
+      // From shape.group_by
+      // group_by can be a list of strings or a list of objects with "field" property
+      @SuppressWarnings("unchecked")
+      List<?> groupByRaw = shape.containsKey("group_by") && shape.get("group_by") instanceof List
+          ? (List<?>) shape.get("group_by") : null;
+      if (groupByRaw != null) {
+        for (Object item : groupByRaw) {
+          if (item instanceof String) {
+            columns.add(((String) item).toLowerCase());
+          } else if (item instanceof Map) {
+            // Handle group_by objects with "field" property
+            @SuppressWarnings("unchecked")
+            Map<String, Object> groupByObj = (Map<String, Object>) item;
+            if (groupByObj.containsKey("field")) {
+              Object fieldObj = groupByObj.get("field");
+              if (fieldObj != null) {
+                columns.add(fieldObj.toString().toLowerCase());
+              }
+            }
+          }
+        }
+      }
+      
+      // From shape.order_by
+      // order_by can be a list of strings or a list of objects with "field" property
+      @SuppressWarnings("unchecked")
+      List<?> orderByRaw = shape.containsKey("order_by") && shape.get("order_by") instanceof List
+          ? (List<?>) shape.get("order_by") : null;
+      if (orderByRaw != null) {
+        for (Object item : orderByRaw) {
+          if (item instanceof String) {
+            columns.add(((String) item).toLowerCase());
+          } else if (item instanceof Map) {
+            // Handle order_by objects like {field=quantity, function=sum, direction=desc}
+            @SuppressWarnings("unchecked")
+            Map<String, Object> orderByObj = (Map<String, Object>) item;
+            if (orderByObj.containsKey("field")) {
+              Object fieldObj = orderByObj.get("field");
+              if (fieldObj != null) {
+                columns.add(fieldObj.toString().toLowerCase());
+              }
+            }
           }
         }
       }
     }
     
-    // From WHERE expression tree
-    extractColumnsFromExpressionTree(ps.getWhere(), columns);
-    
-    // From group_by
-    if (ps.getGroupBy() != null) {
-      for (String col : ps.getGroupBy()) {
-        columns.add(col.toLowerCase());
-      }
-    }
-    
-    // From order_by
-    if (ps.getOrderBy() != null) {
-      for (String col : ps.getOrderBy()) {
-        columns.add(col.toLowerCase());
+    // From filter
+    if (ps.getFilter() != null) {
+      for (Map<String, Object> filterItem : ps.getFilter()) {
+        if (filterItem.containsKey("field")) {
+          columns.add(filterItem.get("field").toString().toLowerCase());
+        }
       }
     }
     
@@ -444,22 +484,6 @@ public class PromptSchemaCanonicalizer {
     return unique;
   }
   
-  /**
-   * Recursively extract columns from expression tree.
-   */
-  private void extractColumnsFromExpressionTree(ExpressionTree expr, List<String> columns) {
-    if (expr == null) {
-      return;
-    }
-    
-    if (expr instanceof ExpressionTree.ComparisonNode comp) {
-      columns.add(comp.column().toLowerCase());
-    } else if (expr instanceof ExpressionTree.BooleanNode bool) {
-      for (ExpressionTree child : bool.conditions()) {
-        extractColumnsFromExpressionTree(child, columns);
-      }
-    }
-  }
   
   /**
    * Generate cache key from canonical structure.
@@ -484,17 +508,24 @@ public class PromptSchemaCanonicalizer {
     try {
       // Create a minimal structure for cache key - ONLY filter structure
       PromptSchema keyStructure = new PromptSchema();
-      keyStructure.setOperation(ps.getOperation());
-      keyStructure.setTable(ps.getTable());
-      keyStructure.setWhere(ps.getWhere());
-      keyStructure.setGroupBy(ps.getGroupBy());
+      keyStructure.setAction(ps.getAction());
+      keyStructure.setEntity(ps.getEntity());
+      keyStructure.setFilter(ps.getFilter() != null ? new ArrayList<>(ps.getFilter()) : null);
+      
+      // Include group_by from shape (for cache key)
+      Map<String, Object> shape = ps.getShape();
+      if (shape != null) {
+        Map<String, Object> keyShape = new HashMap<>();
+        keyShape.put("group_by", shape.get("group_by"));
+        keyShape.put("aggregates", new ArrayList<>()); // Excluded from cache key
+        keyShape.put("order_by", null); // Excluded from cache key
+        keyShape.put("limit", null); // Excluded from cache key
+        keyShape.put("offset", null); // Excluded from cache key
+        keyStructure.setShape(keyShape);
+      }
       
       // EXCLUDED from cache key (allows flexible output):
-      keyStructure.setFields(null);      // Output fields - dynamic
-      keyStructure.setOrderBy(null);     // Sorting - applied post-query
-      keyStructure.setLimit(null);       // Pagination - applied post-query
-      keyStructure.setOffset(null);      // Pagination - applied post-query
-      keyStructure.setValues(null);      // Literal values - passed at runtime
+      keyStructure.setParams(null);      // Literal values - passed at runtime
       keyStructure.setColumns(null);     // Derived from fields
       keyStructure.setCacheKey(null);
       keyStructure.setCurrentTime(null);

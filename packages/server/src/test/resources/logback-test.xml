@@ -7,8 +7,23 @@
   <!-- Reduce OpenApiChunker info logs to debug during tests -->
   <logger name="com.gentoro.onemcp.indexing.openapi.OpenApiChunker" level="DEBUG"/>
   
+  <!-- File appender for test logs (uses ONEMCP_HOME_DIR system property if set) -->
+  <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${ONEMCP_HOME_DIR:-target/test-logs}/logs/app.log</file>
+    <immediateFlush>true</immediateFlush>
+    <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+      <fileNamePattern>${ONEMCP_HOME_DIR:-target/test-logs}/logs/app.%d{yyyy-MM-dd}.log.gz</fileNamePattern>
+      <maxHistory>7</maxHistory>
+    </rollingPolicy>
+    <encoder>
+      <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+      <immediateFlush>true</immediateFlush>
+    </encoder>
+  </appender>
+  
   <!-- Root logger for tests -->
   <root level="INFO">
+    <appender-ref ref="FILE"/>
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
       <encoder>
         <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>

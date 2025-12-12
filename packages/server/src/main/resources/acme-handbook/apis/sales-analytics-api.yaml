@@ -14,7 +14,7 @@ info:
     
     ## Dataset Overview
     The dataset contains sales transactions with the following key entities:
-    - **Products**: Electronics, clothing, books, home goods
+    - **Products**: Books, clothing, electronics, home goods
     - **Customers**: Demographics, location, purchase history
     - **Sales**: Transaction details, pricing, quantities
     - **Regions**: Geographic distribution of sales
@@ -45,7 +45,7 @@ paths:
         - **aggregates**: Optional aggregations to perform on the data
         
         ## Example Use Cases
-        - Find all electronics sales in Q4 2023
+        - Find all books sales in Q4 2023
         - Calculate total revenue by region for last month
         - Get top 10 customers by purchase amount
         - Analyze product performance by category
@@ -66,7 +66,7 @@ paths:
             examples:
               basic_filter:
                 summary: Basic filtering example
-                description: Find all sales in California for electronics
+                description: Find all sales in California for books
                 value:
                   filter:
                     - field: "customer.state"
@@ -74,7 +74,7 @@ paths:
                       value: "CA"
                     - field: "product.category"
                       operator: "equals"
-                      value: "Electronics"
+                      value: "Books"
                   fields:
                     - "sale.id"
                     - "sale.amount"
@@ -108,7 +108,7 @@ paths:
                       value: 500
                     - field: "product.category"
                       operator: "in"
-                      value: ["Electronics", "Home & Garden"]
+                      value: ["Books", "Home & Garden"]
                     - field: "customer.age"
                       operator: "between"
                       value: [25, 45]
@@ -141,8 +141,8 @@ paths:
                           amount: 299.99
                           date: "2023-12-15"
                         product:
-                          name: "Wireless Headphones"
-                          category: "Electronics"
+                          name: "The Great Novel"
+                          category: "Books"
                         customer:
                           name: "John Smith"
                           state: "CA"
@@ -230,7 +230,6 @@ components:
           description: Array of field names to include in the response
           items:
             type: string
-          minItems: 1
           maxItems: 50
         aggregates:
           type: array
@@ -497,10 +496,10 @@ components:
             status: "completed"
         products:
           - id: "PROD-001"
-            name: "Wireless Bluetooth Headphones"
-            category: "Electronics"
-            subcategory: "Audio"
-            brand: "TechSound"
+            name: "The Great Novel"
+            category: "Books"
+            subcategory: "Fiction"
+            brand: "BookMaster"
             price: 299.99
             cost: 150.00
             inventory: 45
@@ -557,7 +556,7 @@ tags:
     description: System health and status endpoints
   - name: Category
     description: |
-      A collection of products sharing attributes. *Example: Electronics, Clothing.*
+      A collection of products sharing attributes. *Example: Books, Clothing.*
   - name: Product
     description: |
       One or more items purchased as part of an Order / Sale. *Example: iPad, iPhone.*

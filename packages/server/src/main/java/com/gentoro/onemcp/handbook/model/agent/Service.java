@@ -90,15 +90,18 @@ public class Service {
     openApi = OpenApiLoader.load(apiDefPath.toString());
 
     AtomicReference<String> baseUrl = new AtomicReference<>();
-    if (apiDef != null && apiDef.getBaseUrls() != null && !apiDef.getBaseUrls().isEmpty()) {
-      baseUrl.set(apiDef.getBaseUrls().getFirst());
-    }
-
-    if (baseUrl.get() != null && !baseUrl.get().isEmpty()) {
-      openApi.getServers().stream()
-          .filter(s -> s != null && s.getUrl() != null && !s.getUrl().isEmpty())
-          .findFirst()
-          .ifPresent(s -> baseUrl.set(s.getUrl()));
+    
+    // First, try to get baseUrl from OpenAPI spec servers (preferred)
+    openApi.getServers().stream()
+        .filter(s -> s != null && s.getUrl() != null && !s.getUrl().isEmpty())
+        .findFirst()
+        .ifPresent(s -> baseUrl.set(s.getUrl()));
+    
+    // If no server URL in OpenAPI spec, fall back to apiDef baseUrls
+    if (baseUrl.get() == null || baseUrl.get().isEmpty()) {
+      if (apiDef != null && apiDef.getBaseUrls() != null && !apiDef.getBaseUrls().isEmpty()) {
+        baseUrl.set(apiDef.getBaseUrls().getFirst());
+      }
     }
 
     invokers = OpenApiLoader.buildInvokers(openApi, baseUrl.get());

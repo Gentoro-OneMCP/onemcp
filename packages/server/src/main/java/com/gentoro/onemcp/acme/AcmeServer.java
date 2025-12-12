@@ -12,8 +12,10 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -216,9 +218,11 @@ public class AcmeServer {
 
     // Join with related data
     List<Map<String, Object>> enrichedData = enrichData(sales, customers, products);
+    log.debug("Total enriched records: {}", enrichedData.size());
 
     // Apply filters
     List<Map<String, Object>> filteredSales = applyFilters(enrichedData, request.get("filter"));
+    log.debug("Records after filtering: {}", filteredSales.size());
 
     // Select fields
     List<String> requestedFields = new ArrayList<>();
@@ -236,15 +240,15 @@ public class AcmeServer {
 
     // Apply limit
     int limit = request.has("limit") ? request.get("limit").asInt() : 1000;
-    if (selectedData.size() > limit) {
-      selectedData = selectedData.subList(0, limit);
-    }
 
     // Process aggregates
     JsonNode data = null;
     if (request.has("aggregates")) {
-      data = processAggregates(filteredSales, requestedFields, request.get("aggregates"));
+      data = processAggregates(filteredSales, requestedFields, request.get("aggregates"), limit);
     } else {
+      if (selectedData.size() > limit) {
+        selectedData = selectedData.subList(0, limit);
+      }
       data = JacksonUtility.getJsonMapper().valueToTree(selectedData);
     }
 
@@ -276,10 +280,26 @@ public class AcmeServer {
       String operator = filter.get("operator").asText();
       JsonNode value = filter.get("value");
 
+      // Debug logging for filter values
+      log.debug("Applying filter: field={}, operator={}, value={} (type: {})", 
+          field, operator, value, value != null ? value.getNodeType() : "null");
+
+      int beforeCount = filtered.size();
       filtered =
           filtered.stream()
-              .filter(record -> evaluateFilter(record, field, operator, value))
+              .filter(record -> {
+                boolean matches = evaluateFilter(record, field, operator, value);
+                if (!matches && log.isTraceEnabled()) {
+                  Object fieldValue = getNestedValue(record, field);
+                  log.trace("Filter mismatch: field={}, recordValue={}, filterValue={}, operator={}", 
+                      field, fieldValue, value, operator);
+                }
+                return matches;
+              })
               .collect(Collectors.toList());
+      
+      log.debug("Filter result: {} records matched out of {} (before: {})", 
+          filtered.size(), data.size(), beforeCount);
     }
 
     return filtered;
@@ -302,21 +322,26 @@ public class AcmeServer {
 
     switch (operator) {
       case "equals":
-        // For number fields, do numeric comparison; otherwise case-insensitive string comparison
+        // For number fields, do numeric comparison; otherwise string comparison
         String fieldType = FIELD_TYPES.get(field);
         if ("number".equals(fieldType)) {
           try {
             double fieldNum = toNumber(field, fieldValue);
-            double valueNum = toNumber(field, getJsonNodeValue(value));
-            return Double.compare(fieldNum, valueNum) == 0;
+            Object jsonValue = getJsonNodeValue(value);
+            double valueNum = toNumber(field, jsonValue);
+            boolean matches = Double.compare(fieldNum, valueNum) == 0;
+            log.debug("Numeric comparison: {} {} {} = {} (fieldValue={}, filterValue={})", 
+                fieldNum, operator, valueNum, matches, fieldValue, jsonValue);
+            return matches;
           } catch (Exception e) {
-            // Fall back to case-insensitive string comparison if number conversion fails
-            return fieldValue.toString().equalsIgnoreCase(value.asText());
+            // Fall back to string comparison if number conversion fails
+            log.warn("Number conversion failed for field {}: {}", field, e.getMessage());
+            return Objects.equals(fieldValue.toString(), value.asText());
           }
         }
-        return fieldValue.toString().equalsIgnoreCase(value.asText());
+        return Objects.equals(fieldValue.toString(), value.asText());
       case "not_equals":
-        // For number fields, do numeric comparison; otherwise case-insensitive string comparison
+        // For number fields, do numeric comparison; otherwise string comparison
         fieldType = FIELD_TYPES.get(field);
         if ("number".equals(fieldType)) {
           try {
@@ -324,11 +349,11 @@ public class AcmeServer {
             double valueNum = toNumber(field, getJsonNodeValue(value));
             return Double.compare(fieldNum, valueNum) != 0;
           } catch (Exception e) {
-            // Fall back to case-insensitive string comparison if number conversion fails
-            return !fieldValue.toString().equalsIgnoreCase(value.asText());
+            // Fall back to string comparison if number conversion fails
+            return !Objects.equals(fieldValue.toString(), value.asText());
           }
         }
-        return !fieldValue.toString().equalsIgnoreCase(value.asText());
+        return !Objects.equals(fieldValue.toString(), value.asText());
       case "greater_than":
         return compareNumbers(field, fieldValue, value) > 0;
       case "greater_than_or_equal":
@@ -359,9 +384,9 @@ public class AcmeServer {
               // Fall back to string comparison if number conversion fails
             }
           }
-          // String comparison fallback (case-insensitive)
+          // String comparison fallback
           for (JsonNode item : value) {
-            if (fieldValue.toString().equalsIgnoreCase(item.asText())) {
+            if (Objects.equals(fieldValue.toString(), item.asText())) {
               return true;
             }
           }
@@ -431,6 +456,17 @@ public class AcmeServer {
 
   /** Convert value to number */
   private double toNumber(String fieldName, Object value) {
+    // Handle null values
+    if (value == null) {
+      return 0.0;
+    }
+    
+    // Handle Map values - this shouldn't happen but can occur with nested structures
+    if (value instanceof Map) {
+      log.warn("Attempted to convert Map to number for field {}: {}", fieldName, value);
+      throw new IllegalArgumentException("Cannot convert Map to number for field: " + fieldName + ". Value is a Map, not a primitive.");
+    }
+    
     String fieldType = FIELD_TYPES.get(fieldName);
     if (fieldType == null) {
       throw new IllegalArgumentException("Unknown field: " + fieldName);
@@ -439,16 +475,22 @@ public class AcmeServer {
       case "datetime":
         if (value instanceof String) {
           try {
+            // Try LocalDateTime first (for datetime strings with time)
             return LocalDateTime.parse(value.toString()).toLocalDate().toEpochDay();
           } catch (java.time.format.DateTimeParseException e) {
             try {
+              // Try LocalDate (for date-only strings like "2025-07-01")
               return LocalDate.parse(value.toString()).toEpochDay();
             } catch (java.time.format.DateTimeParseException e2) {
-              return FlexibleDateParser.parseFlexible(value.toString()).toEpochMilli();
+              // Fallback: parse as Instant and convert to epoch days for consistent units
+              Instant instant = FlexibleDateParser.parseFlexible(value.toString());
+              return instant.atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay();
             }
           }
         } else if (value instanceof LocalDate) {
           return ((LocalDate) value).toEpochDay();
+        } else if (value instanceof Instant) {
+          return ((Instant) value).atZone(ZoneId.systemDefault()).toLocalDate().toEpochDay();
         }
         break;
       case "number":
@@ -458,10 +500,20 @@ public class AcmeServer {
           try {
             return Double.parseDouble(value.toString());
           } catch (NumberFormatException e) {
+            log.warn("Failed to parse number from string '{}' for field {}: {}", 
+                value, fieldName, e.getMessage());
             return 0.0;
           }
+        } else {
+          // Try toString() as fallback
+          try {
+            return Double.parseDouble(value.toString());
+          } catch (NumberFormatException e) {
+            log.warn("Failed to convert value {} (type: {}) to number for field {}: {}", 
+                value, value != null ? value.getClass().getName() : "null", fieldName, e.getMessage());
+            throw new IllegalArgumentException("Cannot convert value to number: " + value);
+          }
         }
-        break;
       default:
         break;
     }
@@ -474,9 +526,25 @@ public class AcmeServer {
       List<Map<String, Object>> customers,
       List<Map<String, Object>> products) {
     Map<String, Map<String, Object>> customerMap =
-        customers.stream().collect(Collectors.toMap(c -> (String) c.get("id"), c -> c));
+        customers.stream().collect(Collectors.toMap(c -> {
+          Object id = c.get("id");
+          if (id instanceof String) {
+            return (String) id;
+          } else if (id != null) {
+            return id.toString();
+          }
+          throw new IllegalArgumentException("Customer ID is null or not a String: " + id);
+        }, c -> c));
     Map<String, Map<String, Object>> productMap =
-        products.stream().collect(Collectors.toMap(p -> (String) p.get("id"), p -> p));
+        products.stream().collect(Collectors.toMap(p -> {
+          Object id = p.get("id");
+          if (id instanceof String) {
+            return (String) id;
+          } else if (id != null) {
+            return id.toString();
+          }
+          throw new IllegalArgumentException("Product ID is null or not a String: " + id);
+        }, p -> p));
 
     return sales.stream()
         .map(
@@ -486,19 +554,25 @@ public class AcmeServer {
               enriched.put("sale", sale);
 
               // Add customer data
-              String customerId = (String) sale.get("customer_id");
+              Object customerIdObj = sale.get("customer_id");
+              String customerId = customerIdObj instanceof String ? (String) customerIdObj : 
+                                  customerIdObj != null ? customerIdObj.toString() : null;
               if (customerId != null && customerMap.containsKey(customerId)) {
                 enriched.put("customer", customerMap.get(customerId));
               }
 
               // Add product data
-              String productId = (String) sale.get("product_id");
+              Object productIdObj = sale.get("product_id");
+              String productId = productIdObj instanceof String ? (String) productIdObj : 
+                                productIdObj != null ? productIdObj.toString() : null;
               if (productId != null && productMap.containsKey(productId)) {
                 enriched.put("product", productMap.get(productId));
               }
 
               // Add time fields
-              String saleDate = (String) sale.get("date");
+              Object saleDateObj = sale.get("date");
+              String saleDate = saleDateObj instanceof String ? (String) saleDateObj : 
+                               saleDateObj != null ? saleDateObj.toString() : null;
               if (saleDate != null) {
                 enriched.put("date", extractTimeFields(saleDate));
               }
@@ -562,7 +636,7 @@ public class AcmeServer {
 
   /** Process aggregation functions */
   private ArrayNode processAggregates(
-      List<Map<String, Object>> data, List<String> requestedFields, JsonNode aggregates) {
+      List<Map<String, Object>> data, List<String> requestedFields, JsonNode aggregates, int limit) {
     ArrayNode result = JacksonUtility.getJsonMapper().createArrayNode();
 
     Set<String> aggregateFieldsSet = new HashSet<>();
@@ -680,6 +754,7 @@ public class AcmeServer {
             dataToAggregate.stream()
                 .map(aggRecord -> aggRecord.get(field))
                 .filter(Objects::nonNull)
+                .filter(v -> !(v instanceof Map)) // Filter out Map values - they shouldn't be aggregated
                 .collect(Collectors.toList());
 
         double aggregateValue = calculateAggregate(field, values, function);
@@ -687,6 +762,11 @@ public class AcmeServer {
       }
 
       result.add(recordNode);
+      
+      // Apply limit to aggregated results
+      if (result.size() >= limit) {
+        break;
+      }
     }
 
     return result;

@@ -17,44 +17,77 @@ activations:
       ## CURRENT TIME
       The input JSON includes `current_time` (ISO 8601 string, e.g., "2024-12-06T08:33:03.237743Z") which you MUST use to compute relative dates like "last quarter", "last month", "this year", etc.
 
-      ## PS OUTPUT FORMAT
+      ## PS OUTPUT FORMAT (Spec v21)
+
+      The Prompt Schema must follow this structure:
 
       ```json
       {
-        "operation": "select",
-        "table": "sale",
-        "where": {
-          "op": "equals",
-          "column": "date_yyyy",
-          "value": { "label": "v1" }
+        "action": "search",
+        "entity": "sale",
+        "filter": [
+          {
+            "field": "date_yyyy",
+            "operator": "equals",
+            "value": "v1"
+          }
+        ],
+        "params": {
+          "v1": "2024"
         },
         "shape": {
           "group_by": [],
           "aggregates": [
-            { "field": "amount", "function": "sum" }
+            {
+              "field": "amount",
+              "function": "sum"
+            }
           ],
           "order_by": [],
           "limit": null,
           "offset": null
-        },
-        "values": { "v1": "2024" },
-        "columns": ["date_yyyy", "amount"]
+        }
       }
       ```
 
       ## RULES
 
-      1. **operation**: Map vocabulary actions: "search" → "select", "create" → "insert", "update" → "update", "delete" → "delete"
-      2. **table**: Pick ONE entity from vocabulary. Use singular form.
-      3. **where**: Expression tree with labeled placeholders:
-         - Comparison: `{ "op": "equals", "column": "date_yyyy", "value": { "label": "v1" } }`
-         - Boolean: `{ "op": "and", "conditions": [...] }`
+      1. **action**: Use vocabulary actions directly: "search", "create", "update", "delete"
+      2. **entity**: Pick ONE entity from vocabulary. Use singular form.
+      3. **filter**: Array of filter conditions:
+         - Each filter: `{ "field": "field_name", "operator": "equals", "value": "v1", "alias": "optional_identifier" }`
          - Operators: `equals`, `not_equals`, `greater_than`, `less_than`, `greater_than_or_equal`, `less_than_or_equal`, `in`, `not_in`, `contains`, `starts_with`
-         - **PREFER IN over OR**: When multiple values are being checked against the same column, use the `in` operator instead of an `or` with multiple `equals` conditions. The `in` operator is more flexible, efficient, and easier to optimize.
-           - ❌ **WRONG**: `{ "op": "or", "conditions": [{ "op": "equals", "column": "state", "value": { "label": "v1" } }, { "op": "equals", "column": "state", "value": { "label": "v2" } }] }`
-           - ✅ **CORRECT**: `{ "op": "in", "column": "state", "value": { "labels": ["v1", "v2"] } }`
-           - Example: "Show sales for NY and CA" → Use `in` with both state codes, not `or` with separate equals
-      4. **values**: Dictionary with DTN strings (all values are strings):
+         - Value references: Use label keys like "v1", "v2" (these reference params)
+         - **Alias (optional)**: Use in two cases:
+           - **Case 1 - Decomposition**: When a conceptual value needs to be decomposed for API use:
+             - Value contains multiple pieces that the API requires as separate fields (e.g., "2025-Q3" needs both year and quarter)
+             - Create MULTIPLE filter entries with the SAME field and value, but DIFFERENT aliases
+             - Example: For `date_quarter` with value "2025-Q3" (format "YYYY-Qn"), create:
+               ```json
+               [
+                 { "field": "date_quarter", "operator": "equals", "value": "v1", "alias": "year" },
+                 { "field": "date_quarter", "operator": "equals", "value": "v1", "alias": "quarter" }
+               ]
+               ```
+           - **Case 2 - Multiple uses**: If the same conceptual field appears multiple times with different operators/values, assign aliases to distinguish them (e.g., "start" and "end" for date ranges)
+           - If a field appears only once and doesn't need decomposition, omit alias
+         - **Value Cardinality Rules (per spec v23 section 5.2):**
+           - **Rule A - Single conceptual value → equals:**
+             - If user expresses exactly one choice/value:
+             - ✅ CORRECT: `{"operator": "equals", "value": "v1"}` (scalar)
+             - Example: "sales in New York" → `{"operator": "equals", "value": "v1"}`
+           - **Rule B - Multiple conceptual values → in:**
+             - If user expresses N > 1 values:
+             - ✅ CORRECT: `{"operator": "in", "value": ["v1", "v2"]}` (array)
+             - Example: "sales in New York and Texas" → `{"operator": "in", "value": ["v1", "v2"]}`
+           - **CRITICAL:**
+             - No collapsing of arrays into scalars
+             - No rewriting `["CA"]` into `"CA"` or vice versa
+             - The operator chosen reflects user semantics only
+             - Single value always uses `equals` with scalar, never `in` with array
+             - Multiple values always uses `in` with array, never `equals`
+      4. **params**: Dictionary with DTN strings (all values are strings):
+         - Keys are label references from filter (e.g., "v1", "v2")
          - Dates: "2024" (year), "2024-05" (month), "2024-12-31" (day), "2024-Q4" (quarter)
          - **Relative dates**: For relative time expressions like "last quarter", "last month", "this year", etc., compute the actual dates using `current_time` from the input JSON:
            - "last quarter" → Compute start and end dates of the previous quarter from current_time
@@ -66,19 +99,20 @@ activations:
          - States: 2-letter codes "CA", "NY", "TX" (convert "California" → "CA")
          - Numbers: "100", "99.5" (as strings)
          - Booleans: "true", "false" (as strings)
-      5. **shape**: Object containing post-processing configuration:
-         - **group_by**: Array of conceptual field names to group by (e.g., `["customer.state_us_state_code"]`)
+      5. **shape**: Object containing output structure:
+         - **group_by**: Array of field names (strings)
+           - Use when user wants data grouped by a field (e.g., "by state", "per region", "grouped by")
          - **aggregates**: Array of aggregate objects: `[{ "field": "amount", "function": "sum" }]`
-           - **field**: Conceptual field name from vocabulary (with format suffix, e.g., `amount`, `date_yyyy_mm_dd`)
-           - **function**: Aggregate function: `sum`, `avg`, `count`, `min`, `max`
-         - **order_by**: Array of conceptual field names to sort by (e.g., `["amount"]`)
-         - **limit**: Maximum number of records (DTN string like `"10"` or `null`)
-         - **offset**: Number of records to skip (DTN string like `"0"` or `null`)
-      6. **columns**: List ALL columns used in where, shape.group_by, shape.aggregates, shape.order_by. Use field names from vocabulary WITH format suffixes (e.g., `date_yyyy_mm_dd`, `state_us_state_code`, `amount`, `active_bool`). Do NOT use type suffixes like `_int` or `_decimal`.
-      7. **Rejection**: If prompt cannot be mapped, return {"operation": null, "note": "reason"}
-      8. **Error Feedback**: If `error_feedback` is provided in the input JSON, read it carefully and fix the issues. Common issues:
+           - Use when user wants aggregated data (totals, sums, averages, counts, comparisons)
+           - Common functions: "sum", "avg", "count", "min", "max"
+           - If aggregation intent is clear but function not specified, default to "sum" of "amount" field
+         - **order_by**: Array of field names or objects with "field" and "direction"
+         - **limit**: String number or null (e.g., "10" or null)
+         - **offset**: String number or null (e.g., "0" or null)
+      6. **Rejection**: If prompt cannot be mapped, return {"action": null, "note": "reason"}
+      7. **Error Feedback**: If `error_feedback` is provided in the input JSON, read it carefully and fix the issues. Common issues:
          - Unknown entity: Use the exact entity name from the vocabulary (check spelling, singular/plural)
-         - Unknown action: Map operation correctly (e.g., "select" → "search" action)
+         - Unknown action: Use exact action from vocabulary ("search", "create", "update", "delete")
          - Invalid field: Use exact field name from vocabulary with correct format suffix
 
       Output pure JSON only.

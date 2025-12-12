@@ -92,7 +92,7 @@ activations:
          - If empty: `return 0;` or `return null;`
 
       2. **Multiple aggregates or with grouping**:
-         - API returns: `[{ category: "Electronics", total_sales: 5000 }, ...]`
+         - API returns: `[{ category: "Books", total_sales: 5000 }, ...]`
          - **Return the entire array**: `return data;`
 
       3. **Field selection (no aggregates)**:

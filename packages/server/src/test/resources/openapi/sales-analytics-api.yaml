@@ -14,7 +14,7 @@ info:
     
     ## Dataset Overview
     The dataset contains sales transactions with the following key entities:
-    - **Products**: Electronics, clothing, books, home goods
+    - **Products**: Books, clothing, electronics, home goods
     - **Customers**: Demographics, location, purchase history
     - **Sales**: Transaction details, pricing, quantities
     - **Regions**: Geographic distribution of sales
@@ -73,8 +73,8 @@ info:
       | Field | Type | Description | Example |
       |-------|------|-------------|---------|
       | `product.id` | string | Unique product identifier | "PROD-001" |
-      | `product.name` | string | Product name | "Wireless Headphones" |
-      | `product.category` | string | Main product category | "Electronics" |
+      | `product.name` | string | Product name | "The Great Novel" |
+      | `product.category` | string | Main product category | "Books" |
       | `product.subcategory` | string | Product subcategory | "Audio" |
       | `product.brand` | string | Product brand | "TechSound" |
       | `product.price` | number | Current selling price | 299.99 |
@@ -85,7 +85,7 @@ info:
       | `product.dimensions` | string | Product dimensions | "20x15x8" |
       
       **Product Categories:**
-    - `Electronics` - Electronic devices and accessories
+    - `Books` - Books and publications
     - `Clothing` - Apparel and fashion items
     - `Home & Garden` - Home improvement and garden supplies
     - `Books` - Books and educational materials
@@ -197,8 +197,8 @@ info:
         },
         "product": {
           "id": "PROD-001",
-          "name": "Wireless Bluetooth Headphones",
-          "category": "Electronics",
+          "name": "The Great Novel",
+          "category": "Books",
           "subcategory": "Audio",
           "brand": "TechSound",
           "price": 299.99,
@@ -260,7 +260,7 @@ paths:
         - **aggregates**: Optional aggregations to perform on the data
         
         ## Example Use Cases
-        - Find all electronics sales in Q4 2023
+        - Find all books sales in Q4 2023
         - Calculate total revenue by region for last month
         - Get top 10 customers by purchase amount
         - Analyze product performance by category
@@ -276,7 +276,7 @@ paths:
             examples:
               basic_filter:
                 summary: Basic filtering example
-                description: Find all sales in California for electronics
+                description: Find all sales in California for books
                 value:
                   filter:
                     - field: "customer.state"
@@ -284,7 +284,7 @@ paths:
                       value: "CA"
                     - field: "product.category"
                       operator: "equals"
-                      value: "Electronics"
+                      value: "Books"
                   fields:
                     - "sale.id"
                     - "sale.amount"
@@ -318,7 +318,7 @@ paths:
                       value: 500
                     - field: "product.category"
                       operator: "in"
-                      value: ["Electronics", "Home & Garden"]
+                      value: ["Books", "Home & Garden"]
                     - field: "customer.age"
                       operator: "between"
                       value: [25, 45]
@@ -351,8 +351,8 @@ paths:
                           amount: 299.99
                           date: "2023-12-15"
                         product:
-                          name: "Wireless Headphones"
-                          category: "Electronics"
+                          name: "The Great Novel"
+                          category: "Books"
                         customer:
                           name: "John Smith"
                           state: "CA"
@@ -702,8 +702,8 @@ components:
             status: "completed"
         products:
           - id: "PROD-001"
-            name: "Wireless Bluetooth Headphones"
-            category: "Electronics"
+            name: "The Great Novel"
+            category: "Books"
             subcategory: "Audio"
             brand: "TechSound"
             price: 299.99

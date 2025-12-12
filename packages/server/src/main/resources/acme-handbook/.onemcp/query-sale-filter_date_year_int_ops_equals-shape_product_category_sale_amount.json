@@ -1,7 +1,0 @@
-{
-  "psk" : "query-sale-filter_date_year_int_ops_equals-shape_product_category_sale_amount",
-  "created_at" : "2025-12-01T18:19:36.084215Z",
-  "plan" : "{\n  \"start_node\" : {\n    \"vars\" : { },\n    \"route\" : \"api_call\"\n  },\n  \"api_call\" : {\n    \"operation\" : \"querySalesData\",\n    \"http\" : {\n      \"path_params\" : { },\n      \"query\" : { },\n      \"headers\" : { },\n      \"body\" : {\n        \"filter\" : [ {\n          \"field\" : \"date.year\",\n          \"operator\" : \"equals\",\n          \"value\" : \"{{filter.date_year_int.value}}\"\n        } ],\n        \"fields\" : [ \"product.category\" ],\n        \"aggregates\" : [ {\n          \"field\" : \"sale.amount\",\n          \"function\" : \"sum\",\n          \"alias\" : \"sum_sale_amount\"\n        } ]\n      }\n    },\n    \"route\" : \"terminal\"\n  },\n  \"terminal\" : {\n    \"completed\" : true,\n    \"vars\" : {\n      \"answer\" : \"$.['api_call'].['data']\"\n    }\n  }\n}",
-  "execution_status" : "SUCCESS",
-  "failed_attempts" : 0
-}

@@ -35,7 +35,7 @@ Type 'exit' to quit, 'clear' to clear history, 'switch' to change handbook
 
 💡 Mock Server Active - Try These Example Queries:
 
-  > Show me electronics sales in California last quarter.
+  > Show the total sales of electronics in California last quarter.
   > List top customers by revenue.
   > Compare revenue trends by region.
   > What are the top-selling products this month?
@@ -108,7 +108,7 @@ The first time you run this, it will:
 ### Try Example Queries
 
 With the mock Acme Analytics service, you can try queries like:
-- "Show me electronics sales in California last quarter"
+- "Show the total sales of electronics in California last quarter."
 - "List top customers by revenue"
 - "Compare revenue trends by region"
 - "What are the top-selling products this month?"

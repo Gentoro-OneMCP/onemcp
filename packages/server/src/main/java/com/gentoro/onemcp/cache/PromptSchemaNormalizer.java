@@ -43,14 +43,14 @@ public class PromptSchemaNormalizer {
   public PromptSchema normalize(String prompt, ConceptualLexicon lexicon) throws ExecutionException {
     NormalizationResult result = normalizeWithRetry(prompt, lexicon, 3); // Max 3 attempts
     
-    // Check if normalization failed (operation is null)
-    if (result.ps == null || result.ps.getOperation() == null || result.ps.getOperation().trim().isEmpty()) {
+    // Check if normalization failed (action is null)
+    if (result.ps == null || result.ps.getAction() == null || result.ps.getAction().trim().isEmpty()) {
       // Normalization failed - use the PS from result if available, otherwise create new one
       PromptSchema ps = result.ps;
       if (ps == null) {
         ps = new PromptSchema();
-        ps.setOperation(null);
-        ps.setTable(null);
+        ps.setAction(null);
+        ps.setEntity(null);
         ps.setNote(result.note != null ? result.note : "Normalization failed");
       }
       ps.setOriginalPrompt(prompt);
@@ -86,18 +86,25 @@ public class PromptSchemaNormalizer {
       attempt++;
       log.debug("Starting normalization attempt {} of {}", attempt, maxAttempts);
       
+      // Begin phase for this normalization attempt
+      if (oneMcp.inferenceLogger() != null) {
+        oneMcp.inferenceLogger().logPhaseBegin("normalize", attempt);
+      }
+      
       PromptSchema lastPs = null;  // Keep track of last PS for fix attempts
       String lastResponse = null;      // Keep track of last raw response for JSON parsing errors
       
       try {
+        // Always pass previousErrors if available (even on first attempt, in case we want to log it)
+        // But only include it in the input JSON if attempt > 1
         NormalizeResultWithResponse resultWithResponse = normalizeOnceWithResponse(prompt, lexicon, attempt > 1 ? previousErrors : null, attempt);
         NormalizationResult result = resultWithResponse.result;
         lastResponse = resultWithResponse.rawResponse;
         lastPs = result.ps;
         
-        log.debug("Normalization attempt {} completed, got PS: operation={}, table={}", 
-            attempt, result.ps != null ? result.ps.getOperation() : "null", 
-            result.ps != null ? result.ps.getTable() : "null");
+        log.debug("Normalization attempt {} completed, got PS: action={}, entity={}", 
+            attempt, result.ps != null ? result.ps.getAction() : "null", 
+            result.ps != null ? result.ps.getEntity() : "null");
         
         // Validate result
         List<String> validationErrors = validatePromptSchema(result.ps, lexicon);
@@ -108,29 +115,43 @@ public class PromptSchemaNormalizer {
         if (validationErrors.isEmpty()) {
           if (result.ps != null) {
             log.info("Successfully normalized prompt to PS (attempt {}): action={}, entity={}", 
-                attempt, result.ps.getOperation(), result.ps.getTable());
+                attempt, result.ps.getAction(), result.ps.getEntity());
+          }
+          // End phase on success
+          if (oneMcp.inferenceLogger() != null) {
+            oneMcp.inferenceLogger().logPhaseEnd("normalize", attempt);
           }
           return result;
         }
         
-        // LLM returned rejectable prompt (operation is null but note is set)
-        if (result.ps != null && result.ps.getOperation() == null && result.ps.getNote() != null) {
+        // LLM returned rejectable prompt (action is null but note is set)
+        if (result.ps != null && result.ps.getAction() == null && result.ps.getNote() != null) {
           log.info("Prompt rejected by LLM: {}", result.ps.getNote());
+          // End phase on rejection
+          if (oneMcp.inferenceLogger() != null) {
+            oneMcp.inferenceLogger().logPhaseEnd("normalize", attempt);
+          }
           return result;
         }
         
         // Validation failed - try fast fix for simple validation errors
         String validationErrorMsg = String.join("; ", validationErrors);
-        log.warn("Validation failed on attempt {}: {}", attempt, validationErrorMsg);
+        log.warn("VALIDATION FAILED on attempt {}: {}", attempt, validationErrorMsg);
+        
+        // Build the full error message FIRST (before any fast fix attempts)
+        String basePhaseName = "normalize"; // Always use base phase for error logging
+        String fullErrorMsg = "Validation failed: " + validationErrorMsg;
+        
+        // Add the error to previousErrors IMMEDIATELY (before fast fix attempts)
+        // This ensures the error is available for the next attempt even if fast fix is tried
+        previousErrors.add(fullErrorMsg);
+        log.info("Added error to previousErrors list (now {} errors): {}", previousErrors.size(), fullErrorMsg);
         
         // Log validation error to inference logger for report visibility
-        // Use phase name with attempt number for clarity (e.g., "normalize#2")
-        // phaseName already defined above
-        log.debug("About to log validation error: phase={}, attempt={}, error={}", phaseName, attempt, validationErrorMsg);
+        log.info("About to log validation error: phase={}, attempt={}, error={}", basePhaseName, attempt, fullErrorMsg);
         if (oneMcp.inferenceLogger() != null) {
-          oneMcp.inferenceLogger().logValidationError(phaseName, attempt, 
-              "Validation failed: " + validationErrorMsg);
-          log.debug("Validation error logged successfully to inference logger");
+          oneMcp.inferenceLogger().logValidationError(basePhaseName, attempt, fullErrorMsg);
+          log.info("Validation error logged successfully to inference logger");
         } else {
           log.warn("Cannot log validation error: inference logger is null");
         }
@@ -143,6 +164,12 @@ public class PromptSchemaNormalizer {
             List<String> fixedErrors = validatePromptSchema(fixedResult.ps, lexicon);
             if (fixedErrors.isEmpty()) {
               log.info("Fast fix succeeded for validation errors - returning fixed PS");
+              // Note: error was already added to previousErrors above, but we're returning success
+              // so it won't be used. This is intentional for logging purposes.
+              // End phase on success
+              if (oneMcp.inferenceLogger() != null) {
+                oneMcp.inferenceLogger().logPhaseEnd("normalize", attempt);
+              }
               return fixedResult;
             } else {
               log.info("Fast fix did not resolve all errors (remaining: {}), will retry with full normalization", fixedErrors);
@@ -151,29 +178,42 @@ public class PromptSchemaNormalizer {
             log.warn("Fast fix failed, will retry with full normalization: {}", fixException.getMessage());
           }
         }
-        
-        previousErrors.addAll(validationErrors);
+        // previousErrors already has the error added above, ready for next attempt
+        // End phase before retry
+        if (oneMcp.inferenceLogger() != null) {
+          oneMcp.inferenceLogger().logPhaseEnd("normalize", attempt);
+        }
         
       } catch (Exception e) {
         String errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-        log.warn("Normalization attempt {} failed with exception: {}", attempt, errorMsg, e);
+        log.warn("EXCEPTION during normalization attempt {}: {}", attempt, errorMsg, e);
+        
+        // Build the full error message FIRST (before any fast fix attempts)
+        String basePhaseName = "normalize"; // Always use base phase for error logging
+        String fullErrorMsg = "Exception during normalization: " + errorMsg;
+        
+        // Add the error to previousErrors IMMEDIATELY (before fast fix attempts)
+        previousErrors.add(fullErrorMsg);
+        log.info("Added exception error to previousErrors list (now {} errors): {}", previousErrors.size(), fullErrorMsg);
+        
+        // Log exception error to inference logger for report visibility
+        log.info("About to log exception error: phase={}, attempt={}, error={}", basePhaseName, attempt, fullErrorMsg);
+        if (oneMcp.inferenceLogger() != null) {
+          oneMcp.inferenceLogger().logValidationError(basePhaseName, attempt, fullErrorMsg);
+          log.info("Exception error logged successfully to inference logger");
+        } else {
+          log.warn("Cannot log exception error: inference logger is null");
+        }
+        
+        // End phase before retry
+        if (oneMcp.inferenceLogger() != null) {
+          oneMcp.inferenceLogger().logPhaseEnd("normalize", attempt);
+        }
         
         // Check if this is a JSON parsing error that we can try to fix
         boolean isJsonParsingError = errorMsg.contains("Failed to parse") || 
                                      errorMsg.contains("JSON") ||
                                      errorMsg.contains("Unexpected token");
-        
-        // Log exception error to inference logger for report visibility
-        // Use phase name with attempt number for clarity (e.g., "normalize#2")
-        String phaseName = attempt > 1 ? "normalize#" + attempt : "normalize";
-        log.debug("About to log exception error: phase={}, attempt={}, error={}", phaseName, attempt, errorMsg);
-        if (oneMcp.inferenceLogger() != null) {
-          oneMcp.inferenceLogger().logValidationError(phaseName, attempt, 
-              "Exception during normalization: " + errorMsg);
-          log.debug("Exception error logged successfully to inference logger");
-        } else {
-          log.warn("Cannot log exception error: inference logger is null");
-        }
         
         // Try fast fix for JSON parsing errors (only on first attempt)
         if (attempt == 1 && isJsonParsingError && lastResponse != null) {
@@ -184,6 +224,7 @@ public class PromptSchemaNormalizer {
             List<String> fixedErrors = validatePromptSchema(fixedResult.ps, lexicon);
             if (fixedErrors.isEmpty()) {
               log.info("Fast fix succeeded for JSON parsing error - returning fixed PS");
+              // Note: error was already added to previousErrors above, but we're returning success
               return fixedResult;
             } else {
               log.info("Fast fix did not resolve all errors (remaining: {}), will retry with full normalization", fixedErrors);
@@ -192,8 +233,7 @@ public class PromptSchemaNormalizer {
             log.warn("Fast fix failed for JSON parsing error, will retry with full normalization: {}", fixException.getMessage());
           }
         }
-        
-        previousErrors.add(errorMsg);
+        // previousErrors already has the error added above, ready for next attempt
       }
     }
 
@@ -242,10 +282,13 @@ public class PromptSchemaNormalizer {
     if (previousErrors != null && !previousErrors.isEmpty()) {
       String errorFeedback = String.join("\n", previousErrors);
       inputData.put("error_feedback", errorFeedback);
-      log.debug("Including error feedback in normalize attempt {}: {}", attempt, errorFeedback);
+      log.info("Including error feedback in normalize attempt {}: {}", attempt, 
+          errorFeedback.length() > 200 ? errorFeedback.substring(0, 200) + "..." : errorFeedback);
     } else {
-      inputData.put("error_feedback", null);
-      log.debug("No error feedback for normalize attempt {} (first attempt)", attempt);
+      // Don't include error_feedback at all for first attempt (keep input consistent)
+      log.info("No error feedback for normalize attempt {} (previousErrors={}, isEmpty={})", 
+          attempt, previousErrors != null ? "non-null" : "null", 
+          previousErrors != null ? previousErrors.isEmpty() : "N/A");
     }
     
     String inputJson;
@@ -275,9 +318,8 @@ public class PromptSchemaNormalizer {
     String phaseName = attempt > 1 ? "normalize#" + attempt : "normalize";
     long startTime = System.currentTimeMillis();
     
-    // Note: LLM input messages and inference start are logged by the LLM client
-    // (AbstractLlmClient.chat() and OrchestratorTelemetrySink), so we don't need to log them here.
-    // However, we do need to ensure the phase is set in the telemetry sink so it's detected correctly.
+    // Note: Input messages and inference completion are logged by AbstractLlmClient
+    // We just need to ensure the phase is set correctly in telemetry
 
     // Get temperature from template
     Float temperature = template.temperature().orElse(0.0f);
@@ -335,9 +377,8 @@ public class PromptSchemaNormalizer {
     
     long duration = System.currentTimeMillis() - startTime;
     
-    // Note: LLM inference completion is already logged by the LLM client implementation
-    // (e.g., AnthropicLlmClient.logInferenceComplete()), so we don't need to log it here.
-    // The LLM client will detect the phase from the telemetry sink's currentAttributes().
+    // Note: Inference completion is logged by AbstractLlmClient.logInferenceComplete()
+    // which detects the phase from telemetry attributes. No need to log here.
     
     if (response == null || response.trim().isEmpty()) {
       throw new ExecutionException("LLM returned empty response");
@@ -390,10 +431,14 @@ public class PromptSchemaNormalizer {
     String trimmed = response.trim();
     
     // Remove Optional[...] wrapper if present (handles Optional[```json ... ```] format)
+    // "Optional[" is 9 characters (indices 0-8), so the '[' is at index 8 and content starts at index 9
     if (trimmed.startsWith("Optional[")) {
-      int endBracket = findMatchingBracket(trimmed, 8); // Start after "Optional["
+      int endBracket = findMatchingBracket(trimmed, 8); // '[' is at index 8
       if (endBracket > 0) {
-        trimmed = trimmed.substring(8, endBracket).trim(); // Extract content inside Optional[...]
+        // Extract content INSIDE the brackets: skip '[' at index 8, end before ']' at endBracket
+        trimmed = trimmed.substring(9, endBracket).trim();
+        log.debug("Removed Optional[] wrapper, extracted content: {}", 
+            trimmed.length() > 100 ? trimmed.substring(0, 100) + "..." : trimmed);
       }
     }
     
@@ -460,24 +505,20 @@ public class PromptSchemaNormalizer {
     }
     
     // Rejection is valid
-    if (ps.getOperation() == null && ps.getNote() != null) {
+    if (ps.getAction() == null && ps.getNote() != null) {
       return errors; // Empty = valid rejection
     }
     
-    // Validate action (operation)
-    String operation = ps.getOperation();
-    if (operation == null || operation.trim().isEmpty()) {
-      errors.add("Operation is required");
-    } else {
-      // Map operation to action
-      String action = mapOperationToAction(operation);
-      if (!lexicon.getActions().contains(action)) {
-        errors.add("Unknown action: " + action + ". Valid: " + lexicon.getActions());
-      }
+    // Validate action
+    String action = ps.getAction();
+    if (action == null || action.trim().isEmpty()) {
+      errors.add("Action is required");
+    } else if (!lexicon.getActions().contains(action.toLowerCase())) {
+      errors.add("Unknown action: " + action + ". Valid: " + lexicon.getActions());
     }
     
-    // Validate entity (table)
-    String entity = ps.getTable();
+    // Validate entity
+    String entity = ps.getEntity();
     if (entity == null || entity.trim().isEmpty()) {
       errors.add("Entity is required");
     } else if (!lexicon.getEntities().contains(entity.toLowerCase())) {
@@ -487,19 +528,6 @@ public class PromptSchemaNormalizer {
     return errors;
   }
   
-  /**
-   * Map PS operation to lexicon action.
-   */
-  private String mapOperationToAction(String operation) {
-    if (operation == null) return null;
-    return switch (operation.toLowerCase()) {
-      case "select" -> "search";
-      case "insert" -> "create";
-      case "update" -> "update";
-      case "delete" -> "delete";
-      default -> operation.toLowerCase();
-    };
-  }
   
   /**
    * Check if validation errors are simple structural issues that can be fixed quickly.

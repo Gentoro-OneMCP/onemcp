@@ -130,6 +130,28 @@ public final class ExecutionPlanValidator {
 
   // ---------------- New-spec validator ----------------
   private static void validateNewSpec(JsonNode plan, List<String> allowedOperations) {
+    // Validate valueTransforms section (optional)
+    if (plan.has("valueTransforms")) {
+      JsonNode valueTransforms = plan.get("valueTransforms");
+      if (!valueTransforms.isArray()) {
+        throw new ExecutionPlanException("'valueTransforms' must be an array when present");
+      }
+      for (JsonNode transform : valueTransforms) {
+        if (!transform.isObject()) {
+          throw new ExecutionPlanException("Each value transform must be an object");
+        }
+        if (!transform.has("name") || !transform.get("name").isTextual()) {
+          throw new ExecutionPlanException("Value transform must have textual 'name'");
+        }
+        if (!transform.has("conceptualValue")) {
+          throw new ExecutionPlanException("Value transform must have 'conceptualValue'");
+        }
+        if (!transform.has("steps") || !transform.get("steps").isArray()) {
+          throw new ExecutionPlanException("Value transform must have 'steps' array");
+        }
+      }
+    }
+
     JsonNode start = plan.get("start_node");
     if (start == null || !start.isObject()) {
       throw new ExecutionPlanException("New-spec plan must define object 'start_node'");
@@ -151,7 +173,7 @@ public final class ExecutionPlanValidator {
     // Ensure there is at least one intermediate or terminal node
     int nodeCount = 0;
     for (String key : iterable(plan.fieldNames())) {
-      if (!"start_node".equals(key)) nodeCount++;
+      if (!"start_node".equals(key) && !"valueTransforms".equals(key)) nodeCount++;
     }
     if (nodeCount == 0) {
       throw new ExecutionPlanException("Plan must define at least one node besides 'start_node'");
@@ -159,7 +181,7 @@ public final class ExecutionPlanValidator {
 
     // Validate each node (intermediate or terminal)
     for (String nodeId : iterable(plan.fieldNames())) {
-      if ("start_node".equals(nodeId)) continue;
+      if ("start_node".equals(nodeId) || "valueTransforms".equals(nodeId)) continue;
       JsonNode nodeDef = plan.get(nodeId);
       if (nodeDef == null || !nodeDef.isObject()) {
         throw new ExecutionPlanException("Node '" + nodeId + "' must be a JSON object");
@@ -227,6 +249,7 @@ public final class ExecutionPlanValidator {
     // Validate that all referenced node ids in start_node.route and nodes' routes exist
     // For arrays: allow one or more objects with 'condition' and 'node', plus final fallback string
     for (String nodeId : iterable(plan.fieldNames())) {
+      if ("valueTransforms".equals(nodeId)) continue;
       JsonNode r =
           "start_node".equals(nodeId)
               ? plan.get("start_node").get("route")

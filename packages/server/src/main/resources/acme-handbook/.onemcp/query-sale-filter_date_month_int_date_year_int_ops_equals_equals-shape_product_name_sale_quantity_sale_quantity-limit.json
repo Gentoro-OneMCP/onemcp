@@ -1,7 +1,0 @@
-{
-  "psk" : "query-sale-filter_date_month_int_date_year_int_ops_equals_equals-shape_product_name_sale_quantity_sale_quantity-limit",
-  "created_at" : "2025-12-01T18:20:48.233764Z",
-  "plan" : "{\n  \"start_node\" : {\n    \"vars\" : { },\n    \"route\" : \"api_call\"\n  },\n  \"api_call\" : {\n    \"operation\" : \"querySalesData\",\n    \"http\" : {\n      \"path_params\" : { },\n      \"query\" : { },\n      \"headers\" : { },\n      \"body\" : {\n        \"filter\" : [ {\n          \"field\" : \"date.year\",\n          \"operator\" : \"equals\",\n          \"value\" : \"{{filter.date_year_int.value}}\"\n        }, {\n          \"field\" : \"date.month\",\n          \"operator\" : \"equals\",\n          \"value\" : \"{{filter.date_month_int.value}}\"\n        } ],\n        \"aggregates\" : [ {\n          \"field\" : \"sale.quantity\",\n          \"function\" : \"sum\",\n          \"alias\" : \"total_quantity\"\n        } ],\n        \"fields\" : [ \"product.name\" ],\n        \"limit\" : \"{{shape.limit}}\"\n      }\n    },\n    \"route\" : \"terminal\"\n  },\n  \"terminal\" : {\n    \"completed\" : true,\n    \"vars\" : {\n      \"answer\" : \"$.['api_call'].['data']\",\n      \"message\" : \"Note: The API does not support direct ordering, so results are not ordered by 'sale_quantity' as requested.\"\n    }\n  }\n}",
-  "execution_status" : "SUCCESS",
-  "failed_attempts" : 0
-}
