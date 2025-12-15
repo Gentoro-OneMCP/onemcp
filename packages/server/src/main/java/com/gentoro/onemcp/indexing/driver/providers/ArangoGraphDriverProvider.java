@@ -15,10 +15,10 @@ public class ArangoGraphDriverProvider implements GraphDriverProvider {
   @Override
   public boolean isAvailable(OneMcp oneMcp) {
     // Available if explicitly selected or Arango config block seems present
-    String desired = oneMcp.configuration().getString("graph.driver", "in-memory");
+    String desired = oneMcp.configuration().getString("indexing.graph.driver", "in-memory");
     if ("arangodb".equalsIgnoreCase(desired)) return true;
     // or presence of arango host config
-    String host = oneMcp.configuration().getString("graph.arangodb.host", null);
+    String host = oneMcp.configuration().getString("indexing.graph.arangodb.host", null);
     return host != null;
   }
 

@@ -7,5 +7,6 @@ public enum KnowledgeNodeType {
   API_OPERATION_INPUT, // api -> operation -> input (JSON Schema)
   API_OPERATION_OUTPUT, // api -> operation -> output (JSON Schema)
   API_OPERATION_EXAMPLE, // api -> operation -> example (input+output example)
-  DOCS_CHUNK // docs -> chunk
+  DOCS_CHUNK, // docs -> chunk
+  DOCUMENT // document -> parent container for chunks
 }

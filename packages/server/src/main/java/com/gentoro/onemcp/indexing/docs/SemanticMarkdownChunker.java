@@ -103,6 +103,19 @@ public class SemanticMarkdownChunker {
   // Recursively split large blocks into chunks that fit token limits.
   private List<Chunk> splitBlockRecursively(
       String text, List<String> sectionPath, String fileName) {
+    return splitBlockRecursively(text, sectionPath, fileName, 0);
+  }
+
+  // Recursively split large blocks into chunks that fit token limits.
+  // depth parameter prevents infinite recursion
+  private List<Chunk> splitBlockRecursively(
+      String text, List<String> sectionPath, String fileName, int depth) {
+    // Safety: prevent infinite recursion (max 10 levels)
+    if (depth > 10) {
+      // Force split by character count as last resort
+      return forceSplitBySize(text, sectionPath, fileName);
+    }
+
     List<Chunk> result = new ArrayList<>();
     int tokens = Tokenizer.estimateTokens(text);
     if (tokens <= maxTokens && tokens >= minTokens) {
@@ -119,8 +132,9 @@ public class SemanticMarkdownChunker {
     }
 
     // try paragraph split
-    String[] paragraphs = text.split("\n\\s*\n");
-    if (paragraphs.length > 1) {
+    // Use manual splitting to avoid regex stack overflow on very long texts
+    List<String> paragraphs = splitByParagraphs(text);
+    if (paragraphs.size() > 1) {
       StringBuilder collector = new StringBuilder();
       for (String p : paragraphs) {
         if (collector.length() == 0) {
@@ -129,7 +143,7 @@ public class SemanticMarkdownChunker {
           // try append paragraph; if becomes too large, flush
           String candidate = collector.toString() + "\n\n" + p.trim();
           if (Tokenizer.estimateTokens(candidate) > maxTokens) {
-            result.addAll(splitBlockRecursively(collector.toString(), sectionPath, fileName));
+            result.addAll(splitBlockRecursively(collector.toString(), sectionPath, fileName, depth + 1));
             collector = new StringBuilder(p.trim());
           } else {
             collector = new StringBuilder(candidate);
@@ -137,13 +151,20 @@ public class SemanticMarkdownChunker {
         }
       }
       if (collector.length() > 0) {
-        result.addAll(splitBlockRecursively(collector.toString(), sectionPath, fileName));
+        result.addAll(splitBlockRecursively(collector.toString(), sectionPath, fileName, depth + 1));
       }
       return result;
     }
 
     // fallback: split by sentence boundaries
-    String[] sentences = text.split("(?<=[.!?])\\s+");
+    // Use a more robust approach to avoid regex stack overflow on very long texts
+    List<String> sentences = splitBySentences(text);
+    
+    // Safety check: if sentence splitting didn't actually split anything, force split
+    if (sentences.size() <= 1) {
+      return forceSplitBySize(text, sectionPath, fileName);
+    }
+    
     StringBuilder coll = new StringBuilder();
     for (String s : sentences) {
       if (coll.length() == 0) {
@@ -152,7 +173,7 @@ public class SemanticMarkdownChunker {
         String candidate = coll.toString() + " " + s.trim();
         if (Tokenizer.estimateTokens(candidate) > maxTokens) {
           // flush
-          result.addAll(splitBlockRecursively(coll.toString(), sectionPath, fileName));
+          result.addAll(splitBlockRecursively(coll.toString(), sectionPath, fileName, depth + 1));
           coll = new StringBuilder(s.trim());
         } else {
           coll = new StringBuilder(candidate);
@@ -160,15 +181,198 @@ public class SemanticMarkdownChunker {
       }
     }
     if (coll.length() > 0) {
-      result.addAll(splitBlockRecursively(coll.toString(), sectionPath, fileName));
+      // Safety: check if we're making progress (text should be smaller)
+      int collTokens = Tokenizer.estimateTokens(coll.toString());
+      if (collTokens >= tokens) {
+        // No progress made, force split to avoid infinite recursion
+        return forceSplitBySize(coll.toString(), sectionPath, fileName);
+      }
+      result.addAll(splitBlockRecursively(coll.toString(), sectionPath, fileName, depth + 1));
     }
 
+    return result;
+  }
+
+  /**
+   * Force split text by character count as last resort to prevent infinite recursion.
+   * Splits text into chunks of approximately maxTokens size.
+   */
+  private List<Chunk> forceSplitBySize(String text, List<String> sectionPath, String fileName) {
+    List<Chunk> result = new ArrayList<>();
+    if (text == null || text.isEmpty()) {
+      return result;
+    }
+    
+    // Estimate characters per token (roughly 4 chars per token)
+    int charsPerToken = 4;
+    int maxChars = maxTokens * charsPerToken;
+    
+    int len = text.length();
+    int start = 0;
+    
+    while (start < len) {
+      int end = Math.min(start + maxChars, len);
+      
+      // Try to break at word boundary
+      if (end < len) {
+        // Look backwards for whitespace
+        int lastSpace = end;
+        for (int i = end - 1; i > start && i > end - 100; i--) {
+          if (Character.isWhitespace(text.charAt(i))) {
+            lastSpace = i;
+            break;
+          }
+        }
+        end = lastSpace;
+      }
+      
+      String chunkText = text.substring(start, end).trim();
+      if (!chunkText.isEmpty()) {
+        result.add(
+            new Chunk(
+                UUID.randomUUID().toString(), fileName, joinPath(sectionPath), chunkText));
+      }
+      
+      // Skip whitespace at the start of next chunk
+      start = end;
+      while (start < len && Character.isWhitespace(text.charAt(start))) {
+        start++;
+      }
+    }
+    
     return result;
   }
 
   private String joinPath(List<String> path) {
     if (path == null || path.isEmpty()) return "";
     return String.join(" > ", path);
+  }
+
+  /**
+   * Splits text by paragraphs (double newlines) without using regex that can cause stack overflow.
+   * Uses a simple character-by-character approach for better reliability on very long texts.
+   * 
+   * <p>This method avoids the regex pattern {@code \n\\s*\n} which can cause
+   * {@code PatternSyntaxException: Stack overflow} on very long texts.
+   * 
+   * <p>A paragraph boundary is defined as: newline, followed by optional whitespace, followed by another newline.
+   */
+  private List<String> splitByParagraphs(String text) {
+    List<String> paragraphs = new ArrayList<>();
+    if (text == null || text.isEmpty()) {
+      return paragraphs;
+    }
+
+    StringBuilder current = new StringBuilder();
+    int len = text.length();
+    int i = 0;
+    
+    while (i < len) {
+      char c = text.charAt(i);
+      
+      if (c == '\n') {
+        // Check if this newline is followed by optional whitespace and another newline
+        int j = i + 1;
+        // Skip whitespace (but not newlines)
+        while (j < len && Character.isWhitespace(text.charAt(j)) && text.charAt(j) != '\n') {
+          j++;
+        }
+        // Check if we found another newline
+        if (j < len && text.charAt(j) == '\n') {
+          // Found paragraph boundary (newline + whitespace + newline)
+          String para = current.toString().trim();
+          if (!para.isEmpty()) {
+            paragraphs.add(para);
+          }
+          current = new StringBuilder();
+          // Skip to after the second newline
+          // Skip any trailing whitespace (but not newlines, as they might be part of next boundary)
+          i = j + 1; // Move past the second newline
+          // Only skip non-newline whitespace to avoid missing the next paragraph boundary
+          while (i < len && Character.isWhitespace(text.charAt(i)) && text.charAt(i) != '\n') {
+            i++;
+          }
+          // Continue processing from current position (don't increment here, while loop will handle it)
+          continue;
+        } else {
+          // Not a paragraph boundary, just a regular newline
+          current.append(c);
+          i++;
+        }
+      } else {
+        current.append(c);
+        i++;
+      }
+    }
+    
+    // Add remaining text as final paragraph if any
+    String remaining = current.toString().trim();
+    if (!remaining.isEmpty()) {
+      paragraphs.add(remaining);
+    }
+    
+    // If no paragraphs were found, return the whole text as one paragraph
+    if (paragraphs.isEmpty()) {
+      paragraphs.add(text.trim());
+    }
+    
+    return paragraphs;
+  }
+
+  /**
+   * Splits text by sentence boundaries without using complex regex that can cause stack overflow.
+   * Uses a simple character-by-character approach for better reliability on very long texts.
+   * 
+   * <p>This method avoids the regex pattern {@code (?<=[.!?])\\s+} which can cause
+   * {@code PatternSyntaxException: Stack overflow} on very long texts with many sentence boundaries.
+   * 
+   * <p>Note: This is a simple heuristic that splits on punctuation followed by whitespace.
+   * It may occasionally split on abbreviations or decimal numbers, but this is acceptable
+   * for chunking purposes as the chunks will still be semantically meaningful.
+   */
+  private List<String> splitBySentences(String text) {
+    List<String> sentences = new ArrayList<>();
+    if (text == null || text.isEmpty()) {
+      return sentences;
+    }
+
+    StringBuilder current = new StringBuilder();
+    int len = text.length();
+    
+    for (int i = 0; i < len; i++) {
+      char c = text.charAt(i);
+      current.append(c);
+      
+      // Check for sentence-ending punctuation followed by whitespace
+      if ((c == '.' || c == '!' || c == '?') && i < len - 1) {
+        char next = text.charAt(i + 1);
+        if (Character.isWhitespace(next)) {
+          // Found sentence boundary - add current sentence and reset
+          String sentence = current.toString().trim();
+          if (!sentence.isEmpty()) {
+            sentences.add(sentence);
+          }
+          current = new StringBuilder();
+          // Skip all following whitespace
+          while (i + 1 < len && Character.isWhitespace(text.charAt(i + 1))) {
+            i++;
+          }
+        }
+      }
+    }
+    
+    // Add remaining text as final sentence if any
+    String remaining = current.toString().trim();
+    if (!remaining.isEmpty()) {
+      sentences.add(remaining);
+    }
+    
+    // If no sentences were found (e.g., no punctuation), return the whole text as one sentence
+    if (sentences.isEmpty()) {
+      sentences.add(text.trim());
+    }
+    
+    return sentences;
   }
 
   // Prepend the last `overlapTokens` tokens approximated from previous chunk to the next chunk.
