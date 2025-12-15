@@ -28,6 +28,7 @@ yarn-error.log
 .next/
 
 # Logs
+logs/
 *.log
 
 # Java / Maven / Gradle

@@ -23,7 +23,7 @@ public class EntityExtractor {
   }
 
   public ChunkEntityExtraction extract(Chunk chunk) {
-    if (oneMcp.configuration().getBoolean("graph.chunking.markdown.naiveExtraction", false)) {
+    if (oneMcp.configuration().getBoolean("indexing.graph.chunking.markdown.naiveExtraction", false)) {
       return new ChunkEntityExtraction(chunk.id(), naiveMatch(chunk));
     }
     String prompt = buildPrompt(chunk);

@@ -52,36 +52,79 @@ public class InMemoryGraphDriver implements GraphDriver {
       opsByEntity.computeIfAbsent(t.getEntity(), k -> new HashSet<>()).addAll(t.getOperations());
     }
 
-    return store.values().stream()
-        .filter(
-            map -> {
-              @SuppressWarnings("unchecked")
-              List<String> nodeEntities =
-                  (List<String>) map.getOrDefault("entities", Collections.emptyList());
-              @SuppressWarnings("unchecked")
-              List<String> nodeOps =
-                  (List<String>) map.getOrDefault("operations", Collections.emptyList());
+    // First pass: find nodes that match entities directly
+    // Exclude DOCUMENT nodes from direct matches - they are only used for fallback
+    List<Map<String, Object>> directMatches =
+        store.values().stream()
+            .filter(
+                map -> {
+                  // Skip DOCUMENT nodes - they are only used for fallback retrieval
+                  String nodeType = (String) map.getOrDefault("nodeType", "");
+                  if ("DOCUMENT".equals(nodeType)) return false;
 
-              // Must match at least one entity
-              Optional<String> entityMatch =
-                  nodeEntities.stream().filter(entities::contains).findFirst();
-              if (entityMatch.isEmpty()) return false;
-              String matchedEntity = entityMatch.get();
+                  @SuppressWarnings("unchecked")
+                  List<String> nodeEntities =
+                      (List<String>) map.getOrDefault("entities", Collections.emptyList());
+                  @SuppressWarnings("unchecked")
+                  List<String> nodeOps =
+                      (List<String>) map.getOrDefault("operations", Collections.emptyList());
 
-              // If node has no operations, include (entity-only link)
-              if (nodeOps == null || nodeOps.isEmpty()) return true;
+                  // Must match at least one entity
+                  Optional<String> entityMatch =
+                      nodeEntities.stream().filter(entities::contains).findFirst();
+                  if (entityMatch.isEmpty()) return false;
+                  String matchedEntity = entityMatch.get();
 
-              // Otherwise, must intersect with requested operations for the matched entity
-              Set<String> requested =
-                  opsByEntity.getOrDefault(matchedEntity, Collections.emptySet());
-              if (requested.isEmpty()) return true; // if context has only entity, include
-              for (String op : nodeOps) {
-                if (requested.contains(op)) return true;
-              }
-              return false;
-            })
-        .map(map -> new LinkedHashMap<>(map))
-        .collect(Collectors.toList());
+                  // If node has no operations, include (entity-only link)
+                  if (nodeOps == null || nodeOps.isEmpty()) return true;
+
+                  // Otherwise, must intersect with requested operations for the matched entity
+                  Set<String> requested =
+                      opsByEntity.getOrDefault(matchedEntity, Collections.emptySet());
+                  if (requested.isEmpty()) return true; // if context has only entity, include
+                  for (String op : nodeOps) {
+                    if (requested.contains(op)) return true;
+                  }
+                  return false;
+                })
+            .map(map -> new LinkedHashMap<>(map))
+            .collect(Collectors.toList());
+
+    // If we have direct matches, return them
+    if (!directMatches.isEmpty()) {
+      return directMatches;
+    }
+
+    // Fallback: find document nodes that match entities, then include their chunks
+    Set<String> matchingDocumentKeys = new HashSet<>();
+    for (Map<String, Object> map : store.values()) {
+      String nodeType = (String) map.getOrDefault("nodeType", "");
+      if (!"DOCUMENT".equals(nodeType)) continue;
+
+      @SuppressWarnings("unchecked")
+      List<String> docEntities =
+          (List<String>) map.getOrDefault("entities", Collections.emptyList());
+      if (docEntities.stream().anyMatch(entities::contains)) {
+        String docKey = (String) map.get("key");
+        if (docKey != null) {
+          matchingDocumentKeys.add(docKey);
+        }
+      }
+    }
+
+    // Include chunks from matching documents
+    if (!matchingDocumentKeys.isEmpty()) {
+      List<Map<String, Object>> fallbackResults = new ArrayList<>();
+      for (Map<String, Object> map : store.values()) {
+        String parentDocKey = (String) map.get("parentDocumentKey");
+        if (parentDocKey != null && matchingDocumentKeys.contains(parentDocKey)) {
+          fallbackResults.add(new LinkedHashMap<>(map));
+        }
+      }
+      return fallbackResults;
+    }
+
+    return Collections.emptyList();
   }
 
   @Override

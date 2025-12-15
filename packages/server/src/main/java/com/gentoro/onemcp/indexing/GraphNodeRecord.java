@@ -13,7 +13,8 @@ import java.util.*;
  * entities, operations - API_OPERATION_INPUT: content(json), apiSlug, operationId, entities,
  * operations - API_OPERATION_OUTPUT: content(json), apiSlug, operationId, entities, operations -
  * API_OPERATION_EXAMPLE: content(markdown), apiSlug, operationId, entities, operations -
- * DOCS_CHUNK: content(markdown), docPath, entities, operations(optional)
+ * DOCS_CHUNK: content(markdown), docPath, entities, operations(optional), parentDocumentKey(optional)
+ * - DOCUMENT: content(optional), docPath, entities(optional)
  */
 public class GraphNodeRecord {
   private String key; // unique
@@ -22,9 +23,10 @@ public class GraphNodeRecord {
   private String operationId; // for operation-scope nodes
   private String content; // markdown or json depending on type
   private String contentFormat; // "markdown" | "json"
-  private String docPath; // only for DOCS_CHUNK
+  private String docPath; // only for DOCS_CHUNK and DOCUMENT
   private String title; // optional (useful for examples)
   private String summary; // optional (useful for examples)
+  private String parentDocumentKey; // for DOCS_CHUNK: key of parent DOCUMENT node
   private List<String> entities = new ArrayList<>();
   private List<String> operations = new ArrayList<>();
 
@@ -135,6 +137,15 @@ public class GraphNodeRecord {
     return this;
   }
 
+  public String getParentDocumentKey() {
+    return parentDocumentKey;
+  }
+
+  public GraphNodeRecord setParentDocumentKey(String parentDocumentKey) {
+    this.parentDocumentKey = parentDocumentKey;
+    return this;
+  }
+
   public Map<String, Object> toMap() {
     Map<String, Object> map = new LinkedHashMap<>();
     map.put("key", key);
@@ -146,6 +157,7 @@ public class GraphNodeRecord {
     if (docPath != null) map.put("docPath", docPath);
     if (title != null) map.put("title", title);
     if (summary != null) map.put("summary", summary);
+    if (parentDocumentKey != null) map.put("parentDocumentKey", parentDocumentKey);
     map.put("entities", new ArrayList<>(entities));
     map.put("operations", new ArrayList<>(operations));
     return map;
@@ -163,6 +175,7 @@ public class GraphNodeRecord {
     r.docPath = (String) map.get("docPath");
     r.title = (String) map.get("title");
     r.summary = (String) map.get("summary");
+    r.parentDocumentKey = (String) map.get("parentDocumentKey");
     Object ent = map.get("entities");
     if (ent instanceof Collection<?> c) {
       for (Object e : c) r.entities.add(Objects.toString(e));

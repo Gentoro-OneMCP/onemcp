@@ -188,25 +188,26 @@ class HandbookGraphServiceTest {
     docs.put(tmp.relativize(a).toString(), Files.readString(a));
 
     BaseConfiguration cfg = new BaseConfiguration();
-    cfg.addProperty("graph.indexing.clearOnStartup", true);
-    cfg.addProperty("graph.indexing.chunking.markdown.strategy", "paragraph");
+    cfg.addProperty("indexing.graph.clearOnStartup", true);
+    cfg.addProperty("indexing.graph.chunking.markdown.strategy", "paragraph");
     // Use a tiny window to ensure separate chunks per paragraph in PARAGRAPH strategy
-    cfg.addProperty("graph.indexing.chunking.markdown.windowSizeTokens", 1);
-    cfg.addProperty("graph.indexing.chunking.markdown.overlapTokens", 0);
+    cfg.addProperty("indexing.graph.chunking.markdown.windowSizeTokens", 1);
+    cfg.addProperty("indexing.graph.chunking.markdown.overlapTokens", 0);
 
     // Create a lightweight TestMcp and Handbook
     OneMcp mcp = new TestMcp(cfg, null);
     Handbook hb = newHandbookWithDocs(docs, mcp);
     ((TestMcp) mcp).setHandbook(hb);
 
-    HandbookGraphService svc = new HandbookGraphService(mcp, driver);
-    svc.initialize();
-    svc.indexHandbook();
+    try (HandbookGraphService svc = new HandbookGraphService(mcp, driver)) {
+      svc.initialize();
+      svc.indexHandbook();
 
-    List<Map<String, Object>> all = driver.queryByContext(List.of());
-    assertFalse(all.isEmpty());
-    long docsCount = all.stream().filter(m -> "DOCS_CHUNK".equals(m.get("nodeType"))).count();
-    assertTrue(docsCount >= 1, "At least one chunk expected to be indexed");
+      List<Map<String, Object>> all = driver.queryByContext(List.of());
+      assertFalse(all.isEmpty());
+      long docsCount = all.stream().filter(m -> "DOCS_CHUNK".equals(m.get("nodeType"))).count();
+      assertTrue(docsCount >= 1, "At least one chunk expected to be indexed");
+    }
   }
 
   @Test
@@ -229,23 +230,144 @@ class HandbookGraphServiceTest {
     docs.put(tmp.relativize(a).toString(), Files.readString(a));
 
     BaseConfiguration cfg = new BaseConfiguration();
-    cfg.addProperty("graph.indexing.clearOnStartup", true);
-    cfg.addProperty("graph.indexing.chunking.markdown.strategy", "heading");
-    cfg.addProperty("graph.indexing.chunking.markdown.windowSizeTokens", 100);
+    cfg.addProperty("indexing.graph.clearOnStartup", true);
+    cfg.addProperty("indexing.graph.chunking.markdown.strategy", "heading");
+    cfg.addProperty("indexing.graph.chunking.markdown.windowSizeTokens", 100);
 
     OneMcp mcp = new TestMcp(cfg, null);
     Handbook hb = newHandbookWithDocs(docs, mcp);
     ((TestMcp) mcp).setHandbook(hb);
 
-    HandbookGraphService svc = new HandbookGraphService(mcp, driver);
-    svc.indexHandbook();
+    try (HandbookGraphService svc = new HandbookGraphService(mcp, driver)) {
+      svc.indexHandbook();
 
-    List<Map<String, Object>> forOrder =
-        svc.retrieveByContext(List.of(new GraphContextTuple("Order", List.of("Retrieve"))));
-    assertFalse(forOrder.isEmpty());
-    // Mismatch entity should return empty
-    List<Map<String, Object>> forUser =
-        svc.retrieveByContext(List.of(new GraphContextTuple("User", List.of("Retrieve"))));
-    assertTrue(forUser.isEmpty());
+      List<Map<String, Object>> forOrder =
+          svc.retrieveByContext(List.of(new GraphContextTuple("Order", List.of("Retrieve"))));
+      assertFalse(forOrder.isEmpty());
+      // Mismatch entity should return empty
+      List<Map<String, Object>> forUser =
+          svc.retrieveByContext(List.of(new GraphContextTuple("User", List.of("Retrieve"))));
+      assertTrue(forUser.isEmpty());
+    }
+  }
+
+  @Test
+  @DisplayName("indexHandbook creates DOCUMENT nodes and links chunks via parentDocumentKey")
+  void documentHierarchyCreation() throws Exception {
+    Path docsDir = Files.createDirectories(tmp.resolve("docs"));
+    Path doc1 = docsDir.resolve("guide1.md");
+    Path doc2 = docsDir.resolve("guide2.md");
+
+    Files.writeString(
+        doc1,
+        """
+        # Guide 1
+        This is about Order entities.
+        """);
+
+    Files.writeString(
+        doc2,
+        """
+        # Guide 2
+        This is about User entities.
+        """);
+
+    Map<String, String> docs = new HashMap<>();
+    docs.put(tmp.relativize(doc1).toString(), Files.readString(doc1));
+    docs.put(tmp.relativize(doc2).toString(), Files.readString(doc2));
+
+    BaseConfiguration cfg = new BaseConfiguration();
+    cfg.addProperty("indexing.graph.clearOnStartup", true);
+    cfg.addProperty("indexing.graph.chunking.markdown.strategy", "paragraph");
+    cfg.addProperty("indexing.graph.chunking.markdown.windowSizeTokens", 500);
+
+    OneMcp mcp = new TestMcp(cfg, null);
+    Handbook hb = newHandbookWithDocs(docs, mcp);
+    ((TestMcp) mcp).setHandbook(hb);
+
+    try (HandbookGraphService svc = new HandbookGraphService(mcp, driver)) {
+      svc.initialize();
+      svc.indexHandbook();
+
+      List<Map<String, Object>> all = driver.queryByContext(List.of());
+
+      // Verify DOCUMENT nodes are created
+      List<Map<String, Object>> documentNodes =
+          all.stream()
+              .filter(m -> "DOCUMENT".equals(m.get("nodeType")))
+              .toList();
+      assertEquals(2, documentNodes.size(), "Should create one DOCUMENT node per file");
+
+      // Verify chunks have parentDocumentKey
+      List<Map<String, Object>> chunkNodes =
+          all.stream()
+              .filter(m -> "DOCS_CHUNK".equals(m.get("nodeType")))
+              .toList();
+      assertFalse(chunkNodes.isEmpty(), "Should have chunk nodes");
+
+      for (Map<String, Object> chunk : chunkNodes) {
+        String parentDocKey = (String) chunk.get("parentDocumentKey");
+        assertNotNull(parentDocKey, "Chunk should have parentDocumentKey: " + chunk.get("key"));
+        assertTrue(
+            parentDocKey.startsWith("document|"),
+            "parentDocumentKey should start with 'document|': " + parentDocKey);
+
+        // Verify parent document exists
+        boolean parentExists =
+            documentNodes.stream().anyMatch(d -> parentDocKey.equals(d.get("key")));
+        assertTrue(
+            parentExists,
+            "Parent document should exist for chunk: " + chunk.get("key") + " -> " + parentDocKey);
+      }
+
+      // Verify document nodes have docPath
+      for (Map<String, Object> doc : documentNodes) {
+        String docPath = (String) doc.get("docPath");
+        assertNotNull(docPath, "Document should have docPath");
+        assertTrue(
+            docPath.contains("guide1.md") || docPath.contains("guide2.md"),
+            "Document path should reference source file");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("Fallback retrieval works for orphaned chunks via document hierarchy")
+  void fallbackRetrievalViaDocument() throws Exception {
+    Path docsDir = Files.createDirectories(tmp.resolve("docs"));
+    Path doc = docsDir.resolve("orphaned.md");
+
+    // Create a document with content that may not have direct entity matches
+    // The DummyLlm will return "Order" for entity extraction, but we'll test fallback
+    Files.writeString(
+        doc,
+        """
+        # Orphaned Content
+        This content may not have direct entity matches in some chunks.
+        But the document should have entities from the union of chunks.
+        """);
+
+    Map<String, String> docs = new HashMap<>();
+    docs.put(tmp.relativize(doc).toString(), Files.readString(doc));
+
+    BaseConfiguration cfg = new BaseConfiguration();
+    cfg.addProperty("indexing.graph.clearOnStartup", true);
+    cfg.addProperty("indexing.graph.chunking.markdown.strategy", "paragraph");
+    cfg.addProperty("indexing.graph.chunking.markdown.windowSizeTokens", 100);
+
+    OneMcp mcp = new TestMcp(cfg, null);
+    Handbook hb = newHandbookWithDocs(docs, mcp);
+    ((TestMcp) mcp).setHandbook(hb);
+
+    try (HandbookGraphService svc = new HandbookGraphService(mcp, driver)) {
+      svc.initialize();
+      svc.indexHandbook();
+
+      // Query for Order - should find chunks via document fallback if direct match fails
+      List<Map<String, Object>> results =
+          svc.retrieveByContext(List.of(new GraphContextTuple("Order", List.of())));
+      // Should return at least one result (either direct match or via document fallback)
+      assertFalse(results.isEmpty(), "Should retrieve chunks via direct match or document fallback");
+    }
   }
 }

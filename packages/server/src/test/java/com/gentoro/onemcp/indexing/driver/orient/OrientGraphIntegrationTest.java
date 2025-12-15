@@ -23,8 +23,8 @@ public class OrientGraphIntegrationTest {
     @Override
     public org.apache.commons.configuration2.Configuration configuration() {
       var cfg = new org.apache.commons.configuration2.MapConfiguration(new HashMap<>());
-      cfg.addProperty("graph.orient.rootDir", "target/integration-db");
-      cfg.addProperty("graph.indexing.clearOnStartup", true);
+      cfg.addProperty("indexing.graph.orient.rootDir", "target/integration-db");
+      cfg.addProperty("indexing.graph.clearOnStartup", true);
       return cfg;
     }
   }

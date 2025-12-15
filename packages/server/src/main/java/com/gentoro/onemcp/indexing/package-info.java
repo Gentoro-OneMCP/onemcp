@@ -27,7 +27,7 @@
  *
  * Backends register via {@link com.gentoro.onemcp.indexing.driver.spi.GraphDriverProvider} using
  * Java ServiceLoader. {@link com.gentoro.onemcp.indexing.HandbookGraphService} resolves a driver by
- * configuration key {@code graph.driver}. If unavailable, it falls back to the in‑memory driver.
+ * configuration key {@code indexing.graph.driver}. If unavailable, it falls back to the in‑memory driver.
  *
  * <h2>Context retrieval</h2>
  *

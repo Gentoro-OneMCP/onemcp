@@ -52,8 +52,8 @@ public class OpenApiToNodes {
       // Determine entities via tag intersection
       List<String> entities = resolveEntitiesForOperation(entityToTag, op.getTags());
       // Determine operation kinds: prefer explicit (from entityToOps for any matched entity), else
-      // infer by method
-      List<String> kinds = resolveOperationKinds(entityToOps, entities, op.getMethod());
+      // use the category determined from HTTP method and operation details
+      List<String> kinds = resolveOperationKinds(entityToOps, entities, op.getCategory(), op.getOperationId(), op.getMethod(), op.getPath());
 
       // Operation documentation
       if (op.getDescription() != null || op.getSummary() != null) {
@@ -133,16 +133,26 @@ public class OpenApiToNodes {
   }
 
   private static List<String> resolveOperationKinds(
-      Map<String, Set<String>> entityToOps, List<String> entities, String httpMethod) {
+      Map<String, Set<String>> entityToOps, List<String> entities, String category,
+      String operationId, String method, String path) {
     Set<String> kinds = new LinkedHashSet<>();
     for (String ent : entities) {
       Set<String> ks = entityToOps.get(ent);
       if (ks != null && !ks.isEmpty()) kinds.addAll(ks);
     }
     if (kinds.isEmpty()) {
-      // infer
-      if ("GET".equalsIgnoreCase(httpMethod)) kinds.add("Retrieve");
-      else kinds.add("Compute");
+      // Use the category determined from HTTP method and operation details
+      // (Retrieve, Compute, Create, Update, or Delete)
+      if (category != null && !category.isBlank()) {
+        kinds.add(category);
+      } else {
+        // Log when category is missing instead of falling back
+        log.warn(
+            "Operation category is missing for operation '{}' ({} {}). No operation kinds will be assigned.",
+            operationId != null ? operationId : "unknown",
+            method != null ? method : "unknown",
+            path != null ? path : "unknown");
+      }
     }
     return new ArrayList<>(kinds);
   }

@@ -14,11 +14,11 @@ public class OrientGraphDriverProvider implements GraphDriverProvider {
 
   @Override
   public boolean isAvailable(OneMcp oneMcp) {
-    String desired = oneMcp.configuration().getString("graph.driver", "in-memory");
+    String desired = oneMcp.configuration().getString("indexing.graph.driver", "in-memory");
     if ("orientdb".equalsIgnoreCase(desired)) return true;
 
     // Presence of orient config can also signal availability
-    String root = oneMcp.configuration().getString("graph.orient.rootDir", null);
+    String root = oneMcp.configuration().getString("indexing.graph.orient.rootDir", null);
     return root != null;
   }
 
