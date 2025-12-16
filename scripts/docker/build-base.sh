@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-# build-base-universal.sh
+# build-base.sh
 # Works with Buildah, Podman, and GitHub Actions
 # Usage:
-#   ./build-base-universal.sh latest --push
-#   ./build-base-universal.sh latest
+#   ./build-base.sh latest --push
+#   ./build-base.sh latest
 
 set -euo pipefail
 
