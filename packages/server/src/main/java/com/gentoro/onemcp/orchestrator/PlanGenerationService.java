@@ -13,6 +13,7 @@ import com.gentoro.onemcp.utility.StringUtility;
 import io.swagger.v3.oas.models.Operation;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 // No provider SDK imports needed here; telemetry is handled within model implementations.
 
@@ -27,6 +28,8 @@ public class PlanGenerationService {
       AssignmentContext assignmentContext, List<Map<String, Object>> contextualData) {
     int attempts = 0;
     TelemetryTracer.Span parentSpan = context.tracer().startChild("plan_generation");
+    String assignment =
+        Objects.requireNonNullElse(assignmentContext.getRefinedAssignment(), "");
     PromptTemplate.PromptSession promptSession =
         context
             .prompts()
@@ -36,7 +39,7 @@ public class PlanGenerationService {
                 "assignment",
                 Map.of(
                     "assignment",
-                    assignmentContext.getRefinedAssignment(),
+                    assignment,
                     "agent",
                     context.handbook().agent(),
                     "context",
@@ -63,7 +66,7 @@ public class PlanGenerationService {
             "assignment",
             Map.of(
                 "assignment",
-                assignmentContext.getRefinedAssignment(),
+                assignment,
                 "error_reported",
                 true,
                 "result",
@@ -79,7 +82,7 @@ public class PlanGenerationService {
             "assignment",
             Map.of(
                 "assignment",
-                assignmentContext.getRefinedAssignment(),
+                assignment,
                 "error_reported",
                 true,
                 "result",
@@ -107,7 +110,7 @@ public class PlanGenerationService {
             "assignment",
             Map.of(
                 "assignment",
-                assignmentContext.getRefinedAssignment(),
+                assignment,
                 "error_reported",
                 true,
                 "result",
