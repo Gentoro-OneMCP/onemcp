@@ -293,19 +293,22 @@ func (m *Manager) sendAndReceive(message string) (string, string, error) {
 
 	// Generate progress token
 	token := fmt.Sprintf("progress-%d", time.Now().UnixNano())
-	if strings.TrimSpace(requestContext) == "" {
-		requestContext = "{}"
+
+	// Build arguments - only include context if it has actual content
+	args := map[string]interface{}{
+		"prompt": message,
+	}
+	// Only add context if it's not empty (avoid sending "{}" which causes type issues)
+	if strings.TrimSpace(requestContext) != "" && requestContext != "{}" {
+		args["context"] = requestContext
 	}
 
 	result, err := m.session.CallTool(toolCtx, &mcp.CallToolParams{
 		Meta: mcp.Meta{
 			"progressToken": token,
 		},
-		Name: "onemcp.run",
-		Arguments: map[string]interface{}{
-			"prompt":  message,
-			"context": requestContext,
-		},
+		Name:      "onemcp.run",
+		Arguments: args,
 	})
 
 	if err != nil {
