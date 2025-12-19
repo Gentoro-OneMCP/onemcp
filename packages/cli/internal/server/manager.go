@@ -127,7 +127,8 @@ func (m *Manager) Start(ctx context.Context, config interfaces.ServerConfig) err
 		env = append(env, fmt.Sprintf("%s_API_KEY=%s", config.Model, config.ModelAPIKey))
 	}
 
-	env = append(env, "GRAPH_CHUNKING_MARKDOWN_NAIVE_EXTRACTION=false")
+	env = append(env, "GRAPH_CHUNKING_MARKDOWN_NAIVE_EXTRACTION=true") // Use naive chunking for faster init
+	env = append(env, "GRAPH_VALIDATION_SEMANTIC_ENABLED=false")       // Disable slow semantic validation during init
 
 	// Create container configuration
 	containerConfig := &container.Config{
@@ -304,7 +305,7 @@ func (m *Manager) pullImageIfNeeded(ctx context.Context, imageName string) error
 
 // waitForHealth waits for the health check to pass with exponential backoff
 func (m *Manager) waitForHealth(ctx context.Context, healthURL string) error {
-	maxAttempts := 10
+	maxAttempts := 20 // Increased to 20 for slow Gemini indexing
 	baseDelay := 500 * time.Millisecond
 	maxDelay := 5 * time.Second
 
